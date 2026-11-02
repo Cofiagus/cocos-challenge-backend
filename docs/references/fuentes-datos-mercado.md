@@ -29,7 +29,7 @@ curl -s "https://query1.finance.yahoo.com/v8/finance/chart/GGAL.BA?range=5d&inte
 |---|---|
 | Acceso | Público, **sin API key**. **NO es una API oficial** — Yahoo Inc. no ofrece una API pública para developers ("Yahoo does not provide any official API to developers, nor makes any guarantees regarding service availability or API consistency", según el propio mantenedor de la lib) |
 | Lib Node/TS | Tampoco hay lib oficial. La de facto es [`yahoo-finance2`](https://github.com/gadicc/yahoo-finance2) — **no oficial, community-mantained** (gadicc + pilwon, predecesor activo desde 2013), MIT, TypeScript nativo, ~157k descargas semanales, v4 publicada como `yahoo-finance2@latest` (la v3/4 cambió el init a `new YahooFinance()`) |
-| Cobertura seed | **63/65** con mapping de símbolos (§4). Fallan solo PGR e IRCP, delistadas reales 2022 |
+| Cobertura seed | **63/65** con mapping de símbolos (§4). Fallan solo PGR e IRCP, delistadas reales 2022. **Decisión del challenge: sin mapping → 61/65 (§4)** |
 | Campos | `meta.regularMarketPrice` (close) + `meta.chartPreviousClose` (prev close), moneda `ARS` |
 | Histórico | Incluido en el mismo endpoint: `range=5d|1mo|1y&interval=1d` (útil para volatilidad/validación) |
 | Serie | Los `.BA` devuelven precios **nominales** en ARS (no ajustados por inflación ni por suscripciones de capital — coherente con la semántica `close` del challenge) |
@@ -38,7 +38,7 @@ Mitigaciones del riesgo "API no oficial":
 
 - Wrapper Node mantenido: [`yahoo-finance2`](https://github.com/gadicc/node-yahoo-finance2) (maneja crumbs/cookies/rate-limit).
 - **Ingesta diaria cacheada en `marketdata`**: si la fuente cae, la API del challenge sigue respondiendo con el último snapshot.
-- Yahoo borra símbolos renombrados **sin rastro** (404 ni historial): detectar vía `/v1/finance/search` y validar contra el mapping de §4.
+- Yahoo borra símbolos renombrados **sin rastro** (404 ni historial): detectar vía `/v1/finance/search`; el challenge decide **no mapear** renombradas (§4).
 
 ### ⚠️ 2.2 Rava Bursátil API v5 (`api5.rava.com`) — plan B
 
