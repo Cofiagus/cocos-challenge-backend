@@ -49,3 +49,8 @@ Thumbs.db
 !.vscode/settings.json
 .idea/
 *.swp
+
+# Python (tooling de db)
+__pycache__/
+*.pyc
+.venv/

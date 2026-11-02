@@ -30,6 +30,24 @@ _Pendiente de definir._
 | ORM | |
 | Testing | |
 
+## Base de datos
+
+El esquema, la semántica de `orders` y el flujo para iterar están documentados en
+**[docs/database.md](docs/database.md)**. Resumen:
+
+- PostgreSQL 18 en Neon (`us-east-2`). Cuatro tablas: `users`, `instruments`, `orders`, `marketdata`.
+- **No hay tabla de cash ni de posiciones: se derivan de `orders`** (`status = 'FILLED'`).
+  Ver `db/queries/portfolio.sql`.
+- `db/schema.sql` y `db/seed.sql` son un **snapshot generado** de la base real.
+- La base remota tiene ~200 ms por query y ~90 s de cold start: **se itera contra el Postgres local**.
+
+```bash
+make db-up        # Postgres local en docker (puerto 5433)
+make db-load      # aplica db/schema.sql + db/seed.sql
+make db-snapshot  # re-baja schema+datos desde NEON_DATABASE_URL
+make psql         # consola SQL
+```
+
 ## Requisitos
 
 - Node.js 20+ (si aplica)

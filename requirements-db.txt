@@ -1,0 +1,3 @@
+# Dependencias del tooling de base de datos (scripts/db-snapshot.py).
+# No son dependencias del runtime de la API.
+psycopg[binary]>=3.1
