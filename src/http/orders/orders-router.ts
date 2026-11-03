@@ -19,7 +19,6 @@ import {
   IDEMPOTENCY_KEY_HEADER,
   IdempotencyKeySchema,
   type ApiErrorBody,
-  type ApiErrorCode,
   type OrderResponse,
   apiErrorBody,
   serializeLocalTimestamp,
@@ -138,11 +137,10 @@ export const buildOrdersRouter = (deps: OrdersRouterDeps): Router => {
         res.status(201).json(toOrderResponse(result));
       } catch (error) {
         if (error instanceof SubmitOrderError) {
-          // Errores de aplicación → status + body del contrato. El cast
-          // documenta que INSTRUMENT_NOT_FOUND no está en ApiErrorCode (OPEN).
+          // Errores de aplicación → status + body del contrato.
           res
             .status(error.status)
-            .json(apiErrorBody(error.code as ApiErrorCode, error.message));
+            .json(apiErrorBody(error.code, error.message));
           return;
         }
         throw error; // 500 no controlado (default de Express)

@@ -20,6 +20,8 @@ API REST para consultar el portfolio de un usuario, buscar instrumentos, enviar 
 
 Secuencia **corrida y verificada** en una base scratch (`cocos_challenge_readme`) sobre el Postgres 18 local (`localhost:5433`, auth trust). Salidas reales de esa corrida en [Verificación del quickstart](#verificación-del-quickstart-corrida-real).
 
+> Los `id` de los ejemplos de órdenes y transferencias asumen requests previos del autor contra esa base (p. ej. el `"id":20` de la verificación de abajo); en una base recién migrada y seedada la primera sale `id` **12** — el seed trae 11 órdenes y deja la secuencia en `setval('orders_id_seq', 11)`. [`collection/README.md`](collection/README.md) avisa lo mismo para la colección.
+
 ### Requisitos previos
 
 - Node.js ≥ 20 (verificado con v26.12.1) y npm ≥ 10 (verificado con 12.0.2).

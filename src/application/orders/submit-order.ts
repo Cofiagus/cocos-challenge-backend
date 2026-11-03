@@ -54,11 +54,11 @@ import type {
 } from "../../domain/ports/index.js";
 
 /**
- * Código de error del envío: los del contrato (API_ERROR_CODES) +
- * INSTRUMENT_NOT_FOUND (404 de instrumento inexistente, exigido por el flujo
- * y ausente del contrato — ver "Deuda conocida" en docs/CODEMAP.md).
+ * Código de error del envío: los códigos estables del contrato
+ * (API_ERROR_CODES), incluido INSTRUMENT_NOT_FOUND (404 de instrumento
+ * inexistente por instrumentId|ticker).
  */
-export type SubmitOrderErrorCode = ApiErrorCode | "INSTRUMENT_NOT_FOUND";
+export type SubmitOrderErrorCode = ApiErrorCode;
 
 /** Error de aplicación del envío: el router lo mapea a status + apiErrorBody. */
 export class SubmitOrderError extends Error {
@@ -164,12 +164,13 @@ const persistDecidedOrder = async (
 const resolveInstrument = async (
   deps: SubmitOrderDeps,
   request: CreateOrderRequest,
+  tx: TransactionContext,
 ): Promise<InstrumentRecord | null> => {
   if (request.instrumentId !== undefined) {
-    return deps.instruments.findById(request.instrumentId);
+    return deps.instruments.findById(request.instrumentId, tx);
   }
   if (request.ticker !== undefined) {
-    return deps.instruments.findByTicker(request.ticker);
+    return deps.instruments.findByTicker(request.ticker, tx);
   }
   return null; // inalcanzable: el borde (Zod) exige exactamente uno
 };
@@ -194,7 +195,7 @@ export const submitOrder = async (
     }
 
     // Instrumento (XOR del borde): inexistente ⇒ 404; MONEDA ⇒ 400 SIN orden.
-    const instrument = await resolveInstrument(deps, request);
+    const instrument = await resolveInstrument(deps, request, tx);
     const instrumentRef =
       request.instrumentId !== undefined
         ? `instrumentId ${String(request.instrumentId)}`
@@ -202,7 +203,7 @@ export const submitOrder = async (
     if (instrument === null) {
       throw new SubmitOrderError(
         404,
-        "INSTRUMENT_NOT_FOUND",
+        API_ERROR_CODES.INSTRUMENT_NOT_FOUND,
         `No existe el instrumento (${instrumentRef}).`,
       );
     }
@@ -220,7 +221,10 @@ export const submitOrder = async (
       request.type === "MARKET" || request.timeInForce !== "GTC";
     let referencePriceArs: Decimal | null = null;
     if (needsReferencePrice) {
-      const snapshot = await deps.marketdata.getLatestSnapshot(instrument.id);
+      const snapshot = await deps.marketdata.getLatestSnapshot(
+        instrument.id,
+        tx,
+      );
       referencePriceArs = snapshot === null ? null : snapshot.closeArs;
     }
 
@@ -321,10 +325,10 @@ export const submitOrder = async (
 
     // Fondos/tenencia DENTRO de la tx (validez de la validación): dos submits
     // que juntos exceden el cash ⇒ el segundo ya ve el cash debitado (lock).
-    const [movements, restingOrders] = await Promise.all([
-      deps.portfolioRead.listSettledMovements(userId, tx),
-      deps.portfolioRead.listRestingOrders(userId, tx),
-    ]);
+    // Awaits SECUENCIALES: Prisma no documenta queries paralelas dentro de
+    // una $transaction interactiva, y dos SELECT no ganan nada medible.
+    const movements = await deps.portfolioRead.listSettledMovements(userId, tx);
+    const restingOrders = await deps.portfolioRead.listRestingOrders(userId, tx);
     const reservations = deriveReservations(restingOrders);
 
     if (request.side === "BUY") {
