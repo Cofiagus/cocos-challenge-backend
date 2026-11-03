@@ -5,8 +5,22 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 
 ## Estado actual
 
-- **FASE 0** (Célula 0 — entorno): EN CURSO.
-- FASE 1–5: pendientes.
+- **FASE 0** (Célula 0 — entorno): **DONE — merge `b590dfb`, GATE 0 verificado por el orquestador** (typecheck/lint/test verde, `test:db:reset` idempotente, Prisma CLI 7.10.1 = client 7.10.1).
+- **FASE 1** (Célula 0 — contratos): EN CURSO (branch `fase-1-contratos`).
+- FASE 2–5: pendientes.
+
+### Decisiones aceptadas por el orquestador en FASE 0 (reportadas por la célula)
+
+1. **TypeScript ^7.0.2 → ^5.9.3**: TS7 (compilador nativo) removió la API JS de `require('typescript')`; ts-jest y typescript-eslint dependen de ella. 5.9.3 es la única línea que satisface ambos peers pedidos por el plan. Reversible con bump de devDep.
+2. **@types/pg@^8.23.1** (types-only): pg no bundlea tipos y el humo de DB usa pg bajo strict/no-any.
+3. **npm allowScripts** aprobado para prisma + @prisma/engines (sin postinstall de ellos el CLI 7.x no baja binarios). esbuild y @parcel/watcher SIGUEN bloqueados → **limitación conocida**: `npm run dev` (tsx watch) puede fallar en FASE 3; los gates del plan no lo incluyen.
+
+### Notas técnicas heredadas (de FASE 0, para las células siguientes)
+
+- App ESM (`type: module`, tsconfig nodenext); tests compilados a CJS por ts-jest (`tsconfig.test.json`).
+- `import { Decimal } from 'decimal.js'` (named) bajo nodenext — el default export del d.ts no tiene construct signature.
+- Prisma 7 no autocarga `.env`: la URL del datasource se resuelve vía `prisma.config.ts` (`defineConfig` de `prisma/config`).
+- `npm run build` compila también `tests/` (no hay rootDir): si FASE 3 quiere dist limpio, hace falta `tsconfig.build.json`.
 
 ## Entorno (verificado 2026-11-03 por el orquestador)
 
@@ -29,7 +43,8 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 
 | Célula | Fase | Estado | Gate |
 |---|---|---|---|
-| 0 — entorno | 0 | EN CURSO | pendiente |
+| 0 — entorno | 0 | **DONE (merge `b590dfb`)** | GATE 0 ✓ |
+| 0 — contratos | 1 | EN CURSO | pendiente |
 | A — dominio puro | 2 | no lanzada | — |
 | B — persistencia e infra | 2 | no lanzada | — |
 | C — endpoints de lectura | 2 | no lanzada | — |
