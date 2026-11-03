@@ -24,6 +24,8 @@ export const API_ERROR_CODES = {
   VALIDATION_ERROR: "VALIDATION_ERROR",
   /** 400 — instrumento MONEDA: no operable (DECISIONS.md). */
   INSTRUMENT_NOT_OPERABLE: "INSTRUMENT_NOT_OPERABLE",
+  /** 404 — instrumento inexistente (por instrumentId|ticker), sin orden. */
+  INSTRUMENT_NOT_FOUND: "INSTRUMENT_NOT_FOUND",
   /** 404 — usuario inexistente. */
   USER_NOT_FOUND: "USER_NOT_FOUND",
   /** 404 — orden inexistente (DELETE /orders/:orderId). */
