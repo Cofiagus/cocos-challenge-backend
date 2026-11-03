@@ -17,11 +17,11 @@ import { z } from "zod";
 import {
   API_ERROR_CODES,
   InstrumentSearchQuerySchema,
-  InstrumentSearchResult,
   apiErrorBody,
   serializeMoneyArs,
   serializePct,
 } from "../../contracts/index.js";
+import type { InstrumentSearchResult } from "../../contracts/index.js";
 import type { MarketdataSnapshot } from "../../contracts/index.js";
 import type {
   InstrumentRepository,

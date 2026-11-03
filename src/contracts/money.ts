@@ -49,15 +49,33 @@ const decimalFromWire = (value: unknown): unknown => {
 };
 
 /**
+ * Cota de almacenamiento del dinero de entrada: price/amountArs (y el cash
+ * derivado) viven en numeric(10,2). Un valor con más decimales NO puede
+ * persistirse fiel — Postgres lo redondearía EN SILENCIO al asignar (un BUY
+ * LIMIT persistido por encima del límite autorizado) — y uno de 8+ dígitos
+ * excede numeric(10,2) y recién explota en el INSERT (500 en vez de 400).
+ * Se rechaza en el borde del contrato, no en la DB.
+ */
+const MAX_STORED_ARSS = new Decimal("99999999.99");
+
+/**
  * Dinero ARS de entrada (amountArs, price): número o string, parseado con
- * Decimal. Rechaza basura y no-finitos (NaN/Infinity del string).
+ * Decimal. Rechaza basura y no-finitos (NaN/Infinity del string) y acota al
+ * dominio de numeric(10,2): a lo sumo 2 decimales y |monto| ≤ 99999999.99.
  */
 export const ArsInputSchema = z.preprocess(
   decimalFromWire,
   z.instanceof(Decimal),
-).refine((amount) => amount.isFinite(), {
-  message: "Monto inválido (no numérico, NaN o infinito).",
-});
+)
+  .refine((amount) => amount.isFinite(), {
+    message: "Monto inválido (no numérico, NaN o infinito).",
+  })
+  .refine((amount) => amount.decimalPlaces() <= 2, {
+    message: "El monto admite a lo sumo 2 decimales.",
+  })
+  .refine((amount) => amount.abs().lessThanOrEqualTo(MAX_STORED_ARSS), {
+    message: "El monto debe ser, en valor absoluto, a lo sumo 99999999.99.",
+  });
 
 /** Dinero ARS de entrada estrictamente positivo (amountArs > 0, price > 0). */
 export const PositiveArsInputSchema = ArsInputSchema.refine(
