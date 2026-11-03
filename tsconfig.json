@@ -23,8 +23,7 @@
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
     "noUncheckedIndexedAccess": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
+    "verbatimModuleSyntax": true,
     "paths": {
       "@/*": ["./src/*"],
       "@/types/*": ["./src/types/*"],
