@@ -168,7 +168,6 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 - UC-1 (portfolio) y UC-2 (instruments) **no tienen caso de uso**: la agregación/serialización vive en el router.
 - No hay error handler central: un 500 sale con el HTML por defecto de Express, no con `{error:{code,message}}`.
 - `portfolio-router` hace un `instruments.findById` por posición (N+1) después del batch de marketdata.
-- `orders-router` castea `error.code as ApiErrorCode` porque `INSTRUMENT_NOT_FOUND` no está en `API_ERROR_CODES`.
 - `marketdata-price-source.ts` implementa `PriceSource` y **nadie lo cablea** (punto de enchufe del matching).
 - `validationMessage` (Zod → texto) está duplicada en 5 routers.
 - La migración no tiene `CHECK` de transiciones de estado: la guarda es a nivel app.
