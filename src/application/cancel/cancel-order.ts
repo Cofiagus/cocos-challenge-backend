@@ -97,10 +97,16 @@ export const cancelOrder = async (
       // No estaba NEW (FILLED/CANCELLED/REJECTED) ⇒ 422 SIN mutar: el guard
       // count 0 deja la fila intacta y el evento de abajo nunca corre (el
       // throw rollback-ea la tx, que no escribió nada).
+      // El status del MENSAJE se releé con el MISMO tx del guard:
+      // `existing.status` viene de la lectura ROOT (fuera de la tx) y en la
+      // carrera read-NEW → otra tx llena/cancela la orden → guard count 0,
+      // el mensaje quedaría autocontradictorio ("no está NEW (status NEW)").
+      const current = await deps.orders.findById(orderId, tx);
+      const currentStatus = current === null ? "AUSENTE" : current.status;
       throw new CancelOrderError(
         422,
         API_ERROR_CODES.ORDER_NOT_CANCELLABLE,
-        `La orden ${String(orderId)} no está NEW (status '${existing.status}'): sólo se cancelan órdenes NEW.`,
+        `La orden ${String(orderId)} no está NEW (status '${currentStatus}'): sólo se cancelan órdenes NEW.`,
       );
     }
 

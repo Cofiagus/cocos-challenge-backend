@@ -34,7 +34,9 @@ import {
 } from "./mappers.js";
 import {
   brandTransactionContext,
+  resolveDbExecutor,
   unbrandTransactionContext,
+  type DbExecutor,
 } from "./transaction-context.js";
 
 export class PrismaOrderRepository implements OrderRepository {
@@ -173,9 +175,16 @@ export class PrismaOrderRepository implements OrderRepository {
   // Lecturas
   // -------------------------------------------------------------------------
 
-  readonly findById = async (orderId: number): Promise<OrderRecord | null> => {
-    // Lectura suelta: cliente raíz, sin tx (no participa de la validación).
-    const row = await this.client.order.findUnique({ where: { id: orderId } });
+  readonly findById = async (
+    orderId: number,
+    tx?: TransactionContext,
+  ): Promise<OrderRecord | null> => {
+    // Sin tx: lectura suelta del cancel (404 y dueño del lock, antes de
+    // abrir la transacción). Con tx: la MISMA ventana de la transacción —
+    // la relectura del 422 ve el status vigente al fallar el guard, no el
+    // de una lectura previa que pudo quedar vieja.
+    const db: DbExecutor = tx ? resolveDbExecutor(tx) : this.client;
+    const row = await db.order.findUnique({ where: { id: orderId } });
     return row === null ? null : mapOrderRow(row);
   };
 

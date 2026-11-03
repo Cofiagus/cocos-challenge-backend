@@ -44,6 +44,10 @@ export const TRANSFERS_DB_NAME = "cocos_challenge_transfer";
 export const TRANSFERS_DB_URL = `postgresql://postgres@localhost:5433/${TRANSFERS_DB_NAME}`;
 
 // ANTES del primer uso del singleton lazy (patrón orders-submit/support.ts).
+// Se RESTAURA en closeTransfersDbPool: el worker de jest se reusa para otros
+// archivos de tests (p. ej. tests/db.smoke.test.ts lee DATABASE_URL vía
+// .env.test y dotenv NO pisa una variable ya presente).
+const PREVIOUS_DATABASE_URL: string | undefined = process.env["DATABASE_URL"];
 process.env["DATABASE_URL"] = TRANSFERS_DB_URL;
 
 /** Resea cocos_challenge_transfer: migrate deploy + db/seed.sql (idempotente). */
@@ -80,10 +84,15 @@ export const buildTransfersTestApp = (): Express => {
 
 const pool = new Pool({ connectionString: TRANSFERS_DB_URL, max: 1 });
 
-/** Cierra el pool de asserts y el Prisma del singleton (worker limpio). */
+/** Cierra el pool de asserts, el Prisma del singleton y RESTORA el env. */
 export const closeTransfersDbPool = async (): Promise<void> => {
   await pool.end();
   await getPrismaClient().$disconnect();
+  if (PREVIOUS_DATABASE_URL === undefined) {
+    delete process.env["DATABASE_URL"];
+  } else {
+    process.env["DATABASE_URL"] = PREVIOUS_DATABASE_URL;
+  }
 };
 
 const dbQuery = async <T extends QueryResultRow>(
