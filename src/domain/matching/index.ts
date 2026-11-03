@@ -1,14 +1,15 @@
-// Firmas del dominio de matching — FASE 1 (Célula 0): SOLO firmas.
-// DECISIONS.md: NO hay matching continuo ni prioridad precio-tiempo en este
-// build (fuera de alcance). matchRestingOrders es una función PURA
-// documentada como punto de enchufe para la evolución: SIN disparador
-// automático.
-//
-// Los parámetros llevan `_` porque el cuerpo de FASE 1 no los usa
-// (noUnusedParameters); la célula A los renombra al implementar.
+// Dominio de matching (FASE 2 — Célula A): evaluación PURA del cruce contra
+// el precio de referencia. DECISIONS.md: NO hay matching continuo ni
+// prioridad precio-tiempo en este build (fuera de alcance); matchRestingOrders
+// queda documentada como punto de enchufe para la evolución, SIN disparador
+// automático. Dinero siempre Decimal.
 
 import { Decimal } from "decimal.js";
-import type { RestingOrder, TimeInForce, TradingSide } from "../../contracts/index.js";
+import type {
+  RestingOrder,
+  TimeInForce,
+  TradingSide,
+} from "../../contracts/index.js";
 
 /**
  * Puerto de precios de referencia para la evaluación: última fila de
@@ -52,10 +53,50 @@ export type CrossDecision =
     }
   | { readonly outcome: "NEW" };
 
-export const evaluateCross = (
-  _input: EvaluateCrossInput,
-): CrossDecision => {
-  throw new Error("not implemented");
+/** Regla de cruce (DECISIONS.md): BUY cruza si ref ≤ límite; SELL si ref ≥ límite. */
+const crosses = (
+  side: TradingSide,
+  limitPriceArs: Decimal,
+  referencePriceArs: Decimal,
+): boolean =>
+  side === "BUY"
+    ? referencePriceArs.lessThanOrEqualTo(limitPriceArs)
+    : referencePriceArs.greaterThanOrEqualTo(limitPriceArs);
+
+/**
+ * Precio de fill con mejora (DECISIONS.md): BUY paga a lo sumo su límite
+ * (min), SELL cobra a lo menos su límite (max). El cruce exacto
+ * (ref == límite) llena al propio límite, sin mejora.
+ */
+const filledPriceWithImprovement = (
+  side: TradingSide,
+  limitPriceArs: Decimal,
+  referencePriceArs: Decimal,
+): Decimal =>
+  side === "BUY"
+    ? Decimal.min(limitPriceArs, referencePriceArs)
+    : Decimal.max(limitPriceArs, referencePriceArs);
+
+export const evaluateCross = (input: EvaluateCrossInput): CrossDecision => {
+  // GTC nunca se llena al enviar (DECISIONS.md): siempre NEW, sin importar
+  // lo que haría el cruce — no se evalúa.
+  if (input.timeInForce === "GTC") {
+    return { outcome: "NEW" };
+  }
+
+  // IOC/FOK: evaluación ÚNICA contra el precio de referencia.
+  if (crosses(input.side, input.limitPriceArs, input.referencePriceArs)) {
+    return {
+      outcome: "FILLED",
+      filledPriceArs: filledPriceWithImprovement(
+        input.side,
+        input.limitPriceArs,
+        input.referencePriceArs,
+      ),
+    };
+  }
+
+  return { outcome: "CANCELLED", reason: "NO_IMMEDIATE_MATCH" };
 };
 
 /** Orden resting que llena, con su precio de ejecución mejorado. */
@@ -69,10 +110,32 @@ export interface RestingOrderFill {
  * mejora, sin fills parciales), sin disparar nada. Documentada como el
  * punto de enchufe de la evolución (matching continuo) — en este build
  * nadie la llama desde la API.
+ *
+ * `referencePriceArs` es el precio de referencia DEL instrumento de las
+ * órdenes: el llamador agrupa por instrumento antes de llamar (el ref de un
+ * instrumento no dice nada del cruce de otro). Devuelve los fills en el
+ * MISMO orden de entrada; no muta ni la lista ni las órdenes.
  */
 export const matchRestingOrders = (
-  _referencePriceArs: Decimal,
-  _restingOrders: readonly RestingOrder[],
+  referencePriceArs: Decimal,
+  restingOrders: readonly RestingOrder[],
 ): readonly RestingOrderFill[] => {
-  throw new Error("not implemented");
+  const fills: RestingOrderFill[] = [];
+
+  for (const order of restingOrders) {
+    if (!crosses(order.side, order.limitPriceArs, referencePriceArs)) {
+      continue;
+    }
+
+    fills.push({
+      orderId: order.id,
+      filledPriceArs: filledPriceWithImprovement(
+        order.side,
+        order.limitPriceArs,
+        referencePriceArs,
+      ),
+    });
+  }
+
+  return fills;
 };
