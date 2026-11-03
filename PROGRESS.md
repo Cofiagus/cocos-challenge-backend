@@ -71,7 +71,7 @@ tabla de abajo decía «no lanzada» para A–G mientras el texto ya daba GATE 4
 
 ## Entorno (verificado 2026-11-03 por el orquestador)
 
-- Repo: `/home/cofi/repos/cocos-challenge-backend`, branch `main` (hash real: `git log -1 --oneline` — este archivo se commitea después del gate y mueve HEAD).
+- Repo: `/home/cofi/repos/cocos-challenge-backend`, branch de trabajo `pr/fase-5-orchestration` (la pila avanza en ramas de fase, no en `main`; hash real: `git log -1 --oneline` — este archivo se commitea después del gate y mueve HEAD).
 - Node v26.12.1, npm 12.0.2. **Sin docker** en esta máquina.
 - PostgreSQL 18 como cluster userspace: `~/.pg/cocos`, puerto 5433, user `postgres`,
   auth trust (`.env` ya apunta ahí). Socket dir: `/tmp` (arranque:
@@ -99,7 +99,7 @@ tabla de abajo decía «no lanzada» para A–G mientras el texto ya daba GATE 4
 | E — integración UC-3 | 3 | **DONE (merge `1233c66`)** | GATE 3 ✓ |
 | F — cancelar orden | 4 | **DONE (merge `b915058`)** | GATE 4 ✓ |
 | G — transferencias | 4 | **DONE (merge `086dd89`)** | GATE 4 ✓ |
-| H — docs y entrega | 5 | EN CURSO (wt-h) | GATE 5 pendiente |
+| H — docs y entrega | 5 | **DONE (merge `8f23a7c`)** | GATE 5 ✓ |
 
 ## QUESTIONs abiertas
 
