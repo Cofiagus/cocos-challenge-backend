@@ -1,9 +1,9 @@
-// UC-1 — GET /api/users/:userId/portfolio (FASE 2 — Célula C).
+// UC-1 — GET /api/users/:userId/portfolio.
 //
 // Router factory con DI (patrón buildApp de src/http/app.ts): las
 // dependencias son las INTERFACES de src/domain/ports — jamás una
 // implementación concreta. El handler NO tiene lógica de negocio: es
-// Zod (borde) → repos (Célula B) → dominio (Célula A) → serialización
+// Zod (borde) → repos → dominio → serialización
 // del contrato. La AGREGACIÓN (cash, reservas, posiciones) la hacen las
 // funciones PURAS de src/domain/portfolio sobre las listas de los repos.
 //
@@ -108,7 +108,7 @@ export const buildPortfolioRouter = (deps: PortfolioRouterDeps): Router => {
       const snapshots =
         await deps.marketdata.getLatestSnapshots(tradedInstrumentIds);
 
-      // Agregación: DOMINIO PURO (Célula A) sobre los datos de los repos.
+      // Agregación: DOMINIO PURO sobre los datos de los repos.
       const cashSettled = deriveCash(movements);
       const reservations = deriveReservations(restingOrders);
       const positions = derivePositions(movements, snapshots);

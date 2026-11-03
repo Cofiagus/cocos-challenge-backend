@@ -1,4 +1,4 @@
-// Dominio de portfolio (FASE 2 — Célula A): funciones PURAS de derivación.
+// Dominio de portfolio: funciones PURAS de derivación.
 // Sin Prisma, sin Express, sin I/O ni reloj: la única fuente de verdad es la
 // lista de movimientos/órdenes que el llamador ya leyó (capa de aplicación,
 // dentro de la misma tx de validación). Dinero SIEMPRE Decimal (AGENTS.md).

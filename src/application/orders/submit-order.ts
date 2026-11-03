@@ -1,6 +1,6 @@
-// UC-3 — submitOrder (FASE 3 — Célula E): caso de uso completo del envío.
+// UC-3 — submitOrder: caso de uso completo del envío.
 //
-// Orquesta dominio (A) + repos (B) + contratos DENTRO de UNA transacción con
+// Orquesta dominio (dominio puro) + repos (infra) + contratos DENTRO de UNA transacción con
 // lock por usuario (withUserTransaction — DECISIONS.md), en el orden que hace
 // válida la concurrencia y la idempotencia:
 //
@@ -56,7 +56,7 @@ import type {
 /**
  * Código de error del envío: los del contrato (API_ERROR_CODES) +
  * INSTRUMENT_NOT_FOUND (404 de instrumento inexistente, exigido por el flujo
- * y ausente del contrato — ver OPEN del reporte de la célula).
+ * y ausente del contrato — ver "Deuda conocida" en docs/CODEMAP.md).
  */
 export type SubmitOrderErrorCode = ApiErrorCode | "INSTRUMENT_NOT_FOUND";
 
@@ -180,7 +180,7 @@ export const submitOrder = async (
 ): Promise<SubmitOrderResult> => {
   const { userId, request } = input;
 
-  // UNA transacción con pg_advisory_xact_lock(userId) (B): serializa los
+  // UNA transacción con pg_advisory_xact_lock(userId) (infra): serializa los
   // submits del usuario; TODO lo de abajo corre con el lock tomado.
   return deps.orders.withUserTransaction(userId, async (tx) => {
     // 404 de usuario (lectura en la tx: el lock ya está tomado).

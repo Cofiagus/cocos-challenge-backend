@@ -1,4 +1,4 @@
-// UC-3 — POST /api/users/:userId/orders (FASE 3 — Célula E).
+// UC-3 — POST /api/users/:userId/orders.
 //
 // Router factory con DI (patrón C): deps = las INTERFACES de src/domain/ports,
 // que submitOrder (src/application) orquesta. El handler es FINO:
@@ -62,7 +62,7 @@ const parseIdempotencyKeyHeader = (
 /** Fila persistida (SubmitOrderResult) → OrderResponse del contrato. */
 const toOrderResponse = (result: SubmitOrderResult): OrderResponse => {
   const { order } = result;
-  // El mapper de infra (célula B) ya falla ruidosamente ante un NULL acá:
+  // El mapper de infra ya falla ruidosamente ante un NULL acá:
   // este estrechamiento es sólo de tipos (inalcanzable en runtime).
   if (order.instrumentId === null) {
     throw new Error("Orden persistida sin instrumentId (inalcanzable).");

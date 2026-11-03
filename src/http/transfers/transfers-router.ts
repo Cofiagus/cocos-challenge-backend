@@ -1,7 +1,6 @@
-// UC-5 — POST /api/users/:userId/transfers (FASE 4 — Célula G).
+// UC-5 — POST /api/users/:userId/transfers.
 //
-// Router factory con DI (patrón C — igual que orders-router de la Célula
-// E): deps = las INTERFACES de src/domain/ports, que submitTransfer
+// Router factory con DI (patrón C — igual que orders-router de UC-3): deps = las INTERFACES de src/domain/ports, que submitTransfer
 // (src/application) orquesta. El handler es FINO:
 //   - Zod estricto en el borde (params + body + Idempotency-Key) ⇒ 400
 //     VALIDATION_ERROR SIN crear orden;
@@ -12,9 +11,9 @@
 //   - cualquier otro error propaga (500 no controlado — default Express).
 //
 // validationMessage / parseIdempotencyKeyHeader / toOrderResponse son
-// espejos LOCALES de los privados de orders-router.ts (Célula E): no se
-// editan archivos de otras células ni se exportan helpers compartidos sin
-// decisión del orquestador.
+// espejos LOCALES de los privados de orders-router.ts (UC-3): no se
+// editan archivos de otros módulos ni se exportan helpers compartidos sin
+// decisión de integración.
 
 import { Router } from "express";
 import type { Request, Response } from "express";
@@ -68,7 +67,7 @@ const parseIdempotencyKeyHeader = (
 /** Fila persistida (SubmitTransferResult) → OrderResponse del contrato. */
 const toOrderResponse = (result: SubmitTransferResult): OrderResponse => {
   const { order } = result;
-  // El mapper de infra (célula B) ya falla ruidosamente ante un NULL acá:
+  // El mapper de infra ya falla ruidosamente ante un NULL acá:
   // este estrechamiento es sólo de tipos (inalcanzable en runtime).
   if (order.instrumentId === null) {
     throw new Error("Orden persistida sin instrumentId (inalcanzable).");

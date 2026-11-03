@@ -1,4 +1,4 @@
-// Dominio de matching (FASE 2 — Célula A): evaluación PURA del cruce contra
+// Dominio de matching: evaluación PURA del cruce contra
 // el precio de referencia. DECISIONS.md: NO hay matching continuo ni
 // prioridad precio-tiempo en este build (fuera de alcance); matchRestingOrders
 // queda documentada como punto de enchufe para la evolución, SIN disparador
@@ -13,7 +13,7 @@ import type {
 
 /**
  * Puerto de precios de referencia para la evaluación: última fila de
- * marketdata por `date` (close). Implementación en la célula B de FASE 2
+ * marketdata por `date` (close). Implementación en infra
  * sobre MarketdataRepository; los tests de dominio usan un fake.
  */
 export interface PriceSource {

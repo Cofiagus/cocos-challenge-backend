@@ -22,22 +22,12 @@
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
-    "noUncheckedIndexedAccess": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "paths": {
-      "@/*": ["./src/*"],
-      "@/types/*": ["./src/types/*"],
-      "@/utils/*": ["./src/utils/*"],
-      "@/config/*": ["./src/config/*"],
-      "@/services/*": ["./src/services/*"],
-      "@/controllers/*": ["./src/controllers/*"],
-      "@/middleware/*": ["./src/middleware/*"]
-    }
+    "noUncheckedIndexedAccess": true
   },
   "include": [
     "src/**/*",
-    "tests/**/*"
+    "tests/**/*",
+    "scripts/**/*"
   ],
   "exclude": [
     "node_modules",

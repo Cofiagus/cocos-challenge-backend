@@ -1,6 +1,9 @@
 # Borrador — Plan de mejoras de DB y arquitectura (fundamentado en casos de uso)
 
-> Estado: **BORRADOR** — pendiente de validación humana.
+> Estado: **parcialmente implementado**. M3 (idempotencia en DB) se implementó; M1 se resolvió
+> con `Decimal(10,2)` + `decimal.js` en lugar de centavos `BigInt`; M2 (CHECKs e índices extra)
+> **no** se aplicó — es deuda conocida (`docs/CODEMAP.md` §Deuda). Se conserva como registro del
+> análisis que originó el build, no como plan vigente.
 > Puntos abiertos **P1** (matching de LIMIT) y **P2** (reserva de cash) no se asumen:
 > se cierran cuando el humano decide. Alcance del cambio de schema también abierto (ver §Puntos abiertos).
 > Fuente: `specs/trading-api-domain.md` (UC-1..UC5), `docs/database.md` (§4/§5/§7), `AGENTS.md`, `db/indexes.sql`.

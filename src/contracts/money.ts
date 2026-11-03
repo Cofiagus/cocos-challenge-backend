@@ -19,20 +19,35 @@ export type MoneyArs = number & { readonly __brand: "MoneyArs" };
 /** Porcentaje serializado (puntos porcentuales, 2 decimales). */
 export type Pct = number & { readonly __brand: "Pct" };
 
-/** Valida un money serializado (tests de contrato): número finito, ≤2 decimales. */
-export const MoneyArsSchema = z.custom<MoneyArs>(
-  (value) =>
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
-  { message: "Se espera un número finito con a lo sumo 2 decimales." },
-);
+/**
+ * Valida un money serializado: número finito y ≤2 decimales.
+ *
+ * `z.number()` + `refine` en lugar de `z.custom`: `z.toJSONSchema` no puede representar tipos
+ * custom ("Custom types cannot be represented in JSON Schema") y este schema viaja dentro de las
+ * respuestas del contrato OpenAPI. `.meta()` agrega la anotación JSON Schema (`multipleOf`) SIN
+ * cambiar la validación en runtime.
+ */
+export const MoneyArsSchema = z
+  .number()
+  .refine(
+    (value) =>
+      Number.isFinite(value) &&
+      Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
+    { message: "Se espera un número finito con a lo sumo 2 decimales." },
+  )
+  .meta({
+    description:
+      "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+    multipleOf: 0.01,
+  });
 
-/** Valida un porcentaje serializado: número finito. */
-export const PctSchema = z.custom<Pct>(
-  (value) => typeof value === "number" && Number.isFinite(value),
-  { message: "Se espera un número finito." },
-);
+/** Valida un porcentaje serializado: número finito, 2 decimales. */
+export const PctSchema = z
+  .number()
+  .refine((value) => Number.isFinite(value), {
+    message: "Se espera un número finito.",
+  })
+  .meta({ description: "Porcentaje en puntos (2 decimales).", multipleOf: 0.01 });
 
 const decimalFromWire = (value: unknown): unknown => {
   if (typeof value === "number") {

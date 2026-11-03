@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>API implementada — capas, puertos y flujo real</title>
+<style>
+  /* --- Paleta autónoma (página standalone: un navegador no define las variables del tema) --- */
+  :root {
+    --background: #ffffff; --foreground: #1b1b1b; --muted-foreground: #5c5c5c;
+    --border: #d6d6d6; --card: #fbfbfb; --accent: #2a6fb0;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: #121212; --foreground: #e8e8e8; --muted-foreground: #a2a2a2;
+      --border: #3a3a3a; --card: #1b1b1b; --accent: #6aa9ff;
+    }
+  }
+  body {
+    margin: 0; padding: 24px; background: var(--background); color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { width: 960px; font-size: 13px; line-height: 1.45; color: var(--foreground); }
+  h1 { font-size: 17px; margin: 0 0 2px; font-weight: 650; letter-spacing: -0.2px; }
+  .sub { color: var(--muted-foreground); font-size: 11.5px; margin-bottom: 16px; }
+  code, .path, .route { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .path { color: var(--muted-foreground); font-size: 10.5px; }
+  .layer { position: relative; border: 1px solid var(--border); border-radius: 8px; background: var(--card); padding: 9px 11px 10px; }
+  .layer.hi { border-color: var(--accent); }
+  .lt { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
+  .lt b { font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 650; }
+  .lt .path { margin-left: auto; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .box { border: 1px solid var(--border); border-radius: 5px; padding: 4px 7px; font-size: 11.5px; white-space: nowrap; }
+  .box em { font-style: normal; color: var(--muted-foreground); }
+  .box.accent { border-color: var(--accent); }
+  .box.port { border-style: dashed; }
+  .box.db { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.8px; }
+  .m { display: inline-block; font-family: ui-monospace, monospace; font-size: 9.5px; font-weight: 700; letter-spacing: 0.03em;
+       padding: 0 3px; border-radius: 3px; margin-right: 4px; border: 1px solid currentColor; opacity: .95; }
+  .m.get { color: #2f8f5b; } .m.post { color: #2a6fb0; } .m.del { color: #a8452f; }
+  .arrow { display: flex; align-items: center; gap: 7px; padding: 5px 0 5px 10px; color: var(--muted-foreground); font-size: 10.5px; }
+  .arrow .stem { width: 1px; height: 12px; background: var(--border); margin-left: 5px; }
+  .arrow .lbl { font-style: italic; }
+  .side { display: grid; grid-template-columns: 1fr 236px; gap: 14px; }
+  .note { border: 1px dashed var(--border); border-radius: 8px; padding: 9px 10px; font-size: 10.8px; color: var(--muted-foreground); }
+  .note b { color: var(--foreground); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; display: block; margin-bottom: 5px; }
+  .note ul { margin: 0; padding-left: 14px; }
+  .note li { margin-bottom: 3px; }
+  .legend { display: flex; gap: 16px; margin-top: 12px; font-size: 10.5px; color: var(--muted-foreground); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .sw { width: 22px; height: 0; border-top: 1px solid var(--foreground); }
+  .sw.dash { border-top: 1px dashed var(--foreground); }
+  .txbox { border: 1px solid var(--accent); border-radius: 6px; padding: 6px 8px; margin-top: 8px; font-size: 10.8px; }
+  .txbox b { font-family: ui-monospace, monospace; font-size: 10.3px; }
+  ol.steps { margin: 0; padding-left: 16px; font-size: 11px; color: var(--muted-foreground); }
+  ol.steps li { margin-bottom: 3px; }
+  ol.steps code { color: var(--foreground); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>API cocos-challenge — lo que está implementado</h1>
+  <div class="sub">5 endpoints · 3 casos de uso · 4 puertos · 5 repositorios Prisma · 163 tests verdes. Estado real del repo en <code>cd8ea09</code>.</div>
+
+  <div class="layer">
+    <div class="lt"><b>Cliente</b><span class="path">collection/*.http · curl</span></div>
+    <div class="row"><div class="box">REST Client / curl <em>— JSON, dinero como número con 2 decimales</em></div></div>
+  </div>
+
+  <div class="arrow"><span class="stem"></span>▼ <span class="lbl">HTTP + JSON</span></div>
+
+  <div class="layer">
+    <div class="lt"><b>Borde HTTP</b><span class="path">src/http/ · Express 5</span></div>
+    <div class="row">
+      <div class="box"><span class="m get">GET</span>/api/users/:userId/portfolio</div>
+      <div class="box"><span class="m get">GET</span>/api/instruments?query=&amp;limit</div>
+      <div class="box accent"><span class="m post">POST</span>/api/users/:userId/orders</div>
+      <div class="box accent"><span class="m del">DEL</span>/api/orders/:orderId</div>
+      <div class="box accent"><span class="m post">POST</span>/api/users/:userId/transfers</div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <div class="box">Zod <code>strict()</code> → 400 <em>sin escribir</em></div>
+      <div class="box">Idempotency-Key <em>opcional, 1..64</em></div>
+      <div class="box">errores <code>{error:{code,message}}</code></div>
+      <div class="box"><em>sin error handler central → 500 = HTML de Express</em></div>
+    </div>
+  </div>
+
+  <div class="arrow"><span class="stem"></span>▼ <span class="lbl">request ya validado (DTO de contracts)</span></div>
+
+  <div class="side">
+    <div>
+      <div class="layer">
+        <div class="lt"><b>Aplicación</b><span class="path">src/application/</span></div>
+        <div class="row">
+          <div class="box accent">submitOrder <em>— UC-3</em></div>
+          <div class="box accent">cancelOrder <em>— UC-4</em></div>
+          <div class="box accent">submitTransfer <em>— UC-5</em></div>
+          <div class="box"><em>UC-1 y UC-2 no tienen caso de uso: viven en el router</em></div>
+        </div>
+      </div>
+
+      <div class="arrow"><span class="stem"></span>▼ <span class="lbl">funciones puras, sin I/O</span></div>
+
+      <div class="layer">
+        <div class="lt"><b>Dominio</b><span class="path">src/domain/ + src/contracts/</span></div>
+        <div class="row">
+          <div class="box">deriveCash</div>
+          <div class="box">derivePositions</div>
+          <div class="box">deriveReservations</div>
+          <div class="box">evaluateCross</div>
+          <div class="box">sizeSharesFromAmountArs</div>
+          <div class="box"><em>matchRestingOrders (sin disparador)</em></div>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <div class="box">contracts: schemas Zod + records + <code>API_ERROR_CODES</code></div>
+          <div class="box">dinero: <code>Decimal</code> desde string, nunca float</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Nota de forma</b>
+      <ul>
+        <li>UC-1 (portfolio) hace agregación + serialización + un <code>findById</code> por posición dentro del router.</li>
+        <li>UC-3/4/5 sí están extraídos a <code>application/</code>.</li>
+        <li>El diagrama de <code>arquitectura-componentes.html</code> describe el estado <i>objetivo</i> (Yahoo, cron, price_ticks, sweep), no esto.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="arrow"><span class="stem"></span>▼ <span class="lbl">depende de interfaces, no de implementaciones (DIP)</span></div>
+
+  <div class="layer hi">
+    <div class="lt"><b>Puertos</b><span class="path">src/domain/ports/index.ts</span></div>
+    <div class="row">
+      <div class="box port">OrderRepository <em>— tx + idempotencia + auditoría</em></div>
+      <div class="box port">PortfolioReadRepository</div>
+      <div class="box port">InstrumentRepository</div>
+      <div class="box port">MarketdataRepository</div>
+    </div>
+    <div class="txbox">
+      <b>withUserTransaction(userId)</b> → <code>pg_advisory_xact_lock(userId)</code> + validación + escrituras en la MISMA tx.
+      El <code>TransactionContext</code> es un tipo opaco con brand: sólo infra lo construye.
+    </div>
+  </div>
+
+  <div class="arrow"><span class="stem"></span>▼ <span class="lbl">implementa (único lugar con Prisma)</span></div>
+
+  <div class="layer">
+    <div class="lt"><b>Infraestructura</b><span class="path">src/infra/prisma/ + src/lib/prisma-client.ts</span></div>
+    <div class="row">
+      <div class="box">PrismaOrderRepository</div>
+      <div class="box">PrismaPortfolioReadRepository</div>
+      <div class="box">PrismaInstrumentRepository</div>
+      <div class="box">PrismaMarketdataRepository</div>
+      <div class="box"><em>MarketdataPriceSource (no cableado al submit)</em></div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <div class="box">mappers.ts <em>— fila ↔ record</em></div>
+      <div class="box"><code>$executeRaw</code>: advisory lock</div>
+      <div class="box"><code>$executeRaw</code>: insert <code>ON CONFLICT DO NOTHING</code></div>
+      <div class="box"><code>$queryRaw</code>: últimos snapshots en batch</div>
+      <div class="box">driver adapter <code>@prisma/adapter-pg</code></div>
+    </div>
+  </div>
+
+  <div class="arrow"><span class="stem"></span>▼ <span class="lbl">SQL</span></div>
+
+  <div class="layer">
+    <div class="lt"><b>PostgreSQL</b><span class="path">prisma/migrations/20261103003419_init_trading_api</span></div>
+    <div class="row">
+      <div class="box db">users</div>
+      <div class="box db">instruments</div>
+      <div class="box db">marketdata</div>
+      <div class="box db">orders <em>+ timeInForce · filledPrice · filledAt · idempotencyKey</em></div>
+      <div class="box db">order_events <em>append-only</em></div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <div class="box db">UNIQUE (userid, idempotencyKey)</div>
+      <div class="box db">idx (status, instrumentid) · (userid, status) · marketdata(instrumentid, date DESC)</div>
+      <div class="box db"><em>sin CHECK de máquina de estados (deuda declarada)</em></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="sw"></i> llamada síncrona</span>
+    <span><i class="sw dash"></i> interfaz / implementación</span>
+    <span>Todo el flujo es request → response. No hay cron, colas ni workers.</span>
+  </div>
+
+  <div class="layer" style="margin-top:14px">
+    <div class="lt"><b>POST /api/users/:userId/orders — una sola transacción</b><span class="path">src/application/orders/submit-order.ts</span></div>
+    <ol class="steps">
+      <li><code>withUserTransaction</code> abre tx + advisory lock por usuario.</li>
+      <li><code>userExists</code> → 404 &nbsp;·&nbsp; instrumento por id|ticker → 404 / MONEDA → 400 (sin orden).</li>
+      <li>precio de referencia (última vela) → sin precio = REJECTED <code>NO_PRICE</code> persistida.</li>
+      <li>size explícito o <code>floor(amount / precio)</code> → 0 = REJECTED <code>ZERO_SIZE</code>.</li>
+      <li>fondos/tenencia leídos <b>dentro</b> de la tx → REJECTED <code>INSUFFICIENT_*</code>.</li>
+      <li><code>createOrder</code> = <b>primera escritura</b> (claim idempotente); replay → orden original, conflicto → 409.</li>
+      <li><code>appendOrderEvent</code> en la misma tx → 201 con la orden persistida (también si quedó REJECTED).</li>
+    </ol>
+  </div>
+</div>
+</body>
+</html>

@@ -1,85 +1,142 @@
 # AGENTS.md — cocos-challenge-backend
 
-API REST financiera: portfolios, instrumentos, órdenes de mercado.
-Stack: Node.js 22 · TypeScript (strict) · Express 5 · Prisma · PostgreSQL 16 · Zod · Jest.
+API REST financiera: portfolio, instrumentos, órdenes de mercado (MARKET/LIMIT con TIF), cancelación
+y transferencias de cash. Node 26 · TypeScript strict (ESM, `nodenext`) · Express 5 · Prisma 7
+(`@prisma/adapter-pg`) · PostgreSQL · Zod 4 · Jest 30.
+Estado: build completo — 5 endpoints, 16 suites / 163 tests verdes.
 
-## Comandos
+## 1. Protocolo de lectura (esto es lo que ahorra el 80% del contexto)
+
+1. **`docs/CODEMAP.md` primero, siempre.** Es el índice: archivo → responsabilidad → exports → quién lo
+   llama → test que lo cubre, más las trampas y la deuda conocida. Se lee entero en ~165 líneas.
+2. **Un doc por pregunta** (tabla abajo). No leas dos docs para una pregunta: si hace falta, el doc está mal.
+3. **Código sólo si los docs no alcanzan**, y en ese caso: arreglar el doc en el mismo commit.
+
+| La pregunta es… | Leé |
+|---|---|
+| ¿qué archivo hace X? ¿quién llama a esto? ¿qué test lo cubre? | `docs/CODEMAP.md` |
+| ¿por qué esta regla de negocio es así? | `DECISIONS.md` |
+| ¿qué columnas, índices y derivaciones SQL existen? | `docs/database.md` |
+| ¿cómo levanto la base y el server? ¿qué comando uso? | este archivo §2 y §4 |
+| ¿qué se decidió y por qué, en la entrega? | `README.md` §Supuestos |
+| ¿qué devuelve exactamente cada endpoint? | `openapi.json` (contrato, generado) + `docs/api.md` (semántica) |
+| ¿en qué orden corre un caso de uso? | el header del caso de uso en `src/application/` (el doc de casos de uso es P2) |
+| ¿esto que estoy leyendo sigue siendo verdad? | `docs/legacy.md` (qué está deprecado y qué usar en su lugar) |
+
+**No leas** `PROGRESS.md` ni `specs/**` para saber cómo está el código: son artefactos históricos del
+build (marcados como tales). La verdad del estado es `git log` + `docs/CODEMAP.md`.
+
+## 2. Comandos (verificados)
 
 ```bash
-npm run dev                # servidor con nodemon
-npm run build              # tsc
-npm test                   # jest completo
-npx jest src/orders/orders.service.test.ts   # test de UN archivo
-npx tsc --noEmit                             # typecheck de UN archivo: npx tsc --noEmit <archivo>
-npx eslint <archivo> --fix                   # lint de UN archivo
-npx prisma migrate dev --name <cambio>       # migración versionada
-docker compose up -d                         # Postgres local
+npm run dev                  # tsx watch src/index.ts (NO nodemon)
+npm run build                # tsc → dist/
+npm run typecheck            # tsc --noEmit (gate obligatorio)
+npm run lint                 # eslint 9 flat config (gate obligatorio)
+npm test                     # jest completo: 16 suites / 163 tests
+npx jest tests/functional/cancel          # UNA suite
+npx jest -t "doble submit"               # UN test por nombre
+npm run test:db:reset        # (re)crea cocos_challenge_test desde migraciones + seed
+npm run openapi              # regenera openapi.json desde los schemas Zod
+npx prisma migrate dev --name <cambio>    # migración versionada (pide aprobación humana)
+npx prisma generate          # regenerar el cliente tras tocar schema.prisma
 ```
 
-Antes de terminar cualquier tarea: typecheck + lint + tests del archivo tocado, y del build si se tocó más de un módulo.
+Regla de cierre de cualquier tarea: **typecheck + lint + los tests de lo que tocaste**, con el output
+pegado. Prohibido decir "debería pasar".
 
-## Estructura (vertical slices)
+## 3. Estructura real (capas, dependencia en un solo sentido)
 
 ```
-src/<dominio>/           # orders/, portfolios/, instruments/
-  <dominio>.routes.ts    # rutas, nada de lógica
-  <dominio>.service.ts   # lógica de negocio, sin HTTP
-  <dominio>.repository.ts# acceso Prisma, sin lógica
-  <dominio>.schema.ts    # Zod, parse estricto (no cast)
-src/shared/              # money, errors, idempotency, audit
-src/lib/                 # prisma client singleton, config, logger
-specs/                   # specs versionadas (fuente de verdad)
-docs/CODEMAP.md          # índice de módulos — leer ANTES de explorar el repo
+src/
+  contracts/       # tipos + schemas Zod: el contrato de cable. Única puerta: contracts/index.ts
+  domain/          # funciones PURAS (cash, posiciones, reservas, matching, sizing). Sin I/O, sin Prisma
+  domain/ports/    # 4 interfaces de repositorio — la aplicación depende de éstas, no de Prisma
+  application/     # 3 casos de uso: submitOrder (UC-3), cancelOrder (UC-4), submitTransfer (UC-5)
+  infra/prisma/    # 5 repos que implementan los ports + tx con advisory lock + mappers
+  http/            # 5 router factories (DI) + app.ts + server.ts (composition root)
+  lib/             # singleton lazy de PrismaClient
+  index.ts         # entry: dotenv + listen
+prisma/            # schema.prisma (fuente única de índices) + migrations/ (DDL real)
+db/                # snapshot legacy GENERADO (schema.sql viejo) + seed.sql (dataset del challenge)
+tests/             # unit / integration / functional + helpers
+docs/              # CODEMAP, api, database, legacy (+ use-cases / testing en P2)
 ```
 
-Flujo por slice: route → Zod → service → repository. No carpetas globales por tipo (controllers/, services/).
+El detalle archivo por archivo, con firmas y trampas, está en `docs/CODEMAP.md`. **No** hay vertical
+slices por dominio ni capas `shared` / `controllers` / `services`: si un doc o el `tsconfig` sugieren
+eso, está desactualizado.
 
-## Workflow obligatorio
+## 4. Entorno local (esta máquina)
 
-1. **Spec antes de código.** Toda feature/cambio no trivial empieza con una spec en `specs/`: Why / What (alcance explícito) / Constraints (qué NO hacer) / Tasks (tareas de 1–2 archivos, cada una con comando de verificación). El humano edita la spec; el agente la ejecuta.
-2. **TDD por criterio de aceptación.** Escribir el test de integración que falla → ejecutarlo y mostrar que falla → implementar lo mínimo → refactor → commit. Prohibido afirmar "los tests pasarían": correrlos siempre y mostrar output. Si un test falla, se arregla el código, nunca el assertion.
-3. **Tareas atómicas.** Un cambio grande = muchas tareas chicas. Diffs focalizados; nunca reescrituras repo-wide sin pedido explícito.
+- La base de desarrollo/test es un **cluster PostgreSQL userspace en `localhost:5433`**, no docker
+  (`docker compose` existe en el repo para otros entornos, pero acá no se usa). Si está caído:
+  `/usr/lib/postgresql/18/bin/pg_ctl -D ~/.pg/cocos -o '-p 5433 -k /tmp' -l ~/.pg/cocos.log start`
+- `DATABASE_URL` sale de `.env` (dev) y `.env.test` (tests base). Cada suite funcional fija **su propia**
+  DB y la resetea en `beforeAll`: correr `npm test` dos veces da verde.
+- ESM + `nodenext`: los imports llevan extensión `.js` (`import … from "./x.js"`).
+- Prisma 7: la URL no vive en `schema.prisma` sino en `prisma.config.ts`, y el cliente exige un driver
+  adapter (`@prisma/adapter-pg`). El singleton es **lazy** a propósito.
+- `db/schema.sql` es un snapshot generado y desactualizado: el DDL real son las migraciones.
 
-## Reglas financieras (no negociables)
+## 5. Reglas no negociables (el porqué está en `DECISIONS.md`)
 
-- **Dinero NUNCA en float/double.** TS: `Int` en centavos (`amountCents`), `bigint` para magnitudes altas, `decimal.js` solo para rates/cálculos intermedios, construido desde strings (`new Decimal("0.1")`), jamás desde `number`. Prisma/Postgres: `Int`/`BigInt`/`Decimal` — `Float` prohibido.
-- **Nombres con unidad**: `amountCents`, `priceMicros` — nunca `amount` ambiguo. Moneda ISO 4217 siempre junto al monto.
-- **Serialización**: el dinero viaja como string o entero-en-unidad-menor, nunca como número JSON.
-- **Idempotencia en la DB, no en el código**: `UNIQUE(portfolioId, idempotencyKey)` + claim con `ON CONFLICT DO NOTHING` como primera escritura de la misma transacción que la operación. Cliente genera la clave (UUID v4). Test de doble-submit concurrente obligatorio por endpoint de escritura.
-- **Toda multi-escritura en transacción** con aislamiento explícito; concurrencia sobre saldos con `SELECT FOR UPDATE` o version column. Nunca read-modify-write ingenuo.
-- **Máquina de estados explícita** para órdenes: transiciones válidas codificadas + CHECK en DB.
-- **Auditoría**: `audit_log` append-only, escrita en la misma transacción de la mutación. Sin UPDATE/DELETE sobre registros financieros (correcciones = entradas de reversa). Zod `strict()` en el borde; nunca confiar en el body directo.
+1. **Dinero nunca en float.** Cálculo y agregación SIEMPRE en `Decimal` (decimal.js), construido desde
+   string. Entrada: número o string, normalizado con `String(value)`, **nunca** `new Decimal(number)`.
+   Salida: **número JSON cuantizado a 2 decimales EN `Decimal` antes de serializar** (`serializeMoneyArs`).
+   Prohibido: `Float` en Prisma/Postgres, `parseFloat` sobre dinero, aritmética de plata en `number`.
+2. **Idempotencia en la DB, no en memoria.** `UNIQUE(userId, idempotencyKey)` en `orders` + `INSERT …
+   ON CONFLICT DO NOTHING` como PRIMERA escritura de la transacción. Misma key + mismo payload → la
+   orden original; payload distinto → 409. Todo endpoint de escritura necesita su test de doble submit.
+3. **Toda multi-escritura en UNA transacción** con lock por usuario (`pg_advisory_xact_lock`). La
+   validación de fondos lee DENTRO de esa tx. Nunca read-modify-write ingenuo.
+4. **Auditoría append-only** en `order_events`, escrita en la MISMA tx que la mutación.
+5. **Máquina de estados explícita**: transiciones válidas codificadas y guardadas por estado
+   (`WHERE status='NEW'`). No hay `CHECK` en la migración — es deuda conocida, no una garantía.
+6. **Zod `strict()` en el borde.** Nunca confiar en `req.body`. Input inválido → 400 **sin escribir nada**.
+7. **Proyecciones, no tablas de saldo**: cash y posiciones se derivan de `orders FILLED`; las reservas,
+   de las `NEW`. No agregar tablas de cash/posiciones.
 
-## Límites
+## 6. Flujo de trabajo
 
-✅ **Siempre**: typecheck+lint+tests antes de terminar; transacciones en multi-escritura; constraints en DB, no solo en la app.
-⚠️ **Preguntar antes**: nuevas dependencias, cambios en `prisma/schema.prisma`, migraciones, borrar/modificar tests existentes.
-🚫 **Nunca**: `any` (usar `unknown` + narrowing), `Float` para dinero, editar `migrations/` a mano, `prisma db push`, commitear secretos, saltarse tests.
+1. **Spec antes de código.** Toda feature o cambio no trivial empieza con una spec en `specs/`:
+   Why / What (alcance) / Constraints (qué NO) / Tasks (1–2 archivos, cada una con su verificación).
+   El humano edita y aprueba la spec; el agente la ejecuta. `specs/trading-api-domain.md` es la fuente
+   del dominio; `specs/agentificacion-docs.md` la de la documentación.
+2. **TDD por criterio de aceptación**: test que falla → implementación mínima → refactor. Si un test
+   falla, se arregla el código, nunca el assertion.
+3. **Tareas atómicas**: un cambio grande = muchas tareas chicas, diffs focalizados.
+4. **Una regla, un lugar.** Si una regla está en dos documentos, uno de los dos es un link.
 
-## Estilo de código
+## 7. Límites
 
-- Código autodescriptivo: nombres largos y específicos (`validateOrderByAvailableAmount` > `validate`). Comentarios solo para el *por qué*, nunca para el *qué*.
-- `strict: true` + `noUncheckedIndexedAccess`. Named exports only. ESM.
-- Archivos enfocados por dominio (no por límite arbitrario de líneas). Cadenas de llamadas planas, jerarquías shallow.
-- Ejemplos de dinero:
+✅ **Siempre**: typecheck + lint + tests antes de terminar; transacciones en multi-escritura;
+constraints en DB, no sólo en la app; actualizar el doc dueño de lo que cambiaste.
 
-```ts
-// ✅ Bien
-const totalCents = order.quantity * order.priceCents;      // entero × entero
-const fee = new Decimal(totalCents).mul(FEE_RATE).toDecimalPlaces(0, Decimal.ROUND_DOWN);
+⚠️ **Preguntar antes**: dependencias nuevas; cambios en `prisma/schema.prisma`; migraciones; borrar o
+reescribir tests existentes; cambiar un contrato HTTP (afecta `openapi.json` y clientes).
 
-// ❌ Mal
-const total = quantity * price;                             // float ambiguo
-const fee = total * 0.001;                                  // IEEE-754, error acumulado
-```
+🚫 **Nunca**: `any` (usar `unknown` + narrowing); `Float` para dinero; `prisma db push`; editar
+`migrations/` a mano; cargar la DB desde `db/schema.sql`; commitear secretos; saltarse tests.
 
-## Eficiencia de contexto (para agentes)
+## 8. Estilo de código
 
-- Leer `docs/CODEMAP.md` antes de explorar; leer solo los archivos que la tarea toca.
-- Referenciar archivos y líneas en vez de pegar código en chat/specs.
-- Reglas por dominio viven junto al dominio o enlazadas desde acá — no duplicar: una sola fuente por regla.
-- Diffs mínimos; no re-formatear código no tocado.
+- Código autodescriptivo: nombres largos y específicos (`validateOrderByAvailableAmount` > `validate`).
+  Comentarios sólo para el *por qué*, nunca para el *qué*.
+- Named exports, ESM, `strict` + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`.
+- Cadenas de llamadas planas; jerarquías shallow; archivos enfocados por responsabilidad.
+- El header de cada archivo dice **qué UC sirve y qué decisión de `DECISIONS.md` implementa**, no en qué
+  fase del build nació.
 
-## Escape hatch
+## 9. Mantenimiento de la documentación
 
-Si algo es ambiguo o faltan datos (casos de uso, contratos de API, schema de DB): preguntar o proponer un plan — no inventar supuestos silenciosamente.
+`tests/docs/docs-consistency.test.ts` verifica mecánicamente que los docs no mientan sobre la
+estructura: paths que existen, **todos** los archivos de `src/` listados en `CODEMAP.md`, todos los
+exports nombrados (y que no haya exports inventados), rutas y códigos de error del contrato cuando
+`openapi.json` exista.
+
+Regla: **si el doc y el código difieren, gana el código y el mismo commit arregla el doc.** La guardia
+detecta estructura (archivos, exports, rutas, códigos); la semántica la sostiene esta regla.
+
+Si algo es ambiguo o faltan datos (casos de uso, contratos, schema): preguntar o proponer un plan —
+nunca inventar supuestos en silencio.

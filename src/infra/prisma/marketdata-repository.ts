@@ -1,4 +1,4 @@
-// PrismaMarketdataRepository — FASE 2 (célula B). Implementa
+// PrismaMarketdataRepository. Implementa
 // MarketdataRepository de src/domain/ports: el precio de referencia del
 // sistema es SIEMPRE la última fila de marketdata por `date` del
 // instrumento (DECISIONS.md).

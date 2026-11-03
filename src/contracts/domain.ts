@@ -1,6 +1,6 @@
 // Tipos de dominio compartidos — el vocabulario con el que hablan las
-// firmas de src/domain y los ports. Prisma NO entra acá (la célula B de
-// FASE 2 mapea filas de Prisma ↔ estos tipos): el dominio puro se testea
+// firmas de src/domain y los ports. Prisma NO entra acá (la infra mapea
+// filas de Prisma ↔ estos tipos): el dominio puro se testea
 // sin DB ni Express. Dinero SIEMPRE Decimal (AGENTS.md: nunca float).
 
 import { Decimal } from "decimal.js";
@@ -22,7 +22,7 @@ import type {
 /**
  * Canal de transacción OPACO (DECISIONS.md: validación + inserción en una
  * transacción con lock por usuario; auditoría en la misma tx que la mutación).
- * La infra (célula B) define el tipo real (cliente Prisma tx) y hace el
+ * La infra define el tipo real (cliente Prisma tx) y hace el
  * narrowing; la capa de aplicación SOLO lo recibe de withUserTransaction y lo
  * re-pasa a los métodos de repositorio. Nunca se construye en dominio/app.
  */

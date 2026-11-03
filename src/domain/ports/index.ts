@@ -1,5 +1,5 @@
-// Ports (interfaces de repositorio) — FASE 1 (Célula 0): SOLO firmas.
-// La célula B de FASE 2 los implementa contra Prisma (mapeando
+// Ports (interfaces de repositorio): SOLO firmas.
+// La infra los implementa contra Prisma (mapeando
 // Prisma ↔ tipos de src/contracts); las capas de aplicación los consumen.
 // Dinero siempre Decimal, filas tipadas con los registros de contracts.
 // TransactionContext (contracts/domain) existe para no meter Prisma en el
@@ -59,7 +59,7 @@ export interface OrderRepository {
   /**
    * Transición NEW → FILLED guardada por estado (WHERE status = 'NEW';
    * idempotente ante evaluaciones concurrentes). Null si ya no estaba NEW.
-   * En FASE 3 no se usa (MARKET se inserta FILLED); es el enchufe del
+   * Hoy no se usa (MARKET se inserta FILLED); es el enchufe del
    * matching de evolución.
    */
   readonly markFilled: (

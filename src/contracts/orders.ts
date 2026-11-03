@@ -36,7 +36,7 @@ export type CancelOrderParams = z.infer<typeof CancelOrderParamsSchema>;
 /**
  * Body de envío de orden.
  *
- * Reglas (DECISIONS.md + brief FASE 1, validadas en el borde — 400 SIN crear
+ * Reglas (DECISIONS.md + brief, validadas en el borde — 400 SIN crear
  * orden):
  *  - exactamente UNO de `instrumentId` / `ticker`;
  *  - exactamente UNO de `size` (acciones) / `amountArs` (pesos);

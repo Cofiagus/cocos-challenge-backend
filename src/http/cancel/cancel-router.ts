@@ -1,4 +1,4 @@
-// UC-4 — DELETE /api/orders/:orderId (FASE 4 — Célula F).
+// UC-4 — DELETE /api/orders/:orderId.
 //
 // Router factory con DI (patrón C/E): deps = la INTERFAZ del port de
 // src/domain/ports, que cancelOrder (src/application/cancel) orquesta.
@@ -6,12 +6,12 @@
 //   - Zod estricto en el borde (params: orderId int > 0) ⇒ 400
 //     VALIDATION_ERROR SIN tocar la DB;
 //   - cancelOrder ⇒ 200 OrderResponse con la fila CANCELLED (decisión
-//     firmada por el orquestador: 201 es para creación; DECISIONS.md no
+//     de integración: 201 es para creación; DECISIONS.md no
 //     fija el status de cancelación);
 //   - CancelOrderError ⇒ su status + apiErrorBody (404/422);
 //   - cualquier otro error propaga (500 no controlado — default de Express).
 //
-// La serialización es IGUAL que la del router de orders (E): dinero con
+// La serialización es IGUAL que la del router de orders (UC-3): dinero con
 // serializeMoneyArs (2 decimales), timestamps ISO sin offset con
 // serializeLocalTimestamp.
 
@@ -45,7 +45,7 @@ const validationMessage = (error: z.ZodError): string =>
 /** Fila CANCELLED (CancelOrderResult) → OrderResponse del contrato. */
 const toOrderResponse = (result: CancelOrderResult): OrderResponse => {
   const { order } = result;
-  // El mapper de infra (célula B) ya falla ruidosamente ante un NULL acá:
+  // El mapper de infra ya falla ruidosamente ante un NULL acá:
   // este estrechamiento es sólo de tipos (inalcanzable en runtime).
   if (order.instrumentId === null) {
     throw new Error("Orden persistida sin instrumentId (inalcanzable).");
@@ -94,7 +94,7 @@ export const buildCancelRouter = (deps: CancelRouterDeps): Router => {
         const result = await cancelOrder(deps, {
           orderId: params.data.orderId,
         });
-        // 200 con la orden cancelada (decisión firmada por el orquestador).
+        // 200 con la orden cancelada (decisión de integración).
         res.status(200).json(toOrderResponse(result));
       } catch (error) {
         if (error instanceof CancelOrderError) {

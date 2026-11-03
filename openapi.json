@@ -1,0 +1,1365 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "cocos-challenge-backend",
+    "version": "1.0.0",
+    "description": "API REST de portfolio, instrumentos, órdenes y transferencias. Dinero: cálculo en Decimal, respuesta como número JSON con 2 decimales. Idempotencia por `Idempotency-Key` opcional."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local"
+    }
+  ],
+  "paths": {
+    "/api/users/{userId}/portfolio": {
+      "get": {
+        "summary": "Portfolio de un usuario",
+        "description": "Proyección de `orders`: `cash` = settled − reservado por órdenes `NEW` de compra. Posiciones con cantidad 0 no se listan; sin precio de referencia `marketValue` es `null` y la posición no suma a `totalAccountValue`. `MONEDA` nunca aparece.",
+        "operationId": "get-api-users--userId--portfolio",
+        "tags": [
+          "users"
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Portfolio derivado (usuario 1 del seed).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cash": {
+                      "type": "number",
+                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                      "multipleOf": 0.01
+                    },
+                    "reservedCash": {
+                      "type": "number",
+                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                      "multipleOf": 0.01
+                    },
+                    "totalAccountValue": {
+                      "type": "number",
+                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                      "multipleOf": 0.01
+                    },
+                    "positions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "ticker": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "marketValue": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                                "multipleOf": 0.01
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "priceAvailable": {
+                            "type": "boolean"
+                          },
+                          "totalReturnPct": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "ticker",
+                          "name",
+                          "quantity",
+                          "marketValue",
+                          "priceAvailable",
+                          "totalReturnPct"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "cash",
+                    "reservedCash",
+                    "totalAccountValue",
+                    "positions"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "cash": 627500,
+                  "reservedCash": 125500,
+                  "totalAccountValue": 764256,
+                  "positions": [
+                    {
+                      "ticker": "PAMP",
+                      "name": "Pampa Energía S.A.",
+                      "quantity": 40,
+                      "marketValue": 37034,
+                      "priceAvailable": true,
+                      "totalReturnPct": -0.45
+                    },
+                    {
+                      "ticker": "BMA",
+                      "name": "Banco Macro S.A.",
+                      "quantity": -10,
+                      "marketValue": -15028,
+                      "priceAvailable": true,
+                      "totalReturnPct": null
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`userId` no es entero > 0. Código: `VALIDATION_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "`userId` no es entero > 0."
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El usuario no existe. Código: `USER_NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "USER_NOT_FOUND",
+                    "message": "El usuario no existe."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/instruments": {
+      "get": {
+        "summary": "Buscar instrumentos",
+        "description": "Match parcial case-insensitive sobre `ticker` y/o `name`. `MONEDA` nunca aparece. La respuesta es un array plano (sin wrapper). Sin marketdata, `price`, `previousClose` y `dailyVariationPct` vienen en `null`.",
+        "operationId": "get-api-instruments",
+        "tags": [
+          "instruments"
+        ],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Coincidencias ordenadas por ticker.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "ticker": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "ACCIONES",
+                          "MONEDA"
+                        ]
+                      },
+                      "price": {
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                            "multipleOf": 0.01
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "previousClose": {
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                            "multipleOf": 0.01
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dailyVariationPct": {
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "description": "Porcentaje en puntos (2 decimales).",
+                            "multipleOf": 0.01
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "ticker",
+                      "name",
+                      "type",
+                      "price",
+                      "previousClose",
+                      "dailyVariationPct"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "example": [
+                  {
+                    "ticker": "METR",
+                    "name": "MetroGAS S.A.",
+                    "type": "ACCIONES",
+                    "price": 229.5,
+                    "previousClose": 232,
+                    "dailyVariationPct": -1.08
+                  }
+                ]
+              }
+            }
+          },
+          "400": {
+            "description": "`query` vacía o ausente; `limit` fuera de 1..100. Código: `VALIDATION_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "`query` vacía o ausente; `limit` fuera de 1..100."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/orders": {
+      "post": {
+        "summary": "Enviar una orden",
+        "description": "Persiste SIEMPRE que el input sea válido: 201 también para resultados `REJECTED` o `CANCELLED` (el negocio rechazó la orden, no el endpoint). `MARKET` se llena al precio de referencia; `LIMIT GTC` queda `NEW` y reserva; `IOC/FOK` se evalúan una vez. Con `Idempotency-Key`: misma key + mismo payload devuelve la orden original; payload distinto → 409; `reason` es `null` en el replay.",
+        "operationId": "post-api-users--userId--orders",
+        "tags": [
+          "users"
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Opcional. Misma key + mismo payload devuelve la orden original (201, sin evento nuevo); misma key + otro payload → 409."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "instrumentId": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "ticker": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10
+                  },
+                  "side": {
+                    "type": "string",
+                    "enum": [
+                      "BUY",
+                      "SELL"
+                    ]
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "MARKET",
+                      "LIMIT"
+                    ]
+                  },
+                  "timeInForce": {
+                    "default": "GTC",
+                    "type": "string",
+                    "enum": [
+                      "GTC",
+                      "IOC",
+                      "FOK"
+                    ]
+                  },
+                  "size": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "amountArs": {
+                    "description": "Monto ARS > 0: número JSON o string decimal.",
+                    "type": [
+                      "number",
+                      "string"
+                    ]
+                  },
+                  "price": {
+                    "description": "Monto ARS > 0: número JSON o string decimal.",
+                    "type": [
+                      "number",
+                      "string"
+                    ]
+                  }
+                },
+                "required": [
+                  "side",
+                  "type"
+                ],
+                "additionalProperties": false,
+                "description": "Exactamente uno de `instrumentId` | `ticker`; exactamente uno de `size` | `amountArs`; `price` > 0 obligatorio si `type=LIMIT` y prohibido si `type=MARKET`."
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Orden creada (FILLED, NEW, REJECTED o CANCELLED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "instrumentId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "side": {
+                      "type": "string",
+                      "enum": [
+                        "BUY",
+                        "SELL",
+                        "CASH_IN",
+                        "CASH_OUT"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "MARKET",
+                        "LIMIT"
+                      ]
+                    },
+                    "timeInForce": {
+                      "type": "string",
+                      "enum": [
+                        "GTC",
+                        "IOC",
+                        "FOK"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "NEW",
+                        "FILLED",
+                        "CANCELLED",
+                        "REJECTED"
+                      ]
+                    },
+                    "size": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "price": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                          "multipleOf": 0.01
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "filledPrice": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                          "multipleOf": 0.01
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "filledAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "datetime": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "INSUFFICIENT_FUNDS",
+                            "INSUFFICIENT_POSITION",
+                            "ZERO_SIZE",
+                            "NO_PRICE",
+                            "NO_IMMEDIATE_MATCH"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "instrumentId",
+                    "side",
+                    "type",
+                    "timeInForce",
+                    "status",
+                    "size",
+                    "price",
+                    "filledPrice",
+                    "filledAt",
+                    "datetime",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "id": 14,
+                  "instrumentId": 45,
+                  "side": "BUY",
+                  "type": "LIMIT",
+                  "timeInForce": "GTC",
+                  "status": "REJECTED",
+                  "size": 1,
+                  "price": 100,
+                  "filledPrice": null,
+                  "filledAt": null,
+                  "datetime": "2026-11-03T12:00:00",
+                  "reason": "INSUFFICIENT_FUNDS"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Body inválido (XOR, LIMIT sin price, MARKET con price) o header inválido. Código: `VALIDATION_ERROR`. Alternativa: El instrumento es `MONEDA`: no operable. Código: `INSTRUMENT_NOT_OPERABLE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Body inválido (XOR, LIMIT sin price, MARKET con price) o header inválido."
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El usuario no existe. Código: `USER_NOT_FOUND`. Alternativa: El instrumento no existe. Código: `INSTRUMENT_NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "USER_NOT_FOUND",
+                    "message": "El usuario no existe."
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Misma `Idempotency-Key` con otro payload. Código: `IDEMPOTENCY_CONFLICT`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "IDEMPOTENCY_CONFLICT",
+                    "message": "Misma `Idempotency-Key` con otro payload."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{orderId}": {
+      "delete": {
+        "summary": "Cancelar una orden",
+        "description": "Sólo órdenes `NEW`. La transición es atómica (`UPDATE … WHERE status='NEW'`), así que un doble DELETE concurrente devuelve una 200 y una 422. Cancelar libera la reserva.",
+        "operationId": "delete-api-orders--orderId-",
+        "tags": [
+          "orders"
+        ],
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La orden quedó `CANCELLED` (200: el 201 está reservado para creación).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "instrumentId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "side": {
+                      "type": "string",
+                      "enum": [
+                        "BUY",
+                        "SELL",
+                        "CASH_IN",
+                        "CASH_OUT"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "MARKET",
+                        "LIMIT"
+                      ]
+                    },
+                    "timeInForce": {
+                      "type": "string",
+                      "enum": [
+                        "GTC",
+                        "IOC",
+                        "FOK"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "NEW",
+                        "FILLED",
+                        "CANCELLED",
+                        "REJECTED"
+                      ]
+                    },
+                    "size": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "price": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                          "multipleOf": 0.01
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "filledPrice": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                          "multipleOf": 0.01
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "filledAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "datetime": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "INSUFFICIENT_FUNDS",
+                            "INSUFFICIENT_POSITION",
+                            "ZERO_SIZE",
+                            "NO_PRICE",
+                            "NO_IMMEDIATE_MATCH"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "instrumentId",
+                    "side",
+                    "type",
+                    "timeInForce",
+                    "status",
+                    "size",
+                    "price",
+                    "filledPrice",
+                    "filledAt",
+                    "datetime",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "id": 5,
+                  "instrumentId": 45,
+                  "side": "BUY",
+                  "type": "LIMIT",
+                  "timeInForce": "GTC",
+                  "status": "CANCELLED",
+                  "size": 50,
+                  "price": 710,
+                  "filledPrice": null,
+                  "filledAt": null,
+                  "datetime": "2026-07-12T10:00:00",
+                  "reason": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`orderId` no es entero > 0. Código: `VALIDATION_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "`orderId` no es entero > 0."
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La orden no existe. Código: `ORDER_NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "ORDER_NOT_FOUND",
+                    "message": "La orden no existe."
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "La orden no está `NEW` (ya llena, cancelada o rechazada). Código: `ORDER_NOT_CANCELLABLE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "ORDER_NOT_CANCELLABLE",
+                    "message": "La orden no está `NEW` (ya llena, cancelada o rechazada)."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/transfers": {
+      "post": {
+        "summary": "Transferir cash",
+        "description": "Transferencia = orden del instrumento `ARS` (`price` 1.00, `size` = pesos). `CASH_IN` → `FILLED` inmediata; `CASH_OUT` valida contra el disponible (`settled − reservas`) y si no alcanza persiste `REJECTED INSUFFICIENT_FUNDS` con 201. `size` es entero: 123.45 acredita 123.",
+        "operationId": "post-api-users--userId--transfers",
+        "tags": [
+          "users"
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Opcional. Misma key + mismo payload devuelve la orden original (201, sin evento nuevo); misma key + otro payload → 409."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amountArs": {
+                    "description": "Monto ARS > 0: número JSON o string decimal.",
+                    "type": [
+                      "number",
+                      "string"
+                    ]
+                  },
+                  "side": {
+                    "type": "string",
+                    "enum": [
+                      "CASH_IN",
+                      "CASH_OUT"
+                    ]
+                  }
+                },
+                "required": [
+                  "amountArs",
+                  "side"
+                ],
+                "additionalProperties": false,
+                "description": "Monto > 0 en ARS; `CASH_IN` acredita, `CASH_OUT` debita el disponible."
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Transferencia creada (FILLED o REJECTED persistida).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "instrumentId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "side": {
+                      "type": "string",
+                      "enum": [
+                        "BUY",
+                        "SELL",
+                        "CASH_IN",
+                        "CASH_OUT"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "MARKET",
+                        "LIMIT"
+                      ]
+                    },
+                    "timeInForce": {
+                      "type": "string",
+                      "enum": [
+                        "GTC",
+                        "IOC",
+                        "FOK"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "NEW",
+                        "FILLED",
+                        "CANCELLED",
+                        "REJECTED"
+                      ]
+                    },
+                    "size": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "price": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                          "multipleOf": 0.01
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "filledPrice": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+                          "multipleOf": 0.01
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "filledAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "datetime": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "INSUFFICIENT_FUNDS",
+                            "INSUFFICIENT_POSITION",
+                            "ZERO_SIZE",
+                            "NO_PRICE",
+                            "NO_IMMEDIATE_MATCH"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "instrumentId",
+                    "side",
+                    "type",
+                    "timeInForce",
+                    "status",
+                    "size",
+                    "price",
+                    "filledPrice",
+                    "filledAt",
+                    "datetime",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "id": 20,
+                  "instrumentId": 66,
+                  "side": "CASH_IN",
+                  "type": "MARKET",
+                  "timeInForce": "GTC",
+                  "status": "FILLED",
+                  "size": 123,
+                  "price": 1,
+                  "filledPrice": 1,
+                  "filledAt": "2026-11-03T12:00:00",
+                  "datetime": "2026-11-03T12:00:00",
+                  "reason": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Monto ≤ 0, no numérico, o `side` inválido. Código: `VALIDATION_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Monto ≤ 0, no numérico, o `side` inválido."
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El usuario no existe. Código: `USER_NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "USER_NOT_FOUND",
+                    "message": "El usuario no existe."
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Misma `Idempotency-Key` con otro payload. Código: `IDEMPOTENCY_CONFLICT`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "IDEMPOTENCY_CONFLICT",
+                    "message": "Misma `Idempotency-Key` con otro payload."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

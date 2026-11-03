@@ -1,4 +1,4 @@
-// Branding del canal de transacción — FASE 2 (célula B).
+// Branding del canal de transacción.
 //
 // El tipo REAL detrás del TransactionContext opaco de contracts es el
 // cliente de transacción de Prisma (Prisma.TransactionClient): el que
@@ -13,7 +13,7 @@
 //
 // Invariante: NADIE fuera de withUserTransaction construye un
 // TransactionContext; todo unbrand es por tanto del cliente de tx que esta
-// misma célula abrió (con su pg_advisory_xact_lock). El brand via `as`
+// misma tx abrió (con su pg_advisory_xact_lock). El brand via `as`
 // (no `as any`): el opaco es estructuralmente compatible con cualquier
 // objeto.
 

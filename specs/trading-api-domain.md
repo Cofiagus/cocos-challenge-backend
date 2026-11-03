@@ -1,8 +1,12 @@
 # Spec — API de trading (portfolio, búsqueda, órdenes, transferencias, matching)
 
-> Estado: **propuesta — pendiente de validación humana**. La implementación previa
-> (`src/` + `prisma/schema.prisma`) fue eliminada; queda como snapshot en el
-> historial git. Esta spec es la única fuente de verdad de la implementación.
+> Estado: **fuente de verdad del dominio** (UC-1..UC-5 y sus reglas), implementada **con alcance
+> reducido**: los casos de uso y sus invariantes se construyeron; las fuentes de precio y el matching
+> continuo que describe este documento quedaron cerrados por `DECISIONS.md`. Para el estado del
+> código y sus archivos, `docs/CODEMAP.md`.
+> Fuera de alcance por decisión (`DECISIONS.md`): Yahoo Finance, `price_ticks`, ingesta,
+> scheduling, `DAY`/`EXPIRED`, sweep y matching continuo. `matchRestingOrders` existe como
+> punto de enchufe, sin disparador.
 >
 > Rev. 2 — incorpora fuente real de precios (Yahoo Finance vía `yahoo-finance2`)
 > y arquitectura de matching estilo exchange real.

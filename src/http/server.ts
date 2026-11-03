@@ -1,9 +1,8 @@
-// Composition root de la app HTTP — SOLO el orquestador y la célula
-// integradora de cada fase editan este archivo.
+// Composition root de la app HTTP — lo edita sólo la capa de composición.
 //
-// FASE 2 (Célula C): portfolio + instruments con los repos Prisma reales.
-// FASE 3 (Célula E): orders/submitOrder.
-// FASE 4 (Células F/G): cancel (DELETE /api/orders/:orderId) + transfers.
+// Lectura (UC-1/UC-2): portfolio + instruments con los repos Prisma reales.
+// Envío (UC-3): orders/submitOrder.
+// Cancelación y transferencias (UC-4/UC-5): cancel + transfers.
 
 import { buildApp } from "./app.js";
 import { buildPortfolioRouter } from "./portfolio/portfolio-router.js";

@@ -1,4 +1,4 @@
-// Entry del servidor HTTP — orquestador/integrador (la composición vive en
+// Entry del servidor HTTP — capa de composición (la app se arma en
 // src/http/server.ts). Carga .env y escucha en PORT; el arranque queda
 // verificado con un request real contra un endpoint de lectura.
 import "dotenv/config";
