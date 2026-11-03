@@ -9,9 +9,9 @@
 import { buildApp } from "./app.js";
 import { buildPortfolioRouter } from "./portfolio/portfolio-router.js";
 import { buildInstrumentsRouter } from "./instruments/instruments-router.js";
-import { PrismaInstrumentRepository } from "../../infra/prisma/instrument-repository.js";
-import { PrismaMarketdataRepository } from "../../infra/prisma/marketdata-repository.js";
-import { PrismaPortfolioReadRepository } from "../../infra/prisma/portfolio-read-repository.js";
+import { PrismaInstrumentRepository } from "../infra/prisma/instrument-repository.js";
+import { PrismaMarketdataRepository } from "../infra/prisma/marketdata-repository.js";
+import { PrismaPortfolioReadRepository } from "../infra/prisma/portfolio-read-repository.js";
 
 export const serverApp = buildApp([
   buildPortfolioRouter({
