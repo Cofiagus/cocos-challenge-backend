@@ -98,7 +98,9 @@ const operationObject = (operation: OperationDoc): JsonObject => {
   return {
     summary: operation.summary,
     description: operation.description,
-    operationId: `${operation.method}${openApiPath(operation.expressPath).replace(/[/{}]/g, "-")}`,
+    operationId: `${operation.method}${openApiPath(operation.expressPath)
+      .replace(/[/{}]/g, "-")
+      .replace(/-+$/, "")}`,
     tags: [operation.expressPath.split("/")[1] ?? "root"],
     parameters: parametersOf(operation),
     ...(operation.body === undefined

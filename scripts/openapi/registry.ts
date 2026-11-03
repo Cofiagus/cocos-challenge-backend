@@ -23,7 +23,7 @@ import {
   CreateTransferBodySchema,
 } from "./wire.js";
 
-/** Códigos de error que la API puede devolver (los de `API_ERROR_CODES` + INSTRUMENT_NOT_FOUND). */
+/** Códigos de error que la API puede devolver (los estables de `API_ERROR_CODES`). */
 export const KNOWN_ERROR_CODES = [
   "VALIDATION_ERROR",
   "INSTRUMENT_NOT_OPERABLE",

@@ -4,6 +4,7 @@
 //  D4a — `openapi.json` commiteado == lo que genera `scripts/openapi/build.ts` (nadie edita el JSON a mano).
 //  D4b — las rutas del registro == los `router.<verbo>("...")` de `src/http/**` (sin rutas fantasma).
 //  D5  — los códigos de error documentados == los que el contrato puede emitir.
+//  D5b — la atribución es por operación: SUS responses documentan SUS errorCodes.
 //  D6  — los campos de los bodies documentados == los del contrato real (drift de shape).
 //  D7  — el espejo de wire de dinero acepta/rechaza EXACTAMENTE lo mismo que el schema real.
 
@@ -17,7 +18,12 @@ import {
   PositiveArsInputSchema,
 } from "../../src/contracts/index.js";
 import { serializeOpenApiDocument } from "../../scripts/openapi/build.js";
-import { KNOWN_ERROR_CODES, OPERATIONS } from "../../scripts/openapi/registry.js";
+import {
+  KNOWN_ERROR_CODES,
+  OPERATIONS,
+  type OperationDoc,
+  type ResponseDoc,
+} from "../../scripts/openapi/registry.js";
 import {
   ArsWireSchema,
   CreateOrderBodySchema,
@@ -65,19 +71,40 @@ describe("contrato OpenAPI", () => {
     expect(documented).toEqual(routerRoutes());
   });
 
+/** Códigos documentados en las responses de UNA operación: viajan en el `example.error.code`. */
+const documentedCodesOf = (operation: OperationDoc): readonly string[] =>
+  operation.responses.flatMap((response: ResponseDoc) => {
+    const example = response.example as
+      | { readonly error?: { readonly code?: unknown } }
+      | undefined;
+    const code = example?.error?.code;
+    return typeof code === "string" ? [code] : [];
+  });
+
   it("D5 — los códigos de error documentados son los del contrato", () => {
     const documented = new Set(
       OPERATIONS.flatMap((operation) => [...operation.errorCodes]).map(String),
     );
-    const fromContract = new Set<string>([
-      ...Object.values(API_ERROR_CODES),
-      "INSTRUMENT_NOT_FOUND",
-    ]);
+    const fromContract = new Set<string>(Object.values(API_ERROR_CODES));
     expect([...documented].sort()).toEqual([...fromContract].sort());
     expect([...documented].sort()).toEqual([...KNOWN_ERROR_CODES].sort());
 
     const json = serializeOpenApiDocument();
     for (const code of fromContract) expect(json).toContain(code);
+  });
+
+  it("D5b — por operación: SUS responses documentan exactamente SUS errorCodes", () => {
+    // La unión de D5 deja pasar un código que se mude de operación (quede
+    // documentado en la operación que ya no lo emite): la atribución se
+    // compara por operación.
+    for (const operation of OPERATIONS) {
+      expect([...documentedCodesOf(operation)].sort()).toEqual(
+        [...operation.errorCodes].map(String).sort(),
+      );
+      for (const code of documentedCodesOf(operation)) {
+        expect(Object.values(API_ERROR_CODES)).toContain(code);
+      }
+    }
   });
 
   it("D6 — los bodies documentados tienen los mismos campos que el contrato", () => {

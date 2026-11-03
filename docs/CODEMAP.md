@@ -1,8 +1,7 @@
 # CODEMAP — topología del código
 
 > **Normativo.** Si agregás, borrás o renombrás un archivo o un export, este archivo se actualiza en el
-> MISMO commit: `tests/docs/docs-consistency.test.ts` (D2/D3) falla si no. Verificado contra el código
-> en HEAD `05a1435`.
+> MISMO commit: `tests/docs/docs-consistency.test.ts` (D2/D3) falla si no.
 >
 > **Qué NO responde acá**: qué devuelve un endpoint (`openapi.json` + `docs/api.md`), por qué una
 > regla de negocio es así (`DECISIONS.md`), columnas e índices (`docs/database.md`), cómo levantar el

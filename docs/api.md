@@ -97,6 +97,5 @@ proyección de cash la procesa como cualquier otro movimiento, sin tabla aparte.
 | `IDEMPOTENCY_CONFLICT` | 409 | misma key, otro payload |
 | `ORDER_NOT_CANCELLABLE` | 422 | cancelar una orden que no está `NEW` |
 
-`INSTRUMENT_NOT_FOUND` es el único código fuera de `API_ERROR_CODES` (los estables del contrato):
-`DECISIONS.md` no fijó status para instrumento inexistente y se resolvió 404 (deuda declarada en
-`docs/CODEMAP.md`).
+Los 7 códigos de la tabla integran `API_ERROR_CODES` (los estables del contrato): `INSTRUMENT_NOT_FOUND`
+entró al contrato con status 404 en `POST /orders` (`instrumentId`|`ticker` inexistente, sin orden).

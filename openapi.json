@@ -42,18 +42,15 @@
                   "properties": {
                     "cash": {
                       "type": "number",
-                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                      "multipleOf": 0.01
+                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                     },
                     "reservedCash": {
                       "type": "number",
-                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                      "multipleOf": 0.01
+                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                     },
                     "totalAccountValue": {
                       "type": "number",
-                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                      "multipleOf": 0.01
+                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                     },
                     "positions": {
                       "type": "array",
@@ -75,8 +72,7 @@
                             "anyOf": [
                               {
                                 "type": "number",
-                                "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                                "multipleOf": 0.01
+                                "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                               },
                               {
                                 "type": "null"
@@ -90,8 +86,7 @@
                             "anyOf": [
                               {
                                 "type": "number",
-                                "description": "Porcentaje en puntos (2 decimales).",
-                                "multipleOf": 0.01
+                                "description": "Porcentaje en puntos (2 decimales)."
                               },
                               {
                                 "type": "null"
@@ -283,8 +278,7 @@
                         "anyOf": [
                           {
                             "type": "number",
-                            "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                            "multipleOf": 0.01
+                            "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                           },
                           {
                             "type": "null"
@@ -295,8 +289,7 @@
                         "anyOf": [
                           {
                             "type": "number",
-                            "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                            "multipleOf": 0.01
+                            "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                           },
                           {
                             "type": "null"
@@ -307,8 +300,7 @@
                         "anyOf": [
                           {
                             "type": "number",
-                            "description": "Porcentaje en puntos (2 decimales).",
-                            "multipleOf": 0.01
+                            "description": "Porcentaje en puntos (2 decimales)."
                           },
                           {
                             "type": "null"
@@ -550,8 +542,7 @@
                       "anyOf": [
                         {
                           "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                          "multipleOf": 0.01
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                         },
                         {
                           "type": "null"
@@ -562,8 +553,7 @@
                       "anyOf": [
                         {
                           "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                          "multipleOf": 0.01
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                         },
                         {
                           "type": "null"
@@ -754,7 +744,7 @@
       "delete": {
         "summary": "Cancelar una orden",
         "description": "Sólo órdenes `NEW`. La transición es atómica (`UPDATE … WHERE status='NEW'`), así que un doble DELETE concurrente devuelve una 200 y una 422. Cancelar libera la reserva.",
-        "operationId": "delete-api-orders--orderId-",
+        "operationId": "delete-api-orders--orderId",
         "tags": [
           "orders"
         ],
@@ -837,8 +827,7 @@
                       "anyOf": [
                         {
                           "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                          "multipleOf": 0.01
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                         },
                         {
                           "type": "null"
@@ -849,8 +838,7 @@
                       "anyOf": [
                         {
                           "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                          "multipleOf": 0.01
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                         },
                         {
                           "type": "null"
@@ -1167,8 +1155,7 @@
                       "anyOf": [
                         {
                           "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                          "multipleOf": 0.01
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                         },
                         {
                           "type": "null"
@@ -1179,8 +1166,7 @@
                       "anyOf": [
                         {
                           "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-                          "multipleOf": 0.01
+                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
                         },
                         {
                           "type": "null"

@@ -24,8 +24,9 @@ export type Pct = number & { readonly __brand: "Pct" };
  *
  * `z.number()` + `refine` en lugar de `z.custom`: `z.toJSONSchema` no puede representar tipos
  * custom ("Custom types cannot be represented in JSON Schema") y este schema viaja dentro de las
- * respuestas del contrato OpenAPI. `.meta()` agrega la anotación JSON Schema (`multipleOf`) SIN
- * cambiar la validación en runtime.
+ * respuestas del contrato OpenAPI. La regla de 2 decimales viaja SOLO en la `description`:
+ * un `multipleOf: 0.01` en el JSON Schema se valida con división float (0.07/0.01 =
+ * 7.000000000000001) y hace que validadores estrictos (ajv) rechacen respuestas VÁLIDAS.
  */
 export const MoneyArsSchema = z
   .number()
@@ -38,7 +39,6 @@ export const MoneyArsSchema = z
   .meta({
     description:
       "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
-    multipleOf: 0.01,
   });
 
 /** Valida un porcentaje serializado: número finito, 2 decimales. */
@@ -47,7 +47,9 @@ export const PctSchema = z
   .refine((value) => Number.isFinite(value), {
     message: "Se espera un número finito.",
   })
-  .meta({ description: "Porcentaje en puntos (2 decimales).", multipleOf: 0.01 });
+  // Sin `multipleOf` por lo mismo que MoneyArsSchema: la división float del validador
+  // rechazaría porcentajes válidos (la cuantización a 2 decimales la hace serializePct).
+  .meta({ description: "Porcentaje en puntos (2 decimales)." });
 
 const decimalFromWire = (value: unknown): unknown => {
   if (typeof value === "number") {

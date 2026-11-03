@@ -7,12 +7,14 @@
 // D1: todo path en backticks de docs/**/*.md existe en disco.
 // D2: el conjunto de archivos de src/ == el conjunto listado en docs/CODEMAP.md.
 // D3: los exports de cada archivo == los nombrados en su fila del CODEMAP (en ambas direcciones).
+// D4: docs/api.md documenta las rutas del registro y los códigos de API_ERROR_CODES (drift → rojo).
 //
-// D4 (rutas de docs/api.md) y D5 (códigos de error) se agregan con la spec de OpenAPI, cuando
-// docs/api.md exista. AGENTS.md se suma a D1 en el mismo commit que lo reescribe.
+// D5 (códigos por operación) vive en tests/docs/openapi.test.ts, contra el contrato.
 
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { API_ERROR_CODES } from "../../src/contracts/index.js";
+import { OPERATIONS } from "../../scripts/openapi/registry.js";
 
 const ROOT = process.cwd();
 const read = (p: string): string => readFileSync(join(ROOT, p), "utf8");
@@ -90,6 +92,21 @@ describe("documentación ↔ código", () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it("D4 — docs/api.md documenta las rutas del registro y los códigos del contrato", () => {
+    // api.md explica semántica SIN repetir el contrato (openapi.json es la fuente de
+    // forma). Igual debe nombrar cada ruta y cada código: si algo se muda o renombra,
+    // este assert rota en vez de quedar stale en silencio.
+    const apiDoc = read("docs/api.md");
+    for (const operation of OPERATIONS) {
+      expect(apiDoc).toContain(
+        `${operation.method.toUpperCase()} ${operation.expressPath}`,
+      );
+    }
+    for (const code of Object.values(API_ERROR_CODES)) {
+      expect(apiDoc).toContain(code);
+    }
   });
 
   it("D2 — CODEMAP lista exactamente los archivos de src/", () => {
