@@ -7,8 +7,14 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 
 - **FASE 0** (Célula 0 — entorno): **DONE — merge `b590dfb`, GATE 0 verificado por el orquestador** (typecheck/lint/test verde, `test:db:reset` idempotente, Prisma CLI 7.10.1 = client 7.10.1).
 - **FASE 1** (Célula 0 — contratos): **DONE — merge `86bc9c3`** (5 commits + corrección tx `bf4b992`). GATE 1 re-corrido por el orquestador: `prisma validate` + typecheck + lint + tests 4/4 + `test:db:reset` idempotente con columnas nuevas. `DECISIONS.md` verificado byte-exacto contra el reference.
-- **FASE 2** (paralelo): **A (dominio), B (infra), D (tests rojos) lanzadas** en worktrees propios (`../coccb-wt-{a,b,d}`); **C (endpoints de lectura) staggered**: depende de las funciones de dominio de A (`src/domain/portfolio/**` implementa las firmas que hoy hacen `throw`) — se lanza tras el merge de A con `main` actualizado. Merge order del plan (A→B→C→D) lo anticipa.
-- FASE 3–5: pendientes.
+- **FASE 2** (paralelo): **A DONE — merge `1f4bdba`** (44 tests: dominio puro re-verificado, pureza grep = solo comentarios, 0 imports de Prisma/Express). **B DONE — merge `54cdd40`** (34 tests de integración re-verificados contra DB real: idempotencia ON CONFLICT, lock serializado con efecto observable, latest price, guards). **D verificada — merge pendiente hasta C** (orden del plan A→B→C→D): typecheck+lint verde + 25 tests ROJOS por 404-asserts (causas correctas), scope solo tests/functional/orders/**. **C lanzada** (wt-c, branch `fase-2-c` @ 54cdd40): endpoints de lectura con dominio real (A) + repos reales (B), DB propia `cocos_challenge_read`. La Célula D halló un bug del stub del orquestador (app.use(...[]) lanza al importar) — fix `7584333`.
+- FASE 3–5: pendientes (FASE 3 = E al volver y mergear C+D).
+
+### Lecciones de FASE 2 (para merges de FASE 3+)
+
+- Un merge que agrega dependencias (`@prisma/adapter-pg`) requiere `npm install` en main post-merge: el typecheck de main dio TS2307 hasta sincronizar node_modules (ya corregido, main en verde 10 suites / 74 tests).
+- Worktrees nuevos (`npm ci`) necesitan `npx prisma generate` antes de que compile cualquier import de `@prisma/client` (factories lo usan). Correrlo con `DATABASE_URL=<placeholder válido> npx prisma generate` (no toca DB).
+- DBs aisladas por suite (script `TEST_DB_NAME`): B→`cocos_challenge_test`, C→`cocos_challenge_read`, D→`cocos_challenge_ftest`. Cada suite se auto-resetea; ninguna pisa la de otra.
 
 ### Scaffolding del orquestador para FASE 2 (`5fbfbbc`)
 
