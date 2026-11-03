@@ -18,6 +18,11 @@ import type { Router } from "express";
 export const buildApp = (routers: readonly Router[]) => {
   const app = express();
   app.use(express.json());
-  app.use("/api", ...routers);
+  // app.use(path, ...routers) con lista VACÍA lanza "requires a middleware
+  // function" al importar serverApp (hallado por la Célula D): sin routers,
+  // no se monta nada y Express responde su 404 por defecto.
+  if (routers.length > 0) {
+    app.use("/api", ...routers);
+  }
   return app;
 };
