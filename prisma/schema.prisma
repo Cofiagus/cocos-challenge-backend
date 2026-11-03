@@ -3,9 +3,14 @@
 //
 // ÚNICA fuente de los índices y del DDL (DECISIONS.md: "Índices: una sola
 // fuente (prisma/schema.prisma)"). Las tablas del snapshot (users,
-// instruments, marketdata, orders) reproducen las COLUMNAS EXACTAS de
-// db/schema.sql vía @map — el seed (db/seed.sql) carga SIN ediciones sobre
-// este schema. db/schema.sql y db/seed.sql son GENERADOS y no se tocan.
+// instruments, marketdata, orders) reproducen de db/schema.sql nombres,
+// nullabilidad y tamaños vía @map/@db.*, con DOS desviaciones documentadas:
+// (1) orders.type/side/status son enums PG NATIVOS acá (varchar(10)/(10)/(20)
+// en el snapshot) — superconjunto de esos varchar, que el seed ya carga porque
+// su COPY castea texto → enum; (2) orders AÑADE columnas de FASE 1
+// (timeInForce/filledPrice/filledAt/idempotencyKey — ver abajo). Por eso el
+// seed (db/seed.sql) carga SIN ediciones sobre este schema. db/schema.sql y
+// db/seed.sql son GENERADOS y no se tocan.
 // ============================================================================
 
 generator client {
@@ -68,7 +73,9 @@ enum OrderEventReason {
 }
 
 // ---------------------------------------------------------------------------
-// Tablas del snapshot — columnas EXACTAS (docs/database.md §2), campos
+// Tablas del snapshot — nombres/nullabilidad/tamaños de db/schema.sql
+// (docs/database.md §2) vía @map/@db.*; orders.type/side/status: enums
+// nativos, superconjunto del varchar del snapshot (ver header). Campos
 // Prisma en camelCase mapeados con @map a las columnas lowercase.
 // ---------------------------------------------------------------------------
 

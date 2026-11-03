@@ -95,7 +95,7 @@ export const CreateOrderRequestSchema = z
 export type CreateOrderRequest = z.infer<typeof CreateOrderRequestSchema>;
 
 /** Orden en respuestas de POST /orders y DELETE /orders/:orderId. */
-export const OrderResponseSchema = z.object({
+export const OrderResponseSchema = z.strictObject({
   id: z.number().int(),
   instrumentId: z.number().int(),
   side: OrderSideSchema,
