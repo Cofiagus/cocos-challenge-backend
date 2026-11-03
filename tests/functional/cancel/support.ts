@@ -1,0 +1,216 @@
+// Support de la suite funcional de CANCELACIÓN (Célula F) — tests/functional/cancel.
+//
+// DB REAL y AISLADA: `cocos_challenge_cancel` en el cluster local
+// (localhost:5433, auth trust), creada con
+// `TEST_DB_NAME=cocos_challenge_cancel npm run test:db:reset` y con self-reset
+// en beforeAll (patrón EXACTO de tests/functional/orders-submit/support.ts
+// de la Célula E, que a su vez sale del de la Célula C).
+//
+// DATABASE_URL se fija ACÁ, a la DB de ESTA suite, antes del primer uso del
+// singleton lazy de src/lib/prisma-client.ts: la app bajo test (los repos
+// Prisma reales de la célula B) NUNCA apunta a la DB de otra célula, aunque
+// el proceso traiga otra variable (p. ej. .env.test → cocos_challenge_test).
+//
+// Dinero (AGENTS.md): los esperados se computan con Decimal construido desde
+// strings y se comparan como Decimal — nunca float.
+
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { Decimal } from "decimal.js";
+import type { Express } from "express";
+import { Pool, type QueryResultRow } from "pg";
+import { buildApp } from "../../../src/http/app.js";
+import { buildCancelRouter } from "../../../src/http/cancel/cancel-router.js";
+import { buildOrdersRouter } from "../../../src/http/orders/orders-router.js";
+import { buildPortfolioRouter } from "../../../src/http/portfolio/portfolio-router.js";
+import { PrismaInstrumentRepository } from "../../../src/infra/prisma/instrument-repository.js";
+import { PrismaMarketdataRepository } from "../../../src/infra/prisma/marketdata-repository.js";
+import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
+import { PrismaPortfolioReadRepository } from "../../../src/infra/prisma/portfolio-read-repository.js";
+import { getPrismaClient } from "../../../src/lib/prisma-client.js";
+import { SEED_INSTRUMENT_ARS_ID } from "../../helpers/fixtures.js";
+
+const execFileAsync = promisify(execFile);
+
+/** DB de ESTA suite (aislada por célula: el orquestador corre en paralelo). */
+export const CANCEL_DB_NAME = "cocos_challenge_cancel";
+export const CANCEL_DB_URL = `postgresql://postgres@localhost:5433/${CANCEL_DB_NAME}`;
+
+// ANTES del primer uso del singleton lazy (patrón orders-submit/support.ts).
+// Se RESTAURA en closeCancelDbPool: el worker de jest se reusa para otros
+// archivos de tests (p. ej. tests/db.smoke.test.ts lee DATABASE_URL vía
+// .env.test y dotenv NO pisa una variable ya presente).
+const PREVIOUS_DATABASE_URL: string | undefined = process.env["DATABASE_URL"];
+process.env["DATABASE_URL"] = CANCEL_DB_URL;
+
+/** Resea cocos_challenge_cancel: migrate deploy + db/seed.sql (idempotente). */
+export const resetCancelDatabase = async (): Promise<void> => {
+  await execFileAsync("bash", ["scripts/test-db-reset.sh"], {
+    cwd: process.cwd(),
+    env: { ...process.env, TEST_DB_NAME: CANCEL_DB_NAME },
+  });
+};
+
+/**
+ * App LOCAL de esta suite (patrón DI de buildApp): el router de cancelación
+ * (Célula F) + el router de orders (Célula E, para crear las órdenes NEW /
+ * FILLED vía POST) + el router de portfolio (Célula C, para leer el efecto
+ * de las reservas desde el test). Repos Prisma reales contra
+ * cocos_challenge_cancel. src/http/server.ts es del orquestador y no se toca.
+ */
+export const buildCancelTestApp = (): Express => {
+  const orders = new PrismaOrderRepository();
+  const portfolioRead = new PrismaPortfolioReadRepository();
+  const instruments = new PrismaInstrumentRepository();
+  const marketdata = new PrismaMarketdataRepository();
+  return buildApp([
+    buildCancelRouter({ orders }),
+    buildOrdersRouter({ orders, portfolioRead, instruments, marketdata }),
+    buildPortfolioRouter({ portfolioRead, marketdata, instruments }),
+  ]);
+};
+
+// ---------------------------------------------------------------------------
+// pg directo (fixtures + asserts de filas) — misma URL, otro pool
+// ---------------------------------------------------------------------------
+
+const pool = new Pool({ connectionString: CANCEL_DB_URL, max: 1 });
+
+/** Cierra el pool de asserts, el Prisma del singleton y RESTORA el env. */
+export const closeCancelDbPool = async (): Promise<void> => {
+  await pool.end();
+  await getPrismaClient().$disconnect();
+  if (PREVIOUS_DATABASE_URL === undefined) {
+    delete process.env["DATABASE_URL"];
+  } else {
+    process.env["DATABASE_URL"] = PREVIOUS_DATABASE_URL;
+  }
+};
+
+const dbQuery = async <T extends QueryResultRow>(
+  text: string,
+  values: readonly unknown[] = [],
+): Promise<T[]> => (await pool.query<T>(text, [...values])).rows;
+
+/** Eventos de auditoría de una orden (eventType + reason + metadata jsonb). */
+export interface CancelOrderEventRow {
+  readonly eventType: string;
+  readonly reason: string | null;
+  /** jsonb → objeto JSON parseado por pg (unknown: se narrowa en el test). */
+  readonly metadata: unknown;
+}
+
+export const fetchCancelOrderEvents = async (
+  orderId: number,
+): Promise<CancelOrderEventRow[]> =>
+  dbQuery<CancelOrderEventRow>(
+    'SELECT "eventType", reason, metadata FROM order_events WHERE orderid = $1 ORDER BY id ASC',
+    [orderId],
+  );
+
+/** Fila de `orders` — columnas EXACTAS del schema migrado (ver Célula D db.ts). */
+export interface CancelOrderRow {
+  readonly id: number;
+  readonly userid: number | null;
+  readonly side: string | null;
+  readonly status: string | null;
+  readonly size: number | null;
+  readonly price: string | null;
+  readonly "filledPrice": string | null;
+  readonly "timeInForce": string;
+  readonly "idempotencyKey": string | null;
+}
+
+export const fetchCancelOrderRow = async (
+  orderId: number,
+): Promise<CancelOrderRow | undefined> =>
+  (
+    await dbQuery<CancelOrderRow>(
+      `SELECT id, userid, side, status, size, price, "filledPrice", "timeInForce", "idempotencyKey"
+         FROM orders WHERE id = $1`,
+      [orderId],
+    )
+  )[0];
+
+/**
+ * Fila de orders con status FILLED: movió cash/acciones. Fixture de estado
+ * (CASH_IN) estilo legacy: la ejecución va en `price`
+ * (COALESCE(filledPrice, price) del mapper de B la lee igual).
+ */
+const insertTestOrder = async (order: {
+  readonly userId: number;
+  readonly instrumentId: number;
+  readonly side: string;
+  readonly size: number;
+  readonly priceArs: string;
+}): Promise<void> => {
+  await dbQuery(
+    `INSERT INTO orders
+       (instrumentid, userid, side, type, status, size, price, datetime, "timeInForce")
+     VALUES ($1, $2, $3, 'MARKET', 'FILLED', $4, $5, now(), 'GTC')`,
+    [order.instrumentId, order.userId, order.side, order.size, order.priceArs],
+  );
+};
+
+/** Usuario fresco (sin órdenes) para aislar cada test — fixture de estado. */
+export const insertTestUser = async (email: string): Promise<number> => {
+  const rows = await dbQuery<{ id: number }>(
+    "INSERT INTO users (email) VALUES ($1) RETURNING id",
+    [email],
+  );
+  const id = rows[0]?.id;
+  if (id === undefined) {
+    throw new Error("INSERT de users no devolvió id (fixture rota).");
+  }
+  return id;
+};
+
+/** CASH_IN FILLED (estilo legacy: price = ejecución) ⇒ cash += amountArs. */
+export const insertTestCashIn = async (
+  userId: number,
+  amountArs: string,
+): Promise<void> => {
+  await insertTestOrder({
+    userId,
+    instrumentId: SEED_INSTRUMENT_ARS_ID, // ARS: el instrumento del cash (docs §2)
+    side: "CASH_IN",
+    size: 1,
+    priceArs: amountArs,
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Dinero: helpers de esperados (Decimal desde strings, nunca float)
+// ---------------------------------------------------------------------------
+
+/** size (acciones) × precio (string ARS) → string ARS exacto con 2 decimales. */
+export const costArs = (size: number, priceArs: string): string =>
+  new Decimal(String(size))
+    .mul(new Decimal(priceArs))
+    .toDecimalPlaces(2)
+    .toFixed(2);
+
+/** Cash esperado después de un delta: before ± delta (Decimal, nunca float). */
+export const expectedCashAfter = (
+  cashBefore: unknown,
+  deltaArs: string,
+): string => {
+  if (typeof cashBefore !== "number") {
+    throw new Error(
+      `GET /portfolio no devolvió cash numérico (llegó ${String(cashBefore)}).`,
+    );
+  }
+  return new Decimal(String(cashBefore))
+    .plus(new Decimal(deltaArs))
+    .toFixed(2);
+};
+
+/** Assert de dinero serializado: Decimal(String(actual)) === Decimal(expected). */
+export const expectMoneyArs = (actual: unknown, expectedArs: string): void => {
+  if (typeof actual !== "number") {
+    throw new Error(
+      `Se esperaba money serializado (number) igual a ${expectedArs}; llegó: ${String(actual)}`,
+    );
+  }
+  expect(new Decimal(String(actual)).toFixed(2)).toBe(expectedArs);
+};
