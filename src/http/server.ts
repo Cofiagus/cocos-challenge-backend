@@ -2,25 +2,27 @@
 // integradora de cada fase editan este archivo.
 //
 // FASE 2 (Célula C): portfolio + instruments con los repos Prisma reales.
-// FASE 3 (Célula E): orders/submitOrder — se monta al mergeear esa fase
-// (el router aún no existe; mientras, /api/users/:id/orders responde 404,
-// que es el estado rojo esperado por la suite funcional de la Célula D).
+// FASE 3 (Célula E): orders/submitOrder — montado tras su merge.
+// FASE 4 (Células F/G): cancel + transfers — pendientes.
 
 import { buildApp } from "./app.js";
 import { buildPortfolioRouter } from "./portfolio/portfolio-router.js";
 import { buildInstrumentsRouter } from "./instruments/instruments-router.js";
+import { buildOrdersRouter } from "./orders/orders-router.js";
 import { PrismaInstrumentRepository } from "../infra/prisma/instrument-repository.js";
 import { PrismaMarketdataRepository } from "../infra/prisma/marketdata-repository.js";
 import { PrismaPortfolioReadRepository } from "../infra/prisma/portfolio-read-repository.js";
+import { PrismaOrderRepository } from "../infra/prisma/order-repository.js";
+
+const portfolioRead = new PrismaPortfolioReadRepository();
+const instruments = new PrismaInstrumentRepository();
+const marketdata = new PrismaMarketdataRepository();
+const orders = new PrismaOrderRepository();
 
 export const serverApp = buildApp([
-  buildPortfolioRouter({
-    portfolioRead: new PrismaPortfolioReadRepository(),
-    marketdata: new PrismaMarketdataRepository(),
-    instruments: new PrismaInstrumentRepository(),
-  }),
-  buildInstrumentsRouter({
-    instruments: new PrismaInstrumentRepository(),
-    marketdata: new PrismaMarketdataRepository(),
-  }),
+  buildPortfolioRouter({ portfolioRead, marketdata, instruments }),
+  buildInstrumentsRouter({ instruments, marketdata }),
+  // SubmitOrderDeps: el precio de referencia sale de marketdata (repo);
+  // MarketdataPriceSource queda para el matching de evolución, no del submit.
+  buildOrdersRouter({ orders, portfolioRead, instruments, marketdata }),
 ]);
