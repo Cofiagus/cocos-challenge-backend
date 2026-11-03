@@ -16,6 +16,21 @@ import type {
 } from "./enums.js";
 
 // ---------------------------------------------------------------------------
+// Canal de transacción
+// ---------------------------------------------------------------------------
+
+/**
+ * Canal de transacción OPACO (DECISIONS.md: validación + inserción en una
+ * transacción con lock por usuario; auditoría en la misma tx que la mutación).
+ * La infra (célula B) define el tipo real (cliente Prisma tx) y hace el
+ * narrowing; la capa de aplicación SOLO lo recibe de withUserTransaction y lo
+ * re-pasa a los métodos de repositorio. Nunca se construye en dominio/app.
+ */
+export interface TransactionContext {
+  readonly __brand: "TransactionContext";
+}
+
+// ---------------------------------------------------------------------------
 // Insumos de cálculo (proyecciones de orders — docs/database.md §3)
 // ---------------------------------------------------------------------------
 
