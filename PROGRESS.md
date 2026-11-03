@@ -6,8 +6,19 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 ## Estado actual
 
 - **FASE 0** (Célula 0 — entorno): **DONE — merge `b590dfb`, GATE 0 verificado por el orquestador** (typecheck/lint/test verde, `test:db:reset` idempotente, Prisma CLI 7.10.1 = client 7.10.1).
-- **FASE 1** (Célula 0 — contratos): reporte DONE (branch `fase-1-contratos`, 5 commits, GATE 1 verde re-corrido por el orquestador: validate + typecheck + lint + test 4/4 + reset con columnas nuevas). **Revisión de contratos del orquestador: 1 gap → corrección delegada** (en curso): faltaba canal de transacción en los ports para expresar DECISIONS.md (tx única + lock por usuario + auditoría en la misma tx). Mecanismo decidido: `TransactionContext` opaco + `withUserTransaction` en `OrderRepository` + `tx?` en `PortfolioReadRepository`. Merge pendiente de esa corrección.
-- FASE 2–5: pendientes (FASE 2 se lanza tras el merge de FASE 1 corregida).
+- **FASE 1** (Célula 0 — contratos): **DONE — merge `86bc9c3`** (5 commits + corrección tx `bf4b992`). GATE 1 re-corrido por el orquestador: `prisma validate` + typecheck + lint + tests 4/4 + `test:db:reset` idempotente con columnas nuevas. `DECISIONS.md` verificado byte-exacto contra el reference.
+- **FASE 2** (paralelo): **A (dominio), B (infra), D (tests rojos) lanzadas** en worktrees propios (`../coccb-wt-{a,b,d}`); **C (endpoints de lectura) staggered**: depende de las funciones de dominio de A (`src/domain/portfolio/**` implementa las firmas que hoy hacen `throw`) — se lanza tras el merge de A con `main` actualizado. Merge order del plan (A→B→C→D) lo anticipa.
+- FASE 3–5: pendientes.
+
+### Scaffolding del orquestador para FASE 2 (`5fbfbbc`)
+
+- `jest.config.js`: `moduleNameMapper` `.js`→`.ts` (jest-resolve no mapea extensiones ESM).
+- `src/http/app.ts`: `buildApp(routers)` — composición por inyección: cada slice exporta su Router factory con deps (ports) inyectadas; los tests componen localmente y nadie compite por un archivo compartido.
+- `src/http/server.ts`: `serverApp = buildApp([])` — stub que responde 404 en todo, para que los tests rojos de D fallen por 404 y no por setup. La composición real la monta la célula integradora de cada fase.
+
+### Interpretación firmada por el orquestador (derivada de DECISIONS.md, valida el modelo de reservas)
+
+- Validación de fondos de BUY (MARKET y LIMIT) contra **cash disponible** (`cashSettled − cashReserved`), y de SELL contra **acciones vendibles** (`posición − reservadas`): las reservas son compromisos reales ("cash = cashSettled − cashReserved"; CASH_OUT valida contra lo disponible). El test de "dos órdenes simultáneas que juntas exceden el cash ⇒ una FILLED y una REJECTED" se escribe contra esta lectura.
 
 ### Interpretaciones DECISIONS fijadas en contrato por la Célula 0 (aceptadas por el orquestador)
 
