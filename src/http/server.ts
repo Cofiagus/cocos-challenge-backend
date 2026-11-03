@@ -2,13 +2,15 @@
 // integradora de cada fase editan este archivo.
 //
 // FASE 2 (Célula C): portfolio + instruments con los repos Prisma reales.
-// FASE 3 (Célula E): orders/submitOrder — montado tras su merge.
-// FASE 4 (Células F/G): cancel + transfers — pendientes.
+// FASE 3 (Célula E): orders/submitOrder.
+// FASE 4 (Células F/G): cancel (DELETE /api/orders/:orderId) + transfers.
 
 import { buildApp } from "./app.js";
 import { buildPortfolioRouter } from "./portfolio/portfolio-router.js";
 import { buildInstrumentsRouter } from "./instruments/instruments-router.js";
 import { buildOrdersRouter } from "./orders/orders-router.js";
+import { buildCancelRouter } from "./cancel/cancel-router.js";
+import { buildTransfersRouter } from "./transfers/transfers-router.js";
 import { PrismaInstrumentRepository } from "../infra/prisma/instrument-repository.js";
 import { PrismaMarketdataRepository } from "../infra/prisma/marketdata-repository.js";
 import { PrismaPortfolioReadRepository } from "../infra/prisma/portfolio-read-repository.js";
@@ -25,4 +27,6 @@ export const serverApp = buildApp([
   // SubmitOrderDeps: el precio de referencia sale de marketdata (repo);
   // MarketdataPriceSource queda para el matching de evolución, no del submit.
   buildOrdersRouter({ orders, portfolioRead, instruments, marketdata }),
+  buildCancelRouter({ orders }),
+  buildTransfersRouter({ orders, portfolioRead, instruments }),
 ]);
