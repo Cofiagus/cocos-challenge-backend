@@ -1,0 +1,66 @@
+### UC-5 — Transferencias (POST /api/users/:userId/transfers)
+
+@base_url = http://localhost:3000
+
+### Depósito CASH_IN — 201 FILLED inmediata
+# Transferencia = orden del instrumento MONEDA del cash (ARS id 66) con price 1.00 y
+# size = pesos. Respuesta real verificada: CASH_IN 123.45 acredita size 123 (entero en
+# pesos; el residual 0.45 queda en la metadata del evento, no acreditado).
+POST {{base_url}}/api/users/2/transfers
+Content-Type: application/json
+
+{
+  "amountArs": 123.45,
+  "side": "CASH_IN"
+}
+
+### Extracción CASH_OUT que excede el disponible — 201 REJECTED INSUFFICIENT_FUNDS
+# Respuesta real verificada: size = el monto pedido (1000000, no 0). User 2 sin cash.
+POST {{base_url}}/api/users/2/transfers
+Content-Type: application/json
+
+{
+  "amountArs": 1000000,
+  "side": "CASH_OUT"
+}
+
+### Extracción CASH_OUT contra el DISPONIBLE (no el settled) — 201 REJECTED
+# User 1 (seed): settled 753000 pero disponible 627500 (reservado 125500) ⇒ 700000
+# > disponible ⇒ REJECTED. Elegido para que también rechace DESPUÉS de correr 03/04
+# contra la misma base (esas corridas debitan cash y liberan la reserva de la orden 5,
+# dejando el disponible por debajo de 700000 de todos modos).
+POST {{base_url}}/api/users/1/transfers
+Content-Type: application/json
+
+{
+  "amountArs": 700000,
+  "side": "CASH_OUT"
+}
+
+### Monto menor a un peso — 201 REJECTED ZERO_SIZE
+# floor(0.50 / 1.00) = 0 ⇒ size 0, sub-caso del sizing de DECISIONS.md.
+POST {{base_url}}/api/users/2/transfers
+Content-Type: application/json
+
+{
+  "amountArs": 0.50,
+  "side": "CASH_IN"
+}
+
+### Monto inválido — 400 VALIDATION_ERROR (sin crear orden)
+POST {{base_url}}/api/users/2/transfers
+Content-Type: application/json
+
+{
+  "amountArs": -10,
+  "side": "CASH_IN"
+}
+
+### Usuario inexistente — 404 USER_NOT_FOUND
+POST {{base_url}}/api/users/999/transfers
+Content-Type: application/json
+
+{
+  "amountArs": 100,
+  "side": "CASH_IN"
+}
