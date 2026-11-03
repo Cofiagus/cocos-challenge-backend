@@ -5,6 +5,14 @@ PostgreSQL 18.6 (Neon, `us-east-2`) · base `neondb` · esquema `public` · ~7.8
 Este documento describe **qué hay en la base** y **cómo iterar contra ella sin perder tiempo**.
 Si algo cambia en la base, se regenera el snapshot con `make db-snapshot` (ver §6).
 
+> ⚠️ **Snapshot legacy vs esquema vigente.** Este documento describe el **snapshot generado**
+> (`db/schema.sql` + `db/seed.sql`), que es la fuente de los DATOS del challenge. El **esquema con
+> el que corre la app** es el **MIGRADO** (`prisma/migrations/**`): agrega a `orders` las columnas
+> `"timeInForce"`, `filledPrice`, `filledAt`, `idempotencyKey` y crea la tabla `order_events`
+> (auditoría). El seed carga **sin ediciones** sobre el esquema migrado (las filas viejas quedan
+> en `GTC`/`filledPrice NULL`). Para levantar una base de la app: `prisma migrate deploy` +
+> `db/seed.sql` — **no** `make db-load` (aplica el snapshot legacy). Ver §2 y §6.
+
 ---
 
 ## 1. Panorama
@@ -80,11 +88,38 @@ Sin `UNIQUE (instrumentid, date)` → nada impide duplicar una vela.
 | `instrumentid` | `integer`                  | sí   | → `instruments(id)` |
 | `userid`       | `integer`                  | sí   | → `users(id)` |
 | `size`         | `integer`                  | sí   | cantidad (entera, nunca fraccionaria) |
-| `price`        | `numeric(10,2)`            | sí   | **precio de ejecución**, no solo el límite |
+| `price`        | `numeric(10,2)`            | sí   | **límite enviado** (`LIMIT`); `null` en `MARKET` creado por la app |
 | `type`         | `varchar(10)`              | sí   | `MARKET` \| `LIMIT` |
 | `side`         | `varchar(10)`              | sí   | `BUY` \| `SELL` \| `CASH_IN` \| `CASH_OUT` |
 | `status`       | `varchar(20)`              | sí   | `NEW` \| `FILLED` \| `CANCELLED` \| `REJECTED` |
 | `datetime`     | `timestamp` (sin tz)       | sí   | hora local del mercado |
+
+**Columnas del esquema MIGRADO** (no están en el snapshot legacy — `prisma/migrations/**`):
+
+| Columna         | Tipo        | Nulo | Default | Notas |
+| --------------- | ----------- | ---- | ------- | ----- |
+| `"timeInForce"` | `TimeInForce` (enum) | NO | `'GTC'` | toda orden conoce su TIF; las filas del seed quedan en `GTC`; se ignora para `MARKET` |
+| `filledPrice`   | `numeric(10,2)` | sí | — | **precio de ejecución** si `FILLED`; `NULL` si no ejecutó |
+| `filledAt`      | `timestamp(6)` | sí | — | cuándo ejecutó |
+| `idempotencyKey` | `varchar` | sí | — | claim idempotente; `UNIQUE(userid, idempotencyKey)` (múltiples `NULL` permitidos) |
+
+Y la tabla nueva de **auditoría append-only**:
+
+```
+order_events(id, orderid → orders(id), eventType, reason NULL, metadata jsonb NULL, createdAt)
+-- eventType: ACCEPTED | REJECTED | FILLED | CANCELLED
+-- reason:    INSUFFICIENT_FUNDS | INSUFFICIENT_POSITION | ZERO_SIZE | NO_PRICE | NO_IMMEDIATE_MATCH
+-- índice: order_events(orderid)
+```
+
+> **`price` vs `filledPrice` — la decisión del build.** `price` = **límite enviado** (`null` en un
+> `MARKET` de la app, que no lleva límite); `filledPrice` = **precio de ejecución**. Así el límite
+> original **no se pierde** al llenar la orden.
+>
+> **El caso legacy:** las filas `FILLED` del seed fueron copiadas del dataset original, que tenía
+> una sola columna `price` con el precio de ejecución. Esas filas llevan la ejecución en `price`
+> y `filledPrice NULL`; el mapper de lectura aplica `filledPrice ?? price`, así el snapshot carga
+> tal cual sobre el esquema migrado y la app ve la ejecución correcta en las filas viejas.
 
 Combinaciones presentes en el seed (11 órdenes, todas del user 1):
 
@@ -98,11 +133,6 @@ Combinaciones presentes en el seed (11 órdenes, todas del user 1):
 | SELL      | MARKET   | REJECTED    | 1 |
 | CASH_IN   | MARKET   | FILLED      | 1 |
 | CASH_OUT  | MARKET   | FILLED      | 1 |
-
-**`price` se persiste al ejecutar.** Una orden `LIMIT` `NEW` guarda el precio límite; una `MARKET`
-se guarda con el precio de ejecución que devolvió el mercado. No hay columna aparte para
-"precio límite vs precio ejecutado": al llenar una `LIMIT` se sobrescribe `price`.
-Si necesitás conservar ambos, es una **decisión de diseño pendiente** (ver §7).
 
 `datetime` es `timestamp without time zone`: el seed está en hora local del mercado
 (2023-07-12 y 2023-07-13, entre 12:11 y 16:11).
@@ -142,8 +172,9 @@ Resultado verificado con el seed (user 1):
 
 | Concepto           | Valor                        |
 | ------------------ | ---------------------------- |
-| Cash               | 753.000,00                   |
-| Cash comprometido  | 125.500,00 (LOMA 35.500 + BMA 90.000, ambas `NEW`) |
+| Cash settled       | 753.000,00                   |
+| Cash reservado     | 125.500,00 (LOMA 35.500 + BMA 90.000, ambas `NEW`) |
+| **Cash disponible** | **627.500,00** = settled − reservado |
 | PAMP               | 40 @ 930,00 → 37.034 (mark 925,85) |
 | METR               | 500 @ 250,00 → 114.750 (mark 229,50) |
 | BMA                | **−10** @ 1.540,00 → −15.028 ⚠️ |
@@ -152,8 +183,21 @@ Resultado verificado con el seed (user 1):
 `db/schema.sql` + `db/seed.sql` en un PostgreSQL 18 limpio y comparando contra el resultado
 de Neon.
 
-**Sólo `status = 'FILLED'` mueve plata.** `NEW` reserva (decisión tuya si se muestra como
-"cash comprometido"), `CANCELLED` y `REJECTED` no afectan nada.
+**Sólo `status = 'FILLED'` mueve plata.** `NEW` **reserva** (decisión del build): BUY `NEW`
+reserva `limit × size` de cash y SELL `NEW` reserva `size` acciones — **sin tabla de reservas**,
+se derivan de las `NEW` al vuelo:
+
+```sql
+-- RESERVAS de cash de un usuario (órdenes NEW de compra)
+SELECT coalesce(sum(size * price), 0) AS cash_reserved
+FROM   orders
+WHERE  userid = $1 AND status = 'NEW' AND side = 'BUY';
+```
+
+La API reporta el cash **disponible** y el reservado **por separado** (`cash` = settled −
+reservado, `reservedCash`): los valores de referencia verificados contra la API son
+`cash = 627.500`, `reservedCash = 125.500` y `totalAccountValue = 764.256` (cash + Σ
+`marketValue` de las posiciones con precio). `CANCELLED` y `REJECTED` no afectan nada.
 
 Query reutilizable con precio de mercado y P&L: `db/queries/portfolio.sql`.
 
@@ -243,46 +287,70 @@ Neon (remoto, ~200ms)  --make db-snapshot-->  db/schema.sql + db/seed.sql  --mak
 
 ```bash
 make db-up         # levanta Postgres 16 local en docker (puerto 5433)
-make db-load       # crea schema + carga seed
-make db-reset      # drop + load, para volver al estado del seed
+make db-load       # crea schema LEGACY + carga seed (ver warning abajo)
+make db-reset      # drop + load, para volver al estado del dataset original
 make psql          # abre psql contra la base local
 make prices        # corre db/queries/portfolio.sql para el user 1
 
 # re-baja schema+datos desde Neon (necesita NEON_DATABASE_URL, ver .env.example)
-export NEON_DATABASE_URL="postgresql://neondb_owner:...@ep-billowing-dawn-b4kamvr4.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
+export NEON_DATABASE_URL="postgresql://neondb_owner:***@ep-billowing-dawn-b4kamvr4.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
 make db-snapshot
 ```
+
+> ⚠️ **`make db-load` NO sirve para levantar una base de la app.** Aplica `db/schema.sql` = el
+> **snapshot legacy** (sin `"timeInForce"`/`filledPrice`/`filledAt`/`idempotencyKey` ni
+> `order_events`) — la app no funciona contra ese esquema. Queda para reproducir el dataset
+> original de referencia. **Para una base de la app (dev/test), el flujo verificado es:**
+>
+> ```bash
+> psql postgresql://postgres@localhost:5433/postgres -c 'DROP DATABASE IF EXISTS cocos_challenge_dev'
+> psql postgresql://postgres@localhost:5433/postgres -c 'CREATE DATABASE cocos_challenge_dev TEMPLATE template0'
+> DATABASE_URL=postgresql://postgres@localhost:5433/cocos_challenge_dev npx prisma migrate deploy
+> psql postgresql://postgres@localhost:5433/cocos_challenge_dev -v ON_ERROR_STOP=1 -q -f db/seed.sql
+> ```
+>
+> (quickstart completo en el `README.md`). Sin docker: contra el cluster userspace
+> `localhost:5433` — el flujo no depende de docker, sólo de la `DATABASE_URL`.
 
 > El snapshot se generó y se **validó cargándolo en un PostgreSQL 18 limpio**: 4/66/11/126
 > filas, `schema.sql` y `seed.sql` cargan sin errores, `db/indexes.sql` aplica sin conflictos
 > y `db/queries/portfolio.sql` devuelve exactamente los valores de §3.
 
-`.env` local: `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/cocos_challenge`
+`.env` local: `DATABASE_URL=postgresql://postgres:***@localhost:5433/cocos_challenge`
 
 Reglas:
 
 - `db/schema.sql` y `db/seed.sql` **son generados**, no se editan a mano.
-- Si el challenge pide "usar la base tal cual", la verdad es el snapshot; Neon se usa para
-  la demo final y para verificar que las migraciones corren contra la base real.
-- Para tests de integración: levantar el Postgres local y cargar `db/schema.sql` en un
-  template (`CREATE DATABASE test TEMPLATE cocos`) — tarda milisegundos.
+- Si el challenge pide "usar la base tal cual", la verdad de los DATOS es el snapshot (carga
+  sin ediciones sobre el esquema migrado); Neon se usa para la demo final y para verificar que
+  las migraciones corren contra la base real.
+- Para tests de integración: **`npm run test:db:reset`** (recrea `cocos_challenge_test` desde la
+  **migración versionada** + seed, sin docker y sin template). El enfoque de FASE 0 con
+  template cargado de `db/schema.sql` quedó obsoleto por lo mismo que `make db-load`.
 
 ---
 
-## 7. Decisiones de diseño pendientes
+## 7. Decisiones de diseño (resueltas en el build)
 
-1. **Cash reservado**: ¿las órdenes `LIMIT NEW` descuentan del cash disponible? El seed no lo
-   resuelve. Si sí, la proyección necesita un `status IN ('NEW','FILLED')` para reservas y
-   `FILLED` para el saldo real. Recomendado: mostrarlo separado (`cash` + `cashReserved`).
-2. **Concurrencia al debitar cash**: derivar de `orders` hace que el débito sea un `INSERT`
-   bajo `SERIALIZABLE`, o `SELECT ... FOR UPDATE` sobre `users`. Sin lock vas a permitir
-   sobre-giro con dos requests concurrentes. Es el punto más delicado del challenge.
-3. **Precio límite vs ejecución**: hoy una sola columna `price`. Al llenar una `LIMIT` se pierde
-   el límite original. Agregar `limitprice` o un `executions` aparte.
-4. **Precio de un `MARKET`**: no hay motor de matching. Opciones: precio de la orden entrante,
-   `marketdata.close` del último día, o un mock. El seed sugiere que **el precio viene de afuera**.
-5. **Posiciones negativas**: falta la regla dura "no vender lo que no tenés" a nivel esquema
-   (no hay CHECK posible; se resuelve en la transacción).
+Las que este documento dejó "pendientes" al inicio quedaron resueltas — el detalle con el
+porqué vive en `README.md` → *Supuestos y decisiones*:
+
+1. **Cash reservado — RESUELTO:** las `LIMIT NEW` **reservan** (`limit × size` en BUY). Se
+   muestra **separado**: `cash` = disponible (`settled − reservado`) y `reservedCash` — ver §3.
+   `CASH_OUT` y los `BUY` validan contra el **disponible**.
+2. **Concurrencia al debitar cash — RESUELTO:** transacción con **`pg_advisory_xact_lock(userId)`**
+   por usuario (validación + inserción en la misma tx): dos submits concurrentes que juntos
+   exceden el cash dejan una `FILLED` y una `REJECTED` (testeado).
+3. **Precio límite vs ejecución — RESUELTO:** `price` = **límite enviado**, `filledPrice` = **precio
+   de ejecución** (columna nueva de la migración); las filas legacy del seed leen con el
+   `COALESCE` del mapper — ver §2.
+4. **Precio de un `MARKET` — RESUELTO:** el **`close` de la última vela por `date`** de
+   `marketdata` (no hay motor de matching; no se valida contra el high/low del día — ver §4.4).
+   Sin vela → `REJECTED NO_PRICE` persistida.
+5. **Posiciones negativas — RESUELTO:** no hay CHECK posible en el esquema; se resuelve en la
+   transacción: `SELL` valida contra **posición FILLED − acciones reservadas**. La negativa
+   heredada del seed (BMA −10) se **lista tal cual** (§4.1) y la validación impediría que entre
+   de ahora en adelante.
 
 ---
 

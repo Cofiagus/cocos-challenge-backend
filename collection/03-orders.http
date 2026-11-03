@@ -1,0 +1,203 @@
+### UC-3 — Envío de órdenes (POST /api/users/:userId/orders)
+
+@base_url = http://localhost:3000
+
+### MARKET BUY con size — 201 FILLED al precio de referencia
+# User 1 (seed: cash disponible 627500). Respuesta real verificada: price null (no lleva
+# límite), filledPrice = close de la última vela (PAMP 925.85), FILLED en la misma transacción.
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 10
+}
+
+### MARKET BUY con amountArs (monto total en pesos) — 201 FILLED
+# size = floor(amountArs / precio de referencia) = floor(1000 / 925.85) = 1; el residuo queda como cash.
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "MARKET",
+  "amountArs": 1000
+}
+
+### LIMIT GTC (default) — 201 NEW (siempre queda resting)
+# Reserva limit × size de cash (10 × 900). No se llena al enviar.
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 10,
+  "price": 900
+}
+
+### MARKET sin fondos (user 2 del seed no tiene cash) — 201 REJECTED INSUFFICIENT_FUNDS
+# Respuesta real verificada. El rechazo del negocio SE PERSISTE (201), no es error HTTP.
+POST {{base_url}}/api/users/2/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 100
+}
+
+### LIMIT sin price — 400 VALIDATION_ERROR (no crea orden)
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 10
+}
+
+### MARKET con price — 400 VALIDATION_ERROR (MARKET se ejecuta a la referencia)
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 10,
+  "price": 900
+}
+
+### Instrumento MONEDA (ARS, id 66) — 400 INSTRUMENT_NOT_OPERABLE
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "instrumentId": 66,
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 10
+}
+
+### Usuario inexistente — 404 USER_NOT_FOUND
+POST {{base_url}}/api/users/999/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 1
+}
+
+### Instrumento inexistente — 404 INSTRUMENT_NOT_FOUND
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "NOPE",
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 1
+}
+
+### Sin marketdata (PGR) — 201 REJECTED NO_PRICE
+# MARKET necesita el precio de referencia; PGR no tiene velas.
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "PGR",
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 10
+}
+
+### IOC que CRUZA (límite 930 >= ref 925.85) — 201 FILLED con mejora a 925.85
+# BUY paga min(límite, referencia). Respuesta real verificada.
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "LIMIT",
+  "timeInForce": "IOC",
+  "size": 10,
+  "price": 930
+}
+
+### IOC que NO cruza (límite 100 < ref 925.85) — 201 CANCELLED NO_IMMEDIATE_MATCH
+# Evaluación única contra la referencia; sin fills parciales.
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "LIMIT",
+  "timeInForce": "IOC",
+  "size": 10,
+  "price": 100
+}
+
+### Idempotencia — mismo payload, misma key (los tres con esta key idéntica salvo `size`)
+# 1) Crea la orden (acá REJECTED por fondos — user 2 no tiene cash). Anotá el `id`.
+# 2) MISMA key + MISMO payload → 201 con la orden ORIGINAL (mismo id, sin nuevo evento).
+# 3) MISMA key + OTRO payload (size 2) → 409 IDEMPOTENCY_CONFLICT.
+POST {{base_url}}/api/users/2/orders
+Content-Type: application/json
+Idempotency-Key: demo-key-1
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 1,
+  "price": 100
+}
+
+###
+POST {{base_url}}/api/users/2/orders
+Content-Type: application/json
+Idempotency-Key: demo-key-1
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 1,
+  "price": 100
+}
+
+###
+POST {{base_url}}/api/users/2/orders
+Content-Type: application/json
+Idempotency-Key: demo-key-1
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 2,
+  "price": 100
+}
+
+### Header idempotency inválido (vacío) — 400 VALIDATION_ERROR
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+Idempotency-Key:
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "MARKET",
+  "size": 1
+}
