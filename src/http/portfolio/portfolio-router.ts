@@ -86,10 +86,17 @@ export const buildPortfolioRouter = (deps: PortfolioRouterDeps): Router => {
       }
 
       // Lecturas del port: movimientos FILLED y órdenes NEW (reservas).
-      const [movements, restingOrders] = await Promise.all([
-        deps.portfolioRead.listSettledMovements(userId),
-        deps.portfolioRead.listRestingOrders(userId),
-      ]);
+      // Secuenciales (no Promise.all): Prisma no documenta queries paralelas
+      // sobre una misma sesión/tx interactiva, y dos SELECT no ganan nada
+      // medible en paralelo.
+      // Eventual consistency aceptable: son queries INDEPENDIENTES — un
+      // submit que comitee entre ambas produce un snapshot no puntual
+      // (cash descontado sin su reserva). Este endpoint es informativo; los
+      // writes se validan dentro de withUserTransaction (lock por usuario),
+      // así que esto NO habilita double-spend. No se envuelven en una tx
+      // (cambiaría el comportamiento de lectura).
+      const movements = await deps.portfolioRead.listSettledMovements(userId);
+      const restingOrders = await deps.portfolioRead.listRestingOrders(userId);
 
       // UN batch de snapshots de los instrumentos que PUEDEN tener
       // posición (BUY/SELL FILLED): getLatestSnapshots del port, sin N+1.
@@ -117,6 +124,9 @@ export const buildPortfolioRouter = (deps: PortfolioRouterDeps): Router => {
 
       // Serialización de las posiciones: ticker/name del catálogo
       // (PositionPnl sólo trae instrumentId).
+      // N+1 acotado: N = posiciones del usuario (seed: 3). Si el catálogo o
+      // el usuario crecen, el fix es un batch findByIds en el port de
+      // instrumentos (cambio de port no pedido acá).
       const serializedPositions: PortfolioPosition[] = await Promise.all(
         positions.map(async (position) => {
           const instrument = await deps.instruments.findById(
