@@ -87,8 +87,8 @@ describe("contrato OpenAPI", () => {
 
   it("D7 — el espejo de wire de dinero equivale al schema real", () => {
     const samples: readonly unknown[] = [
-      0, 0.25, 100, -5, 1.005, "0.1", "100.50", " 7 ", "0", "-3", "1e3", "abc", "", "  ", null,
-      true, [1], { a: 1 }, NaN, Infinity, "12,5",
+      0, 0.25, 100, -5, 1.005, 100.005, "0.1", "100.50", " 7 ", "0", "-3", "1e3", "abc", "",
+      "  ", null, true, [1], { a: 1 }, NaN, Infinity, "NaN", "Infinity", "-Infinity", "12,5",
     ];
     for (const sample of samples) {
       expect({

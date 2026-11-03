@@ -87,9 +87,15 @@
                             "type": "boolean"
                           },
                           "totalReturnPct": {
-                            "type": [
-                              "number",
-                              "null"
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "description": "Porcentaje en puntos (2 decimales).",
+                                "multipleOf": 0.01
+                              },
+                              {
+                                "type": "null"
+                              }
                             ]
                           }
                         },

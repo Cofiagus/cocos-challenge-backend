@@ -17,46 +17,54 @@ import {
   TransferSideSchema,
 } from "../../src/contracts/index.js";
 
-const parsesAsDecimal = (value: string): boolean => {
+/**
+ * Cota de almacenamiento espejo de src/contracts/money.ts (MAX_STORED_ARSS):
+ * numeric(10,2). El espejo debe rechazar lo mismo que el schema real en el
+ * cable (tests/docs/openapi.test.ts D7), incluida la cota de 2 decimales y
+ * de |monto| ≤ 99999999.99 que el borde de entrada aplica desde el fix del
+ * análisis del PR #2.
+ */
+const MAX_STORED_ARSS = new Decimal("99999999.99");
+
+/** Decimal desde el cable (número JSON o string), undefined si no parsea. */
+const moneyFromWire = (value: number | string): Decimal | undefined => {
   try {
-    void new Decimal(value.trim());
-    return true;
+    return new Decimal(typeof value === "number" ? String(value) : value.trim());
   } catch {
-    return false;
+    return undefined;
   }
+};
+
+/** Mismo dominio que ArsInputSchema: finito, ≤2 decimales, |monto| acotado. */
+const withinStorageDomain = (value: number | string): boolean => {
+  const amount = moneyFromWire(value);
+  return (
+    amount !== undefined &&
+    amount.isFinite() &&
+    amount.decimalPlaces() <= 2 &&
+    amount.abs().lessThanOrEqualTo(MAX_STORED_ARSS)
+  );
 };
 
 /** Monto ARS en el cable: número JSON o string decimal. */
 export const ArsWireSchema = z
-  .union([
-    z.number().refine((value) => Number.isFinite(value), {
-      message: "Se espera un número finito.",
-    }),
-    z.string().refine(parsesAsDecimal, {
-      message: "Se espera un decimal, por ejemplo \"1500.25\".",
-    }),
-  ])
+  .union([z.number(), z.string()])
+  .refine(withinStorageDomain, {
+    message:
+      "Se espera un número o string decimal finito, con a lo sumo 2 decimales y |monto| ≤ 99999999.99.",
+  })
   .meta({ description: "Monto ARS: número JSON o string decimal (nunca float en cálculo)." });
-
-const greaterThanZero = (value: number | string): boolean => {
-  if (typeof value === "number") {
-    return Number.isFinite(value) && new Decimal(String(value)).greaterThan(0);
-  }
-  if (!parsesAsDecimal(value)) return false;
-  return new Decimal(value.trim()).greaterThan(0);
-};
 
 /** Monto ARS estrictamente positivo (amountArs, price). */
 export const PositiveArsWireSchema = z
-  .union([
-    z.number().refine((value) => Number.isFinite(value), {
-      message: "Se espera un número finito.",
-    }),
-    z.string().refine(parsesAsDecimal, {
-      message: "Se espera un decimal, por ejemplo \"1500.25\".",
-    }),
-  ])
-  .refine(greaterThanZero, { message: "El monto debe ser mayor que 0." })
+  .union([z.number(), z.string()])
+  .refine(
+    (value) => {
+      const amount = moneyFromWire(value);
+      return withinStorageDomain(value) && amount !== undefined && amount.greaterThan(0);
+    },
+    { message: "El monto debe ser mayor que 0 (≤2 decimales, ≤ 99999999.99)." },
+  )
   .meta({ description: "Monto ARS > 0: número JSON o string decimal." });
 
 /**
