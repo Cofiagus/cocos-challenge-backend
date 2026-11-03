@@ -55,7 +55,17 @@ export interface OrderRepository {
     event: OrderEventDraft,
     tx: TransactionContext,
   ) => Promise<OrderEventRecord>;
-  readonly findById: (orderId: number) => Promise<OrderRecord | null>;
+  /**
+   * Fila de orders por id. Sin tx: lectura suelta del cancel (resuelve el
+   * 404 y el dueño del lock ANTES de abrir la transacción). Con tx: releer
+   * DENTRO de la misma ventana de la transacción (el status del mensaje
+   * 422 del cancel es el vigente al fallar el guard, no el de una lectura
+   * previa que pudo quedar vieja).
+   */
+  readonly findById: (
+    orderId: number,
+    tx?: TransactionContext,
+  ) => Promise<OrderRecord | null>;
   /**
    * Transición NEW → FILLED guardada por estado (WHERE status = 'NEW';
    * idempotente ante evaluaciones concurrentes). Null si ya no estaba NEW.
@@ -103,15 +113,23 @@ export interface PortfolioReadRepository {
 }
 
 /**
- * Catálogo de instrumentos. findByTicker/FindById PUEDEN devolver MONEDA:
+ * Catálogo de instrumentos. findByTicker/findById PUEDEN devolver MONEDA:
  * la API la rechaza con 400 (DECISIONS.md); searchByQuery la EXCLUYE.
+ * El tx opcional es simetría con PortfolioReadRepository: resolver
+ * instrumentId/ticker es una lectura de REFERENCIA del submit y debe poder
+ * correr dentro de la misma ventana de la transacción cuando el caller la
+ * tiene (no-NEW fuera de la tx que el submit ya validó).
  */
 export interface InstrumentRepository {
   readonly findById: (
     instrumentId: number,
+    tx?: TransactionContext,
   ) => Promise<InstrumentRecord | null>;
   /** Ticker exacto (comparación case-insensitive). */
-  readonly findByTicker: (ticker: string) => Promise<InstrumentRecord | null>;
+  readonly findByTicker: (
+    ticker: string,
+    tx?: TransactionContext,
+  ) => Promise<InstrumentRecord | null>;
   /**
    * Búsqueda parcial case-insensitive sobre ticker y/o name, EXCLUYE
    * MONEDA, ordenada y limitada por `limit`.
@@ -125,10 +143,14 @@ export interface InstrumentRepository {
 /**
  * Precios de marketdata: siempre la ÚLTIMA fila por `date` del instrumento
  * (precio de referencia — DECISIONS.md). Null si no hay datos (NO_PRICE).
+ * El tx opcional es simetría con PortfolioReadRepository: el precio de
+ * referencia del submit (MARKET, valoración) debe poder leerse dentro de la
+ * misma ventana de la transacción cuando el caller la tiene.
  */
 export interface MarketdataRepository {
   readonly getLatestSnapshot: (
     instrumentId: number,
+    tx?: TransactionContext,
   ) => Promise<MarketdataSnapshot | null>;
   /**
    * Última fila por date de CADA instrumentId pedido (sin duplicados),
@@ -136,5 +158,6 @@ export interface MarketdataRepository {
    */
   readonly getLatestSnapshots: (
     instrumentIds: readonly number[],
+    tx?: TransactionContext,
   ) => Promise<readonly MarketdataSnapshot[]>;
 }

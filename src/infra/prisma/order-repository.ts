@@ -34,7 +34,9 @@ import {
 } from "./mappers.js";
 import {
   brandTransactionContext,
+  resolveDbExecutor,
   unbrandTransactionContext,
+  type DbExecutor,
 } from "./transaction-context.js";
 
 export class PrismaOrderRepository implements OrderRepository {
@@ -48,12 +50,19 @@ export class PrismaOrderRepository implements OrderRepository {
     userId: number,
     operation: (tx: TransactionContext) => Promise<T>,
   ): Promise<T> =>
-    this.client.$transaction(async (prismaTx) => {
-      // PRIMERA sentencia de la tx: advisory lock POR USUARIO. Se libera
-      // solo al COMMIT/ROLLBACK de ESTA transacción (xact ⇒ sin leaks).
-      await prismaTx.$executeRaw`SELECT pg_advisory_xact_lock(${userId})`;
-      return operation(brandTransactionContext(prismaTx));
-    });
+    // Tx de escritura financiera: lock por usuario + validación + auditoría.
+    // Los defaults de Prisma (timeout 5s / maxWait 2s) están dimensionados
+    // para CRUD corto: bajo contención del advisory lock abortarían con
+    // P2028 y el usuario vería un 500 en lugar de su respuesta.
+    this.client.$transaction(
+      async (prismaTx) => {
+        // PRIMERA sentencia de la tx: advisory lock POR USUARIO. Se libera
+        // solo al COMMIT/ROLLBACK de ESTA transacción (xact ⇒ sin leaks).
+        await prismaTx.$executeRaw`SELECT pg_advisory_xact_lock(${userId})`;
+        return operation(brandTransactionContext(prismaTx));
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
 
   // -------------------------------------------------------------------------
   // Insert idempotente (primera escritura)
@@ -166,9 +175,16 @@ export class PrismaOrderRepository implements OrderRepository {
   // Lecturas
   // -------------------------------------------------------------------------
 
-  readonly findById = async (orderId: number): Promise<OrderRecord | null> => {
-    // Lectura suelta: cliente raíz, sin tx (no participa de la validación).
-    const row = await this.client.order.findUnique({ where: { id: orderId } });
+  readonly findById = async (
+    orderId: number,
+    tx?: TransactionContext,
+  ): Promise<OrderRecord | null> => {
+    // Sin tx: lectura suelta del cancel (404 y dueño del lock, antes de
+    // abrir la transacción). Con tx: la MISMA ventana de la transacción —
+    // la relectura del 422 ve el status vigente al fallar el guard, no el
+    // de una lectura previa que pudo quedar vieja.
+    const db: DbExecutor = tx ? resolveDbExecutor(tx) : this.client;
+    const row = await db.order.findUnique({ where: { id: orderId } });
     return row === null ? null : mapOrderRow(row);
   };
 
