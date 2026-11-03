@@ -22,12 +22,11 @@ import { z } from "zod";
 import {
   API_ERROR_CODES,
   PortfolioParamsSchema,
-  PortfolioPosition,
-  PortfolioResponse,
   apiErrorBody,
   serializeMoneyArs,
   serializePct,
 } from "../../contracts/index.js";
+import type { PortfolioPosition, PortfolioResponse } from "../../contracts/index.js";
 import {
   deriveCash,
   derivePositions,

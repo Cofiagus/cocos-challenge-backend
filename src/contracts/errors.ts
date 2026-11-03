@@ -6,8 +6,8 @@
 import { z } from "zod";
 
 /** Body de error de cualquier ruta (4xx/5xx). */
-export const ApiErrorBodySchema = z.object({
-  error: z.object({
+export const ApiErrorBodySchema = z.strictObject({
+  error: z.strictObject({
     code: z.string().min(1),
     message: z.string(),
   }),

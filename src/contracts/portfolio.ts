@@ -7,7 +7,7 @@
 // lista tal cual.
 
 import { z } from "zod";
-import { MoneyArsSchema } from "./money.js";
+import { MoneyArsSchema, PctSchema } from "./money.js";
 
 /** Params de ruta. */
 export const PortfolioParamsSchema = z.strictObject({
@@ -25,11 +25,11 @@ export const PortfolioPositionSchema = z.object({
   marketValue: MoneyArsSchema.nullable(),
   priceAvailable: z.boolean(),
   /** % sobre costo promedio ponderado (2 decimales). Null si NO_PRICE o costo 0. */
-  totalReturnPct: z.number().nullable(),
+  totalReturnPct: PctSchema.nullable(),
 });
 export type PortfolioPosition = z.infer<typeof PortfolioPositionSchema>;
 
-export const PortfolioResponseSchema = z.object({
+export const PortfolioResponseSchema = z.strictObject({
   /** Disponible para operar: cashSettled − cashReserved. */
   cash: MoneyArsSchema,
   /** Reservado por órdenes NEW BUY (limit × size). */

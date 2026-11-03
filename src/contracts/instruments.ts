@@ -25,7 +25,7 @@ export const InstrumentSearchQuerySchema = z.strictObject({
 export type InstrumentSearchQuery = z.infer<typeof InstrumentSearchQuerySchema>;
 
 /** Resultado individual: último precio y variación diaria. */
-export const InstrumentSearchResultSchema = z.object({
+export const InstrumentSearchResultSchema = z.strictObject({
   ticker: z.string(),
   name: z.string(),
   type: InstrumentTypeSchema,
