@@ -2,6 +2,9 @@
 // La célula B de FASE 2 los implementa contra Prisma (mapeando
 // Prisma ↔ tipos de src/contracts); las capas de aplicación los consumen.
 // Dinero siempre Decimal, filas tipadas con los registros de contracts.
+// TransactionContext (contracts/domain) existe para no meter Prisma en el
+// dominio: la semántica de tx única + lock por usuario es de DECISIONS.md y
+// viaja como tipo opaco que solo la infra concreta narrowcea.
 
 import { Decimal } from "decimal.js";
 import type {
@@ -14,6 +17,7 @@ import type {
   OrderRecord,
   RestingOrder,
   SettledOrderMovement,
+  TransactionContext,
 } from "../../contracts/index.js";
 
 /**
@@ -25,16 +29,31 @@ import type {
  * fila existente para distinguir IDEMPOTENT_REPLAY de
  * IDEMPOTENT_CONFLICT (409).
  *
- * Concurrencia (DECISIONS.md): la transacción de envío toma lock por
- * usuario (pg_advisory_xact_lock o SELECT ... FOR UPDATE) antes de validar
- * fondos — lo coordina la capa de aplicación, no el repositorio.
+ * Concurrencia (DECISIONS.md): withUserTransaction abre la transacción de
+ * envío con advisory lock por usuario y corre validación + escrituras
+ * dentro; los métodos de acá y los reads del portfolio reciben el MISMO tx.
  */
 export interface OrderRepository {
-  /** Insert con claim idempotente (primera escritura del envío). */
-  readonly createOrder: (draft: OrderDraft) => Promise<CreateOrderResult>;
-  /** Evento de auditoría, MISMA transacción que la mutación. Append-only. */
+  /**
+   * Abre UNA transacción con advisory lock por usuario (pg_advisory_xact_lock
+   * sobre userId — DECISIONS.md) y corre operation dentro. El tx que entrega
+   * se re-pasa a createOrder/appendOrderEvent/markFilled/markCancelled y a los
+   * reads que participan de la validación (los de PortfolioReadRepository).
+   */
+  readonly withUserTransaction: <T>(
+    userId: number,
+    operation: (tx: TransactionContext) => Promise<T>,
+  ) => Promise<T>;
+  /** Insert con claim idempotente (ON CONFLICT DO NOTHING sobre UNIQUE(userId,
+   * idempotencyKey)) — PRIMERA escritura de la transacción de envío. */
+  readonly createOrder: (
+    draft: OrderDraft,
+    tx: TransactionContext,
+  ) => Promise<CreateOrderResult>;
+  /** Evento de auditoría en la MISMA transacción que la mutación. Append-only. */
   readonly appendOrderEvent: (
     event: OrderEventDraft,
+    tx: TransactionContext,
   ) => Promise<OrderEventRecord>;
   readonly findById: (orderId: number) => Promise<OrderRecord | null>;
   /**
@@ -47,12 +66,16 @@ export interface OrderRepository {
     orderId: number,
     filledPriceArs: Decimal,
     filledAt: Date,
+    tx: TransactionContext,
   ) => Promise<OrderRecord | null>;
   /**
    * Transición NEW → CANCELLED (cancelar orden, UC-4), guardada por
    * estado. Null si no estaba NEW (la API responde 422).
    */
-  readonly markCancelled: (orderId: number) => Promise<OrderRecord | null>;
+  readonly markCancelled: (
+    orderId: number,
+    tx: TransactionContext,
+  ) => Promise<OrderRecord | null>;
 }
 
 // Alias local de legibilidad (evita el galimatías OrderRecord | null en el
@@ -63,14 +86,19 @@ export interface OrderRepository {
  * usuario inexistente también para POST /orders y POST /transfers.
  */
 export interface PortfolioReadRepository {
-  readonly userExists: (userId: number) => Promise<boolean>;
-  /** Movimientos FILLED del usuario: insumo de cash y posiciones. */
+  readonly userExists: (
+    userId: number,
+    tx?: TransactionContext,
+  ) => Promise<boolean>;
+  /** Movimientos FILLED del usuario. tx obligatorio EN el submit (validez de la validación de fondos). */
   readonly listSettledMovements: (
     userId: number,
+    tx?: TransactionContext,
   ) => Promise<readonly SettledOrderMovement[]>;
-  /** Órdenes NEW del usuario: insumo de reservas. */
+  /** Órdenes NEW del usuario (reservas). Ídem tx. */
   readonly listRestingOrders: (
     userId: number,
+    tx?: TransactionContext,
   ) => Promise<readonly RestingOrder[]>;
 }
 
