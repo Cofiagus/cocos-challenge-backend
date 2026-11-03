@@ -1,0 +1,12 @@
+// Entry del servidor HTTP — orquestador/integrador (la composición vive en
+// src/http/server.ts). Carga .env y escucha en PORT; el arranque queda
+// verificado con un request real contra un endpoint de lectura.
+import "dotenv/config";
+import { serverApp } from "./http/server.js";
+
+const port = Number(process.env["PORT"] ?? "3000");
+
+serverApp.listen(port, () => {
+  // eslint-disable-next-line no-console -- arranque: el log del servidor
+  console.log(`✓ cocos-challenge-backend escuchando en http://localhost:${port}`);
+});
