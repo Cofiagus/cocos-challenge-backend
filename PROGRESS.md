@@ -3,6 +3,10 @@
 Solo el orquestador escribe este archivo. Fuente de verdad del avance: fases, gates,
 estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 
+La tabla de Células y la línea de HEAD de la sección Entorno se actualizan en el MISMO
+commit que cierra el gate. Si quedan atrás, una sesión que reanude lee estado falso: la
+tabla de abajo decía «no lanzada» para A–G mientras el texto ya daba GATE 4 por cerrado.
+
 ## Estado actual
 
 - **FASE 0** (Célula 0 — entorno): **DONE — merge `b590dfb`, GATE 0 verificado por el orquestador** (typecheck/lint/test verde, `test:db:reset` idempotente, Prisma CLI 7.10.1 = client 7.10.1).
@@ -65,7 +69,7 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 
 ## Entorno (verificado 2026-11-03 por el orquestador)
 
-- Repo: `/home/cofi/repos/cocos-challenge-backend`, branch `main` @ `41af211`.
+- Repo: `/home/cofi/repos/cocos-challenge-backend`, branch `main` (hash real: `git log -1 --oneline` — este archivo se commitea después del gate y mueve HEAD).
 - Node v26.12.1, npm 12.0.2. **Sin docker** en esta máquina.
 - PostgreSQL 18 como cluster userspace: `~/.pg/cocos`, puerto 5433, user `postgres`,
   auth trust (`.env` ya apunta ahí). Socket dir: `/tmp` (arranque:
@@ -85,15 +89,15 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 | Célula | Fase | Estado | Gate |
 |---|---|---|---|
 | 0 — entorno | 0 | **DONE (merge `b590dfb`)** | GATE 0 ✓ |
-| 0 — contratos | 1 | EN CURSO | pendiente |
-| A — dominio puro | 2 | no lanzada | — |
-| B — persistencia e infra | 2 | no lanzada | — |
-| C — endpoints de lectura | 2 | no lanzada | — |
-| D — tests funcionales UC-3 (rojos) | 2 | no lanzada | — |
-| E — integración UC-3 | 3 | no lanzada | — |
-| F — cancelar orden | 4 | no lanzada | — |
-| G — transferencias | 4 | no lanzada | — |
-| H — docs y entrega | 5 | no lanzada | — |
+| 0 — contratos | 1 | **DONE (merge `86bc9c3`)** | GATE 1 ✓ |
+| A — dominio puro | 2 | **DONE (merge `1f4bdba`)** | GATE 2 ✓ |
+| B — persistencia e infra | 2 | **DONE (merge `54cdd40`)** | GATE 2 ✓ |
+| C — endpoints de lectura | 2 | **DONE (merge `1e27c94`)** | GATE 2 ✓ |
+| D — tests funcionales UC-3 (rojos) | 2 | **DONE (merge `18b16bd`)** | GATE 2 ✓ |
+| E — integración UC-3 | 3 | **DONE (merge `1233c66`)** | GATE 3 ✓ |
+| F — cancelar orden | 4 | **DONE (merge `b915058`)** | GATE 4 ✓ |
+| G — transferencias | 4 | **DONE (merge `086dd89`)** | GATE 4 ✓ |
+| H — docs y entrega | 5 | EN CURSO (wt-h) | GATE 5 pendiente |
 
 ## QUESTIONs abiertas
 
