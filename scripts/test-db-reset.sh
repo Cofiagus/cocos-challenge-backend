@@ -14,8 +14,8 @@
 #      (milisegundos — enfoque de docs/database.md §6).
 #   4. Muestra los counts del seed como verificación.
 #
-# Postgres local de esta máquina: cluster userspace en localhost:5433, auth TRUST
-# (la URL no lleva password). Si no está levantado:
+# Postgres local de esta máquina: cluster userspace en localhost:5433 (auth TRUST,
+# el password se ignora) o docker-compose.yml (postgres:postgres). Si no está levantado:
 #   /usr/lib/postgresql/18/bin/pg_ctl -D ~/.pg/cocos -o '-p 5433 -k /tmp' \
 #     -l ~/.pg/cocos.log start
 #
@@ -25,7 +25,7 @@
 set -euo pipefail
 
 # Conexión al servidor (BD administrativa); overridable para otros entornos.
-DB_ADMIN_URL="${DB_ADMIN_URL:-postgresql://postgres@localhost:5433/postgres}"
+DB_ADMIN_URL="${DB_ADMIN_URL:-postgresql://postgres:postgres@localhost:5433/postgres}"
 TEMPLATE_DB="cocos_challenge_template"
 TEST_DB="cocos_challenge_test"
 # URLs por BD: el path de una URL postgresql:// SE REEMPLAZA, no se concatena.
