@@ -31,6 +31,7 @@ import {
   submitTransfer,
   type SubmitTransferDeps,
 } from "../../application/transfers/submit-transfer.js";
+import { IdempotencyConflictError } from "../../application/orders/persist-order-decision.js";
 import {
   parseIdempotencyKeyHeader,
   toOrderResponse,
@@ -109,7 +110,10 @@ export const buildTransfersRouter = (deps: TransfersRouterDeps): Router => {
         // 201 SIEMPRE que se persistió (FILLED o REJECTED).
         res.status(201).json(toOrderResponse(result.order, result.reason));
       } catch (error) {
-        if (error instanceof SubmitTransferError) {
+        if (
+          error instanceof SubmitTransferError ||
+          error instanceof IdempotencyConflictError
+        ) {
           // Los códigos de la transferencia son todos ApiErrorCode (sin
           // INSTRUMENT_NOT_FOUND custom — a diferencia de E, sin cast).
           res.status(error.status).json(apiErrorBody(error.code, error.message));

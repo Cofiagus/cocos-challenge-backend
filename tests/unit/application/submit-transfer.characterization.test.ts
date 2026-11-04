@@ -14,6 +14,7 @@
 
 import { Decimal } from "decimal.js";
 import type { SubmitOrderDeps } from "../../../src/application/orders/submit-order.js";
+import { IdempotencyConflictError } from "../../../src/application/orders/persist-order-decision.js";
 import {
   SubmitTransferError,
   submitTransfer,
@@ -156,6 +157,8 @@ interface ErrorCase {
   readonly seed: SubmitOrderFakeSeed;
   readonly userId?: number;
   readonly idempotencyKey?: string;
+  /** Clase del 409 de idempotencia (compartida con el envío de órdenes). */
+  readonly errorClass?: "IdempotencyConflictError";
   readonly expected: {
     readonly status: number;
     readonly code: string;
@@ -666,6 +669,7 @@ const errorCases: ErrorCase[] = [
       },
     },
     idempotencyKey: "idem-conflicto",
+    errorClass: "IdempotencyConflictError",
     expected: {
       status: 409,
       code: "IDEMPOTENCY_CONFLICT",
@@ -714,9 +718,15 @@ describe("submitTransfer — caracterización de la transferencia (UC-5)", () =>
 
     const error = await captureError(fakes, testCase);
 
-    expect(error).toBeInstanceOf(SubmitTransferError);
-    if (!(error instanceof SubmitTransferError)) {
-      throw new Error("Se esperaba un SubmitTransferError.");
+    // El 409 de idempotencia es la clase COMPARTIDA (D-12); el resto de los
+    // errores de aplicación siguen siendo SubmitTransferError.
+    const errorClass =
+      testCase.errorClass === "IdempotencyConflictError"
+        ? IdempotencyConflictError
+        : SubmitTransferError;
+    expect(error).toBeInstanceOf(errorClass);
+    if (!(error instanceof errorClass)) {
+      throw new Error(`Se esperaba un ${errorClass.name}.`);
     }
     expect(error.status).toBe(testCase.expected.status);
     expect(error.code).toBe(testCase.expected.code);
@@ -919,5 +929,33 @@ describe("submitTransfer — los dos instantes de la transferencia (UC-5)", () =
     const created = createdDraft(fakes);
     expect(created.datetime).toEqual(at(READ_STEP_MS));
     expect(created.filledAt).toEqual(at(READ_STEP_MS));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// El instrumento del cash se resuelve DENTRO de la transacción: findByTicker
+// recibe el MISMO tx que withUserTransaction. Sin tx, la lectura tomaría una
+// SEGUNDA conexión del pool mientras la primera retiene el lock del usuario.
+// ---------------------------------------------------------------------------
+
+describe("submitTransfer — el instrumento del cash se lee en la tx (UC-5)", () => {
+  it("findByTicker(ARS) recibe el MISMO tx de la transacción", async () => {
+    const fakes = buildSubmitOrderFakes({ instruments: [ARS] });
+
+    await submitTransfer(fakes.deps, {
+      userId: 1,
+      amountArs: new Decimal("5000.00"),
+      side: "CASH_IN",
+      idempotencyKey: null,
+    });
+
+    const cashLookup = fakes.calls.find(
+      (call) => call.port === "instruments" && call.method === "findByTicker",
+    );
+    if (cashLookup === undefined) {
+      throw new Error("submitTransfer no resolvió el instrumento del cash.");
+    }
+    expect(cashLookup.tx).toBeDefined();
+    expect(cashLookup.tx).toBe(fakes.transaction);
   });
 });
