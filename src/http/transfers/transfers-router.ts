@@ -9,7 +9,7 @@
 //     para REJECTED persistida — DECISIONS.md);
 //   - SubmitTransferError ⇒ su status + apiErrorBody (los códigos de la
 //     transferencia son TODOS del contrato: sin cast, a diferencia de E);
-//   - cualquier otro error propaga (500 no controlado — default Express).
+//   - cualquier otro error propaga al manejador central (500 INTERNAL_ERROR).
 //
 // validationMessage / parseIdempotencyKeyHeader / toOrderResponse son las
 // COMPARTIDAS de src/http/shared/edge.ts: mismos status, códigos y
@@ -119,7 +119,7 @@ export const buildTransfersRouter = (deps: TransfersRouterDeps): Router => {
           res.status(error.status).json(apiErrorBody(error.code, error.message));
           return;
         }
-        throw error; // 500 no controlado (default de Express)
+        throw error; // lo responde el manejador central (500 INTERNAL_ERROR)
       }
     },
   );

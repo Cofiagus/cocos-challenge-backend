@@ -13,7 +13,7 @@
 //
 //   1. userExists (tx)                       ⇒ 404 USER_NOT_FOUND.
 //   2. instrumento del cash por ticker (ARS, dentro de la tx): el seed lo
-//      garantiza (docs §2); si faltara es corrupción ⇒ 500 no controlado.
+//      garantiza (docs §2); si faltara es corrupción ⇒ 500 INTERNAL_ERROR (manejador central).
 //   3. size = floor(amountArs / 1.00) — la MISMA regla de sizing de
 //      DECISIONS.md (amountArs ⇒ size derivado); con price 1.00 es el
 //      monto en pesos enteros. size 0 (amountArs < 1 peso) ⇒ REJECTED
@@ -214,7 +214,7 @@ const requireExistingUser = async (
 /**
  * Instrumento del cash: la MONEDA ARS del seed (ticker exacto). El seed la
  * garantiza (docs/database.md §2): no encontrarla es corrupción de datos ⇒
- * error no controlado (500 por defecto de Express).
+ * error no controlado (500 INTERNAL_ERROR del manejador central).
  */
 const requireCashInstrument = async (
   deps: SubmitTransferDeps,

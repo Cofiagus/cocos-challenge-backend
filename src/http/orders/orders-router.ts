@@ -7,7 +7,7 @@
 //   - submitOrder ⇒ 201 OrderResponse (también para REJECTED/CANCELLED
 //     persistidas — DECISIONS.md);
 //   - SubmitOrderError ⇒ su status + apiErrorBody;
-//   - cualquier otro error propaga (500 no controlado — default de Express).
+//   - cualquier otro error propaga al manejador central (500 INTERNAL_ERROR).
 
 import { Router } from "express";
 import type { Request, Response } from "express";
@@ -113,7 +113,7 @@ export const buildOrdersRouter = (deps: OrdersRouterDeps): Router => {
             .json(apiErrorBody(error.code, error.message));
           return;
         }
-        throw error; // 500 no controlado (default de Express)
+        throw error; // lo responde el manejador central (500 INTERNAL_ERROR)
       }
     },
   );
