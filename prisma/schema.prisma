@@ -1,0 +1,175 @@
+// ============================================================================
+// prisma/schema.prisma — ÚNICA fuente de los índices y del DDL (DECISIONS.md:
+// "Índices: una sola fuente (prisma/schema.prisma)").
+//
+// Las tablas del snapshot (users, instruments, marketdata, orders) reproducen
+// de db/schema.sql nombres, nullabilidad y tamaños vía @map/@db.*, con DOS
+// desviaciones documentadas:
+// (1) orders.type/side/status son enums PG NATIVOS acá (varchar(10)/(10)/(20)
+//     en el snapshot) — superconjunto de esos varchar, que el seed ya carga
+//     porque su COPY castea texto → enum;
+// (2) orders AÑADE las columnas nuevas del ciclo de vida de órdenes
+//     (timeInForce/filledPrice/filledAt/idempotencyKey — ver abajo), que
+//     db/schema.sql no tiene por ser un snapshot previo a las migraciones.
+// Por eso el seed (db/seed.sql) carga SIN ediciones sobre este schema.
+// db/schema.sql y db/seed.sql son GENERADOS y no se tocan.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+// Prisma 7: la URL NO vive acá (P1012) — se resuelve en prisma.config.ts
+// (`datasource.url`). En el runtime, el PrismaClient recibe un driver
+// adapter.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums — EXACTAMENTE los valores del seed + DECISIONS.md (sin EXPIRED: DAY
+// está fuera de alcance del build).
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  NEW
+  FILLED
+  CANCELLED
+  REJECTED
+}
+
+enum OrderSide {
+  BUY
+  SELL
+  CASH_IN
+  CASH_OUT
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+}
+
+enum TimeInForce {
+  GTC
+  IOC
+  FOK
+}
+
+// Auditoría append-only del ciclo de vida (DECISIONS.md: razones en
+// order_events). Sin EXPIRED.
+enum OrderEventType {
+  ACCEPTED
+  REJECTED
+  FILLED
+  CANCELLED
+}
+
+enum OrderEventReason {
+  INSUFFICIENT_FUNDS
+  INSUFFICIENT_POSITION
+  ZERO_SIZE
+  NO_PRICE
+  NO_IMMEDIATE_MATCH
+}
+
+// ---------------------------------------------------------------------------
+// Tablas del snapshot — nombres/nullabilidad/tamaños de db/schema.sql
+// (docs/database.md §2) vía @map/@db.*; orders.type/side/status: enums
+// nativos, superconjunto del varchar del snapshot (ver header). Campos
+// Prisma en camelCase mapeados con @map a las columnas lowercase.
+// ---------------------------------------------------------------------------
+
+model User {
+  id            Int      @id @default(autoincrement())
+  email         String?  @db.VarChar(255)
+  accountNumber String?  @map("accountnumber") @db.VarChar(20)
+  orders        Order[]
+
+  @@map("users")
+}
+
+model Instrument {
+  id     Int          @id @default(autoincrement())
+  ticker String?      @db.VarChar(10)
+  name   String?      @db.VarChar(255)
+  type   String?      @db.VarChar(10)
+  orders Order[]
+  marketdata Marketdata[]
+
+  @@map("instruments")
+}
+
+model Marketdata {
+  id            Int          @id @default(autoincrement())
+  instrumentId  Int?         @map("instrumentid")
+  high          Decimal?     @db.Decimal(10, 2)
+  low           Decimal?      @db.Decimal(10, 2)
+  open          Decimal?      @db.Decimal(10, 2)
+  close         Decimal?      @db.Decimal(10, 2)
+  previousClose Decimal?     @map("previousclose") @db.Decimal(10, 2)
+  date          DateTime?    @db.Date
+  instrument    Instrument?  @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  // DECISIONS.md: marketdata(instrumentId, date DESC) — "último precio".
+  @@index([instrumentId, date(sort: Desc)], map: "marketdata_instrumentid_date_idx")
+
+  @@map("marketdata")
+}
+
+model Order {
+  id            Int          @id @default(autoincrement())
+  instrumentId  Int?         @map("instrumentid")
+  userId        Int?         @map("userid")
+  size          Int?
+  price         Decimal?     @db.Decimal(10, 2)
+  type          OrderType?
+  side          OrderSide?
+  status        OrderStatus?
+  datetime      DateTime?    @db.Timestamp(6)
+
+  // --- Columnas nuevas (no están en el seed; el seed las deja en default/null) ---
+  // timeInForce NOT NULL + DEFAULT 'GTC': toda orden conoce su TIF; las filas
+  // del seed (COPY sin la columna) quedan en GTC. Decisión documentada:
+  // GTC es el comportamiento resting de una LIMIT y el TIF se ignora para
+  // MARKET (spec Rev. 3 UC-3).
+  timeInForce   TimeInForce  @default(GTC)
+  // filledPrice = precio de ejecución (DECISIONS.md: price = límite enviado).
+  // NULL en las FILLED del seed: en el dataset el price YA es el de ejecución.
+  filledPrice   Decimal?     @db.Decimal(10, 2)
+  filledAt      DateTime?    @db.Timestamp(6)
+  idempotencyKey String?
+
+  instrument    Instrument? @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user          User?       @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  events        OrderEvent[]
+
+  // Idempotencia (DECISIONS.md): UNIQUE(userId, idempotencyKey); PG permite
+  // múltiples NULLs → correcto para órdenes sin key.
+  @@unique([userId, idempotencyKey], map: "orders_userid_idempotencyKey_key")
+  // DECISIONS.md: índices mínimos (status, instrumentId) y (userId, status).
+  @@index([status, instrumentId], map: "orders_status_instrumentid_idx")
+  @@index([userId, status], map: "orders_userid_status_idx")
+
+  @@map("orders")
+}
+
+// ---------------------------------------------------------------------------
+// Tabla nueva: auditoría append-only del ciclo de vida de la orden.
+// ---------------------------------------------------------------------------
+
+model OrderEvent {
+  id        Int              @id @default(autoincrement())
+  orderId    Int              @map("orderid")
+  eventType  OrderEventType
+  reason     OrderEventReason?
+  metadata   Json?
+  createdAt  DateTime         @default(now()) @db.Timestamp(6)
+
+  order      Order            @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([orderId], map: "order_events_orderid_idx")
+
+  @@map("order_events")
+}
