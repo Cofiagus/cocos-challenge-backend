@@ -8,10 +8,12 @@
 import type { PrismaClient } from "@prisma/client";
 import type {
   InstrumentRecord,
+  TransactionContext,
 } from "../../contracts/index.js";
 import type { InstrumentRepository } from "../../domain/ports/index.js";
 import { getPrismaClient } from "../../lib/prisma-client.js";
 import { mapInstrumentRow } from "./mappers.js";
+import { unbrandTransactionContext } from "./transaction-context.js";
 
 export class PrismaInstrumentRepository implements InstrumentRepository {
   constructor(private readonly client: PrismaClient = getPrismaClient()) {}
@@ -23,6 +25,23 @@ export class PrismaInstrumentRepository implements InstrumentRepository {
       where: { id: instrumentId },
     });
     return row === null ? null : mapInstrumentRow(row);
+  };
+
+  readonly findByIds = async (
+    instrumentIds: readonly number[],
+    tx?: TransactionContext,
+  ): Promise<readonly InstrumentRecord[]> => {
+    if (instrumentIds.length === 0) {
+      // Sin ids no hay consulta que hacer.
+      return [];
+    }
+    const db = tx === undefined ? this.client : unbrandTransactionContext(tx);
+    // UNA sola consulta IN. Sin ORDER BY: el port no promete orden; los
+    // duplicados de la entrada colapsan en una fila cada uno.
+    const rows = await db.instrument.findMany({
+      where: { id: { in: [...instrumentIds] } },
+    });
+    return rows.map(mapInstrumentRow);
   };
 
   readonly findByTicker = async (
