@@ -13,15 +13,20 @@ import type {
 import type { InstrumentRepository } from "../../domain/ports/index.js";
 import { getPrismaClient } from "../../lib/prisma-client.js";
 import { mapInstrumentRow } from "./mappers.js";
-import { unbrandTransactionContext } from "./transaction-context.js";
+import { resolveDbExecutor, type DbExecutor } from "./transaction-context.js";
 
 export class PrismaInstrumentRepository implements InstrumentRepository {
   constructor(private readonly client: PrismaClient = getPrismaClient()) {}
 
   readonly findById = async (
     instrumentId: number,
+    tx?: TransactionContext,
   ): Promise<InstrumentRecord | null> => {
-    const row = await this.client.instrument.findUnique({
+    // tx opcional (mismo patrón que PortfolioReadRepository): la resolución
+    // del instrumento de un envío se lee DENTRO de la tx de ese envío cuando
+    // el caller la abre; cliente root si viene undefined.
+    const db: DbExecutor = tx ? resolveDbExecutor(tx) : this.client;
+    const row = await db.instrument.findUnique({
       where: { id: instrumentId },
     });
     return row === null ? null : mapInstrumentRow(row);
@@ -35,7 +40,7 @@ export class PrismaInstrumentRepository implements InstrumentRepository {
       // Sin ids no hay consulta que hacer.
       return [];
     }
-    const db = tx === undefined ? this.client : unbrandTransactionContext(tx);
+    const db: DbExecutor = tx ? resolveDbExecutor(tx) : this.client;
     // UNA sola consulta IN. Sin ORDER BY: el port no promete orden; los
     // duplicados de la entrada colapsan en una fila cada uno.
     const rows = await db.instrument.findMany({
@@ -46,9 +51,11 @@ export class PrismaInstrumentRepository implements InstrumentRepository {
 
   readonly findByTicker = async (
     ticker: string,
+    tx?: TransactionContext,
   ): Promise<InstrumentRecord | null> => {
     // Ticker exacto, comparación case-insensitive ("pamp" ≡ "PAMP").
-    const row = await this.client.instrument.findFirst({
+    const db: DbExecutor = tx ? resolveDbExecutor(tx) : this.client;
+    const row = await db.instrument.findFirst({
       where: { ticker: { equals: ticker, mode: "insensitive" } },
       orderBy: { id: "asc" },
     });
