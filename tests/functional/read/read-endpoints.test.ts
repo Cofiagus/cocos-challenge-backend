@@ -14,7 +14,9 @@
 //   PAMP 40 @ 930 (close 925.85)  ⇒ mv 37034.00 ·  retorno −0.45 %
 //   METR 500 @ 250 (close 229.50) ⇒ mv 114750.00 · retorno −8.20 %
 //   BMA −10 @ 1540 (close 1502.80)⇒ mv −15028.00 · retorno −2.42 %
-//   totalAccountValue = 627500 + 37034 + 114750 − 15028 = 764256.00
+//   totalAccountValue = 753000 + 37034 + 114750 − 15028 = 889756.00
+//     (cashSettled + Σ marketValue: incluye el cash reservado, así que una
+//      orden NEW no lo mueve)
 //   previousClose 14-jul: PAMP 921.80 · METR 232.00 · BMA 1520.25
 //     ⇒ variación diaria: PAMP +0.44 % · METR −1.08 % · BMA −1.15 %
 //   users 2/3/4 existen SIN órdenes (sólo el user 1 tiene filas en orders).
@@ -25,10 +27,16 @@
 
 // El import de support fija DATABASE_URL=cocos_challenge_read ANTES de que
 // nada construya el PrismaClient (singleton lazy) — ver ./support.ts.
-import { buildReadTestApp, insertOrder, resetReadDatabase } from "./support.js";
+import {
+  READ_DB_URL,
+  buildReadTestApp,
+  insertOrder,
+  resetReadDatabase,
+} from "./support.js";
 
 import request from "supertest";
 import type { Express } from "express";
+import { Client } from "pg";
 import {
   InstrumentSearchResponseSchema,
   PortfolioResponseSchema,
@@ -40,6 +48,8 @@ import { SEED_USER_EMILIANO_ID } from "../../helpers/fixtures.js";
 // Fixtures locals (ids verificados contra el seed — ver header)
 // ---------------------------------------------------------------------------
 
+/** PAMP: instrumento del seed con marketdata (lo usa la reserva de cash). */
+const SEED_INSTRUMENT_PAMP_ID = 47;
 /** PGR: instrumento del seed SIN marketdata ⇒ precio de referencia null. */
 const SEED_INSTRUMENT_PGR_ID = 3;
 /** IRCP: ídem PGR (sin marketdata) — lo usa el test de posición cantidad 0. */
@@ -49,6 +59,42 @@ const SEED_USER_WITHOUT_ACTIVITY_ID = 2;
 
 const portfolioUrl = (userId: number): string =>
   `/api/users/${userId}/portfolio`;
+
+interface RawRestingOrderInsert {
+  readonly userId: number;
+  readonly instrumentId: number;
+  readonly side: "BUY" | "SELL";
+  readonly size: number;
+  /** Límite como STRING (AGENTS.md: nunca float). */
+  readonly limitPriceArs: string;
+}
+
+/**
+ * INSERT directo (pg) de una orden LIMIT NEW: la suite no monta el router de
+ * envío, así que la reserva se fixturea como fila. `price` es el límite.
+ */
+const insertRestingOrder = async (
+  order: RawRestingOrderInsert,
+): Promise<void> => {
+  const client = new Client({ connectionString: READ_DB_URL });
+  await client.connect();
+  try {
+    await client.query(
+      `INSERT INTO orders
+         (instrumentid, userid, side, type, status, size, price, datetime)
+       VALUES ($1, $2, $3, 'LIMIT', 'NEW', $4, $5, now())`,
+      [
+        order.instrumentId,
+        order.userId,
+        order.side,
+        order.size,
+        order.limitPriceArs,
+      ],
+    );
+  } finally {
+    await client.end();
+  }
+};
 
 describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", () => {
   let app: Express;
@@ -76,12 +122,12 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
       // El body respeta el contrato de la respuesta.
       expect(() => PortfolioResponseSchema.parse(res.body)).not.toThrow();
 
-      // Disponible = 753000 − 125500; total = 627500 + 37034 + 114750 − 15028.
+      // Disponible = 753000 − 125500; total = 753000 + 37034 + 114750 − 15028.
       // Posiciones ordenadas por instrumentId ASC: BMA(31), PAMP(47), METR(54).
       expect(res.body).toEqual({
         cash: 627_500,
         reservedCash: 125_500,
-        totalAccountValue: 764_256,
+        totalAccountValue: 889_756,
         positions: [
           {
             ticker: "BMA",
@@ -153,7 +199,7 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
       const before = await request(app)
         .get(portfolioUrl(SEED_USER_EMILIANO_ID))
         .expect(200);
-      expect(before.body.totalAccountValue).toBe(764_256);
+      expect(before.body.totalAccountValue).toBe(889_756);
 
       // INSERT directo (pg): BUY FILLED de PGR (id 3, SIN marketdata) 10 @ 500.
       await insertOrder({
@@ -186,8 +232,9 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
       expect(body.cash).toBe(622_500);
       // …y el total cayó EXACTO esa plata: la posición sin precio aporta 0
       // (las null NO suman — DECISIONS.md; sin fallback a costo). Total
-      // calculado: 764256 − 5000 = 759256 = 622500 + 37034 + 114750 − 15028.
-      expect(body.totalAccountValue).toBe(759_256);
+      // calculado: 889756 − 5000 = 884756 = 748000 + 37034 + 114750 − 15028
+      // (748000 = cashSettled: la compra FILLED sí saca patrimonio).
+      expect(body.totalAccountValue).toBe(884_756);
     });
 
     it("posición de cantidad 0 (BUY+SELL FILLED que se cancelan) ⇒ oculta", async () => {
@@ -223,9 +270,36 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
       ]);
 
       // Cash neta del par: −500 + 500 = 0 y ninguna mv nueva ⇒ total
-      // idéntico al del it anterior (759256: el cash ya cargó la BUY de PGR).
+      // idéntico al del it anterior (884756: el cash ya cargó la BUY de PGR).
       expect(body.cash).toBe(622_500);
-      expect(body.totalAccountValue).toBe(759_256);
+      expect(body.totalAccountValue).toBe(884_756);
+    });
+
+    it("orden NEW (reserva de cash) ⇒ el total NO cambia; cash baja y reservedCash sube", async () => {
+      const before = await request(app)
+        .get(portfolioUrl(SEED_USER_EMILIANO_ID))
+        .expect(200);
+      const beforeBody = PortfolioResponseSchema.parse(before.body);
+
+      // INSERT directo (pg): BUY LIMIT NEW 10 @ 500 ⇒ reserva 5000.
+      await insertRestingOrder({
+        userId: SEED_USER_EMILIANO_ID,
+        instrumentId: SEED_INSTRUMENT_PAMP_ID,
+        side: "BUY",
+        size: 10,
+        limitPriceArs: "500.00",
+      });
+
+      const after = await request(app)
+        .get(portfolioUrl(SEED_USER_EMILIANO_ID))
+        .expect(200);
+      const afterBody = PortfolioResponseSchema.parse(after.body);
+
+      // Reservar cash lo saca del disponible pero NO del patrimonio.
+      expect(afterBody.cash).toBe(beforeBody.cash - 5_000);
+      expect(afterBody.reservedCash).toBe(beforeBody.reservedCash + 5_000);
+      expect(afterBody.totalAccountValue).toBe(beforeBody.totalAccountValue);
+
     });
   });
 

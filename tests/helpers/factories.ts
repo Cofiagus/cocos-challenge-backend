@@ -72,6 +72,41 @@ export interface TestOrderOverrides {
 }
 
 /**
+ * Tipo efectivo de la orden: LIMIT si el override no lo dice.
+ */
+const orderTypeOf = (overrides: TestOrderOverrides): OrderType =>
+  overrides.type ?? "LIMIT";
+
+/**
+ * Status coherente con el tipo: una LIMIT nace NEW; una MARKET se ejecuta
+ * (FILLED).
+ */
+const orderStatusOf = (
+  overrides: TestOrderOverrides,
+  type: OrderType,
+): OrderStatus => overrides.status ?? (type === "LIMIT" ? "NEW" : "FILLED");
+
+/**
+ * Límite enviado: 100.00 en LIMIT, null en MARKET (sin precio de referencia).
+ */
+const orderPriceArsOf = (
+  overrides: TestOrderOverrides,
+  type: OrderType,
+): string | null =>
+  overrides.priceArs ?? (type === "LIMIT" ? "100.00" : null);
+
+/**
+ * Campos de ejecución/auditoría: sin ejecución ni idempotency key salvo
+ * override; `datetime` es el momento de la creación.
+ */
+const orderExecutionFieldsOf = (overrides: TestOrderOverrides) => ({
+  filledPrice: overrides.filledPriceArs ?? null,
+  filledAt: overrides.filledAt ?? null,
+  idempotencyKey: overrides.idempotencyKey ?? null,
+  datetime: overrides.datetime ?? new Date(),
+});
+
+/**
  * Orden default: LIMIT BUY NEW GTC, size 10 @ 100.00 — el resting order
  * vanilla del que parten casi todos los tests.
  */
@@ -79,21 +114,18 @@ export const createTestOrder = async (
   prisma: PrismaClient,
   overrides: TestOrderOverrides,
 ) => {
-  const type = overrides.type ?? "LIMIT";
+  const type = orderTypeOf(overrides);
   return prisma.order.create({
     data: {
       instrumentId: overrides.instrumentId,
       userId: overrides.userId,
       side: overrides.side ?? "BUY",
       type,
-      status: overrides.status ?? (type === "LIMIT" ? "NEW" : "FILLED"),
+      status: orderStatusOf(overrides, type),
       timeInForce: overrides.timeInForce ?? "GTC",
       size: overrides.size ?? 10,
-      price: overrides.priceArs ?? (type === "LIMIT" ? "100.00" : null),
-      filledPrice: overrides.filledPriceArs ?? null,
-      filledAt: overrides.filledAt ?? null,
-      idempotencyKey: overrides.idempotencyKey ?? null,
-      datetime: overrides.datetime ?? new Date(),
+      price: orderPriceArsOf(overrides, type),
+      ...orderExecutionFieldsOf(overrides),
     },
   });
 };

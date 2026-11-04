@@ -34,7 +34,7 @@ export const PortfolioResponseSchema = z.strictObject({
   cash: MoneyArsSchema,
   /** Reservado por órdenes NEW BUY (limit × size). */
   reservedCash: MoneyArsSchema,
-  /** cash + Σ marketValue de posiciones CON precio. */
+  /** cash disponible + cash reservado + Σ marketValue de posiciones con precio. */
   totalAccountValue: MoneyArsSchema,
   /** Sin MONEDA; sin posiciones de cantidad 0. */
   positions: z.array(PortfolioPositionSchema),
