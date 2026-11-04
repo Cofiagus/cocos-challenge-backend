@@ -11,6 +11,7 @@
 import { Decimal } from "decimal.js";
 import { z } from "zod";
 import {
+  MAX_ORDER_SIZE_SHARES,
   OrderTypeSchema,
   TimeInForceSchema,
   TradingSideSchema,
@@ -68,9 +69,10 @@ export const PositiveArsWireSchema = z
   .meta({ description: "Monto ARS > 0: número JSON o string decimal." });
 
 /**
- * Body de POST /orders. XOR instrumentId|ticker, XOR size|amountArs, `price` sólo en LIMIT.
- * Las reglas cruzadas (superRefine) viajan en la `description` de la operación: JSON Schema
- * las expresa como oneOf, pero el error 400 es el mismo.
+ * Body de POST /orders. XOR instrumentId|ticker, XOR size|amountArs, `price` sólo en LIMIT
+ * (en MARKET se omite o va `null`). Las reglas cruzadas (superRefine) viajan en la
+ * `description` de la operación: JSON Schema las expresa como oneOf, pero el error 400 es
+ * el mismo.
  */
 export const CreateOrderBodySchema = z
   .strictObject({
@@ -79,14 +81,15 @@ export const CreateOrderBodySchema = z
     side: TradingSideSchema,
     type: OrderTypeSchema,
     timeInForce: TimeInForceSchema.default("GTC"),
-    size: z.number().int().positive().optional(),
+    size: z.number().int().positive().max(MAX_ORDER_SIZE_SHARES).optional(),
     amountArs: PositiveArsWireSchema.optional(),
-    price: PositiveArsWireSchema.optional(),
+    price: PositiveArsWireSchema.nullable().optional(),
   })
   .meta({
     description:
       "Exactamente uno de `instrumentId` | `ticker`; exactamente uno de `size` | `amountArs`; " +
-      "`price` > 0 obligatorio si `type=LIMIT` y prohibido si `type=MARKET`.",
+      `\`size\` entero 1..${MAX_ORDER_SIZE_SHARES}; \`price\` > 0 obligatorio si \`type=LIMIT\`; en \`type=MARKET\` ` +
+      "se omite o va `null` (un número es 400).",
   });
 
 /** Body de POST /transfers. */
