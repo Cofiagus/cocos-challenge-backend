@@ -71,8 +71,19 @@ export const mapSettledMovementRow = (row: Order): SettledOrderMovement => ({
   instrumentId: requiredField(row.instrumentId, "orders(FILLED)", "instrumentid"),
   side: requiredField(row.side, "orders(FILLED)", "side"),
   sizeShares: requiredField(row.size, "orders(FILLED)", "size"),
-  // price es el precio de EJECUCIÓN en las FILLED (docs/database.md §3).
-  priceArs: decimalFromDb(requiredField(row.price, "orders(FILLED)", "price")),
+  // Precio de EJECUCIÓN en dos eras (DECISIONS.md: price = límite enviado,
+  // filledPrice = ejecución): las FILLED de la API llevan la ejecución en
+  // filledPrice (price queda en el límite o NULL); las FILLED heredadas del
+  // dataset la llevan en price (docs/database.md §3, pre-filledPrice). El
+  // COALESCE lee la ejecución correcta en ambas — seam reportado por la
+  // Célula E (QUESTION, opción A) y aplicado por el orquestador.
+  priceArs: decimalFromDb(
+    requiredField(
+      row.filledPrice ?? row.price,
+      "orders(FILLED)",
+      "filledPrice|price",
+    ),
+  ),
 });
 
 /** Proyección NEW de orders (resting): side de trading, límite no-nulo. */
