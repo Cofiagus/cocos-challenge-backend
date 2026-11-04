@@ -3,12 +3,12 @@
 API REST financiera: portfolio, instrumentos, órdenes de mercado (MARKET/LIMIT con TIF), cancelación
 y transferencias de cash. Node 26 · TypeScript strict (ESM, `nodenext`) · Express 5 · Prisma 7
 (`@prisma/adapter-pg`) · PostgreSQL · Zod 4 · Jest 30.
-Estado: build completo — 5 endpoints, 16 suites / 163 tests verdes.
+Estado: 5 endpoints implementados; el estado de los tests lo da `npm test`.
 
 ## 1. Protocolo de lectura (esto es lo que ahorra el 80% del contexto)
 
 1. **`docs/CODEMAP.md` primero, siempre.** Es el índice: archivo → responsabilidad → exports → quién lo
-   llama → test que lo cubre, más las trampas y la deuda conocida. Se lee entero en ~165 líneas.
+   llama → test que lo cubre, más las trampas y la deuda conocida. Se lee entero.
 2. **Un doc por pregunta** (tabla abajo). No leas dos docs para una pregunta: si hace falta, el doc está mal.
 3. **Código sólo si los docs no alcanzan**, y en ese caso: arreglar el doc en el mismo commit.
 
@@ -33,7 +33,7 @@ npm run dev                  # tsx watch src/index.ts (NO nodemon)
 npm run build                # tsc → dist/
 npm run typecheck            # tsc --noEmit (gate obligatorio)
 npm run lint                 # eslint 9 flat config (gate obligatorio)
-npm test                     # jest completo: 16 suites / 163 tests
+npm test                     # jest completo
 npx jest tests/functional/cancel          # UNA suite
 npx jest -t "doble submit"               # UN test por nombre
 npm run test:db:reset        # (re)crea cocos_challenge_test desde migraciones + seed
@@ -51,12 +51,14 @@ pegado. Prohibido decir "debería pasar".
 src/
   contracts/       # tipos + schemas Zod: el contrato de cable. Única puerta: contracts/index.ts
   domain/          # funciones PURAS (cash, posiciones, reservas, matching, sizing). Sin I/O, sin Prisma
-  domain/ports/    # 4 interfaces de repositorio — la aplicación depende de éstas, no de Prisma
-  application/     # 3 casos de uso: submitOrder (UC-3), cancelOrder (UC-4), submitTransfer (UC-5)
-  infra/prisma/    # 5 repos que implementan los ports + tx con advisory lock + mappers
-  http/            # 5 router factories (DI) + app.ts + server.ts (composition root)
+  domain/ports/    # interfaces de repositorio — la aplicación depende de éstas, no de Prisma
+  application/     # casos de uso: submitOrder (UC-3, con decide-order y persist-order-decision),
+                   # cancelOrder (UC-4), submitTransfer (UC-5), getPortfolio (UC-1)
+  infra/prisma/    # repos que implementan los ports + tx con advisory lock + mappers
+  http/            # router factories (DI) por slice + shared/edge.ts (borde Zod) + error-handler.ts
+                   # (errores uniformes) + app.ts + server.ts (composition root)
   lib/             # singleton lazy de PrismaClient
-  index.ts         # entry: dotenv + listen
+  index.ts         # entry: dotenv + listen + cierre ordenado (SIGTERM/SIGINT)
 prisma/            # schema.prisma (fuente única de índices) + migrations/ (DDL real)
 db/                # snapshot legacy GENERADO (schema.sql viejo) + seed.sql (dataset del challenge)
 tests/             # unit / integration / functional + helpers
@@ -93,9 +95,13 @@ eso, está desactualizado.
 4. **Auditoría append-only** en `order_events`, escrita en la MISMA tx que la mutación.
 5. **Máquina de estados explícita**: transiciones válidas codificadas y guardadas por estado
    (`WHERE status='NEW'`). No hay `CHECK` en la migración — es deuda conocida, no una garantía.
+   El borde acota `size` (`MAX_ORDER_SIZE_SHARES`): un valor fuera de rango es 400, no 500.
 6. **Zod `strict()` en el borde.** Nunca confiar en `req.body`. Input inválido → 400 **sin escribir nada**.
 7. **Proyecciones, no tablas de saldo**: cash y posiciones se derivan de `orders FILLED`; las reservas,
    de las `NEW`. No agregar tablas de cash/posiciones.
+8. **Errores uniformes.** Todo error responde `{ "error": { "code", "message" } }` con un código de
+   `API_ERROR_CODES`; lo inesperado lo toma `src/http/error-handler.ts` (500 `INTERNAL_ERROR` genérico,
+   sin stack). Los routers relanzan lo que no reconocen: nunca arman su propio 500.
 
 ## 6. Flujo de trabajo
 
@@ -125,6 +131,9 @@ reescribir tests existentes; cambiar un contrato HTTP (afecta `openapi.json` y c
   Comentarios sólo para el *por qué*, nunca para el *qué*.
 - Named exports, ESM, `strict` + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`.
 - Cadenas de llamadas planas; jerarquías shallow; archivos enfocados por responsabilidad.
+- Los umbrales de complejidad, profundidad, parámetros y tamaño de función/archivo viven en
+  `eslint.config.js` y los hace cumplir `npm run lint`. Superar uno se resuelve extrayendo funciones
+  con nombre de dominio, nunca desactivando la regla.
 - El header de cada archivo dice **qué UC sirve y qué decisión de `DECISIONS.md` implementa**, no en qué
   fase del build nació.
 
