@@ -1,4 +1,4 @@
-// UC-3 — submitOrder: orquestador del envío dentro de UNA transacción con lock
+// UC-3 — submitOrder: coordina el envío dentro de UNA transacción con lock
 // por usuario (withUserTransaction — DECISIONS.md).
 //
 // Orden que hace válida la concurrencia y la idempotencia:

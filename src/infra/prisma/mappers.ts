@@ -75,8 +75,7 @@ export const mapSettledMovementRow = (row: Order): SettledOrderMovement => ({
   // filledPrice = ejecución): las FILLED de la API llevan la ejecución en
   // filledPrice (price queda en el límite o NULL); las FILLED heredadas del
   // dataset la llevan en price (docs/database.md §3, pre-filledPrice). El
-  // COALESCE lee la ejecución correcta en ambas — seam reportado por la
-  // UC-3 (QUESTION, opción A).
+  // COALESCE lee la ejecución correcta en ambas.
   priceArs: decimalFromDb(
     requiredField(
       row.filledPrice ?? row.price,

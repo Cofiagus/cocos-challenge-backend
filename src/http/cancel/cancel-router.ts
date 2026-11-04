@@ -51,7 +51,7 @@ export const buildCancelRouter = (deps: CancelRouterDeps): Router => {
         const result = await cancelOrder(deps, {
           orderId: params.data.orderId,
         });
-        // 200 con la orden cancelada (decisión firmada por el orquestador).
+        // 200 con la orden cancelada.
         // Cancelación por usuario: sin razón (las razones del contrato son
         // de rechazo/IOC-FOK; la fila NEW que se canceló nunca tuvo una).
         res.status(200).json(toOrderResponse(result.order, null));

@@ -1,4 +1,4 @@
-// UC-5 — submitTransfer (FASE 4 — Célula G): transferencias de cash.
+// UC-5 — submitTransfer: transferencias de cash.
 //
 // DECISIONS.md: las transferencias se modelan como ORDERS del instrumento
 // MONEDA del cash (ARS — seed id 66, docs/database.md §2) con la convención
@@ -8,7 +8,7 @@
 // validación es para trading (BUY/SELL de un instrumento) — éstas son
 // movimientos de cash sobre el propio instrumento MONEDA.
 //
-// Espeja submitOrder (Célula E, UC-3) paso a paso — es el MISMO mecanismo
+// Espeja submitOrder (UC-3) paso a paso — es el MISMO mecanismo
 // de orders, sin instrumento del request ni precio de referencia:
 //
 //   1. userExists (tx)                       ⇒ 404 USER_NOT_FOUND.
@@ -28,10 +28,10 @@
 //      simultáneas que juntas exceden quedan una FILLED y una REJECTED
 //      gracias al pg_advisory_xact_lock por usuario.
 //   5. createOrder(draft, tx) es la PRIMERA ESCRITURA (claim idempotente
-//      con ON CONFLICT DO NOTHING — célula B): el draft completo, status
+//      con ON CONFLICT DO NOTHING): el draft completo, status
 //      incluido, se decide ANTES con las lecturas de 2–4. IDEMPOTENT_REPLAY
 //      ⇒ la orden original (201, sin evento nuevo); IDEMPOTENT_CONFLICT ⇒
-//      409 (B ya comparó el payload). La persistencia es la COMPARTIDA con
+//      409 (el repositorio ya comparó el payload). La persistencia es la COMPARTIDA con
 //      el envío de órdenes (persist-order-decision.ts).
 //   6. appendOrderEvent ACCEPTED/REJECTED en la MISMA tx (DECISIONS.md:
 //      auditoría en la misma transacción que la mutación).
