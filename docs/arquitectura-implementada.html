@@ -61,7 +61,7 @@
 <body>
 <div class="wrap">
   <h1>API cocos-challenge — lo que está implementado</h1>
-  <div class="sub">5 endpoints · 3 casos de uso · 4 puertos · 5 repositorios Prisma · 163 tests verdes. Estado real del repo en <code>cd8ea09</code>.</div>
+  <div class="sub">5 endpoints · casos de uso en <code>application/</code> · 4 puertos · repositorios Prisma. Estado verificable con <code>npm test</code> y <code>docs/CODEMAP.md</code>.</div>
 
   <div class="layer">
     <div class="lt"><b>Cliente</b><span class="path">collection/*.http · curl</span></div>
@@ -83,7 +83,7 @@
       <div class="box">Zod <code>strict()</code> → 400 <em>sin escribir</em></div>
       <div class="box">Idempotency-Key <em>opcional, 1..64</em></div>
       <div class="box">errores <code>{error:{code,message}}</code></div>
-      <div class="box"><em>sin error handler central → 500 = HTML de Express</em></div>
+      <div class="box">manejador central <em>404 ruta/método · 400 JSON roto · 413 &gt; 100 KB · 500 genérico sin stack</em></div>
     </div>
   </div>
 
@@ -97,7 +97,8 @@
           <div class="box accent">submitOrder <em>— UC-3</em></div>
           <div class="box accent">cancelOrder <em>— UC-4</em></div>
           <div class="box accent">submitTransfer <em>— UC-5</em></div>
-          <div class="box"><em>UC-1 y UC-2 no tienen caso de uso: viven en el router</em></div>
+          <div class="box accent">getPortfolio <em>— UC-1</em></div>
+          <div class="box"><em>UC-2 (búsqueda) no tiene caso de uso: vive en el router</em></div>
         </div>
       </div>
 
@@ -123,8 +124,8 @@
     <div class="note">
       <b>Nota de forma</b>
       <ul>
-        <li>UC-1 (portfolio) hace agregación + serialización + un <code>findById</code> por posición dentro del router.</li>
-        <li>UC-3/4/5 sí están extraídos a <code>application/</code>.</li>
+        <li>UC-1 (portfolio) agrega en lote (<code>getLatestSnapshots</code> + <code>findByIds</code>) en <code>application/portfolio/get-portfolio.ts</code>: sin una consulta por posición.</li>
+        <li>UC-1/3/4/5 están en <code>application/</code>; UC-2 (búsqueda) sigue en el router.</li>
         <li>El diagrama de <code>arquitectura-componentes.html</code> describe el estado <i>objetivo</i> (Yahoo, cron, price_ticks, sweep), no esto.</li>
       </ul>
     </div>
