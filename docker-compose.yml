@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cocos-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cocos_challenge
+    # 5433 para no chocar con un Postgres instalado en la máquina
+    ports:
+      - "5433:5432"
+    volumes:
+      - cocos_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cocos_challenge"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  cocos_pgdata:

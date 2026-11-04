@@ -13,6 +13,7 @@ out/
 .env
 .env.*
 !.env.example
+!.env.test
 
 # Logs
 logs/
@@ -49,3 +50,8 @@ Thumbs.db
 !.vscode/settings.json
 .idea/
 *.swp
+
+# Python (tooling de db)
+__pycache__/
+*.pyc
+.venv/

@@ -1,0 +1,60 @@
+{
+  "name": "cocos-challenge-backend",
+  "version": "1.0.0",
+  "description": "API REST para consultar portfolios de usuarios, buscar instrumentos y enviar órdenes al mercado.",
+  "engines": {
+    "node": ">=22"
+  },
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "nodemon src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:db:reset": "bash scripts/test-db-reset.sh",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cofiagus/cocos-challenge-backend.git"
+  },
+  "keywords": [],
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Cofiagus/cocos-challenge-backend/issues"
+  },
+  "homepage": "https://github.com/Cofiagus/cocos-challenge-backend#readme",
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
+    "eslint": "^9.39.5",
+    "jest": "^30.5.2",
+    "nodemon": "^3.1.14",
+    "prisma": "^7.10.1",
+    "supertest": "^7.3.1",
+    "ts-jest": "^29.4.15",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.1"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.10.1",
+    "decimal.js": "^10.6.0",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  }
+}
