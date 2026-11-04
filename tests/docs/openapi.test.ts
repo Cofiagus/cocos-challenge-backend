@@ -112,6 +112,28 @@ const documentedCodesOf = (operation: OperationDoc): readonly string[] =>
     expect(shapeKeys(CreateTransferBodySchema)).toEqual(shapeKeys(CreateTransferRequestSchema));
   });
 
+  it("D8 — el espejo del body de la orden equivale al schema real campo por campo", () => {
+    // Las reglas cruzadas (XOR instrumentId|ticker, XOR size|amountArs, LIMIT
+    // sin price, MARKET con price) viven en `superRefine` y no se espejan: acá
+    // se compara cada campo por separado, que es donde una cota o un `nullable`
+    // se pierde en silencio.
+    const samples: readonly unknown[] = [
+      0, 1, 2147483647, 2147483648, 1.5, "5", null, undefined, -1, "100.50", "0", NaN,
+    ];
+    const fields = ["size", "price", "amountArs", "instrumentId", "ticker"] as const;
+    const divergences = fields.flatMap((field) =>
+      samples
+        .map((sample) => ({
+          field,
+          value: sample,
+          mirror: CreateOrderBodySchema.shape[field].safeParse(sample).success,
+          contract: CreateOrderRequestSchema.shape[field].safeParse(sample).success,
+        }))
+        .filter((comparison) => comparison.mirror !== comparison.contract),
+    );
+    expect(divergences).toEqual([]);
+  });
+
   it("D7 — el espejo de wire de dinero equivale al schema real", () => {
     const samples: readonly unknown[] = [
       0, 0.25, 100, -5, 1.005, 100.005, "0.1", "100.50", " 7 ", "0", "-3", "1e3", "abc", "",
