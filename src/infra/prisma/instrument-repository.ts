@@ -1,4 +1,4 @@
-// PrismaInstrumentRepository — FASE 2 (célula B). Implementa
+// PrismaInstrumentRepository. Implementa
 // InstrumentRepository de src/domain/ports (catálogo de GET /instruments
 // y resolución de instrumentId de los envíos).
 //

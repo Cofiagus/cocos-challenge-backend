@@ -1,6 +1,6 @@
-// UC-4 — cancelOrder (FASE 4 — Célula F): cancelar una orden NEW por usuario.
+// UC-4 — cancelOrder: cancelar una orden NEW por usuario.
 //
-// Orquesta repos (B) DENTRO de UNA transacción con lock por usuario
+// Orquesta repos (infra) DENTRO de UNA transacción con lock por usuario
 // (withUserTransaction — DECISIONS.md), en el orden que hace válida la
 // concurrencia:
 //
@@ -8,16 +8,16 @@
 //      DUEÑO del lock. null ⇒ 404 ORDER_NOT_FOUND.
 //   2. withUserTransaction(userId, tx): pg_advisory_xact_lock(userId)
 //      serializa los submits Y las cancelaciones del usuario.
-//   3. markCancelled(orderId, tx): el guard WHERE status='NEW' (B) ES la
+//   3. markCancelled(orderId, tx): el guard WHERE status='NEW' (infra) ES la
 //      transición atómica NEW → CANCELLED. null ⇒ ya no estaba NEW ⇒
 //      422 ORDER_NOT_CANCELLABLE SIN mutar (ni evento).
 //   4. appendOrderEvent CANCELLED en la MISMA tx que la mutación
 //      (DECISIONS.md): reason null (las razones del contrato son de
 //      REJECTED/IOC-FOK, no de una cancelación pedida por el usuario) y
-//      metadata { origin: "USER" } (decisión firmada por el orquestador).
+//      metadata { origin: "USER" } (decisión de integración).
 //
 // La respuesta (router) es 200 OrderResponse con la fila CANCELLED — decisión
-// firmada por el orquestador: 201 es para creación; DECISIONS.md no fija el
+// de integración: 201 es para creación; DECISIONS.md no fija el
 // status de cancelación.
 
 import {
@@ -29,7 +29,7 @@ import type { OrderRepository } from "../../domain/ports/index.js";
 
 /**
  * Error de aplicación de la cancelación: el router lo mapea a status +
- * apiErrorBody. A diferencia del envío (E), NO hay códigos fuera del
+ * apiErrorBody. A diferencia del envío (UC-3), NO hay códigos fuera del
  * contrato: 404 ORDER_NOT_FOUND y 422 ORDER_NOT_CANCELLABLE ya viven en
  * API_ERROR_CODES (la validación del borde es 400 del router, no de acá).
  */
@@ -78,18 +78,18 @@ export const cancelOrder = async (
   }
   const { userId } = existing;
   if (userId === null) {
-    // mapOrderRow (B) ya falla ruidosamente (CorruptRowError) ante userid
+    // mapOrderRow (infra) ya falla ruidosamente (CorruptRowError) ante userid
     // NULL: este estrechamiento es sólo de tipos (inalcanzable en runtime).
     throw new Error(
       `Orden ${String(orderId)} sin userid (corrupción de fila — inalcanzable tras el mapper).`,
     );
   }
 
-  // UNA transacción con pg_advisory_xact_lock(userId) (B): serializa esta
+  // UNA transacción con pg_advisory_xact_lock(userId) (infra): serializa esta
   // cancelación contra los submits y cancelaciones del MISMO usuario.
   // TODO lo de abajo corre con el lock tomado.
   return deps.orders.withUserTransaction(userId, async (tx) => {
-    // Transición atómica: el guard WHERE status='NEW' del UPDATE (B) decide
+    // Transición atómica: el guard WHERE status='NEW' del UPDATE (infra) decide
     // y muta en UNA sentencia — dos DELETE concurrentes sobre la misma NEW
     // no pueden ambos ver count 1. La fila que devuelve ya está CANCELLED.
     const cancelled = await deps.orders.markCancelled(orderId, tx);

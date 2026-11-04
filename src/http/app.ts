@@ -1,11 +1,10 @@
-// Composición de la app HTTP — scaffolding del orquestador (pre-FASE 2).
+// Composición de la app HTTP.
 //
 // Cada slice HTTP (portfolio, instruments, orders, cancel, transfers) exporta
 // una Router factory que recibe sus dependencias (los ports de
-// src/domain/ports) inyectadas — así los tests de cada célula componen su
+// src/domain/ports) inyectadas — así los tests de cada slice componen su
 // propia app localmente con fakes y nadie edita un archivo compartido.
-// La composición con los routers reales vive en src/http/server.ts y solo la
-// toca la célula integradora de la fase correspondiente.
+// La composición con los routers reales vive en src/http/server.ts.
 
 import express from "express";
 import type { Router } from "express";
@@ -25,7 +24,7 @@ export const buildApp = (routers: readonly Router[]) => {
   const app = express();
   app.use(express.json({ limit: `${JSON_BODY_LIMIT_KB}kb` }));
   // app.use(path, ...routers) con lista VACÍA lanza "requires a middleware
-  // function" al importar serverApp (hallado por la Célula D): sin routers,
+  // function" al importar serverApp (hallado por la suite funcional): sin routers,
   // no se monta nada y el 404 del contrato lo responde notFoundHandler.
   if (routers.length > 0) {
     app.use("/api", ...routers);

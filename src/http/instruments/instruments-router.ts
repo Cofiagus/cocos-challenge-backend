@@ -1,8 +1,8 @@
-// UC-2 — GET /api/instruments?query= (FASE 2 — Célula C).
+// UC-2 — GET /api/instruments?query=.
 //
 // Router factory con DI (patrón buildApp de src/http/app.ts): deps con las
 // INTERFACES de src/domain/ports. Handler sin lógica de negocio: Zod (borde)
-// → searchByQuery (Célula B: ILIKE ticker O name, EXCLUYE MONEDA, ORDER BY
+// → searchByQuery (infra: ILIKE ticker O name, EXCLUYE MONEDA, ORDER BY
 // ticker, LIMIT) → UN batch de snapshots de los resultados (getLatestSnapshots,
 // sin N+1) → serialización del contrato.
 //
@@ -75,7 +75,7 @@ export const buildInstrumentsRouter = (
     }
     const { query, limit } = parsed.data;
 
-    // UNA query: searchByQuery (Célula B) ya excluye MONEDA, ordena por
+    // UNA query: searchByQuery (infra) ya excluye MONEDA, ordena por
     // ticker y aplica el LIMIT en SQL.
     const found = await deps.instruments.searchByQuery(query, limit);
 

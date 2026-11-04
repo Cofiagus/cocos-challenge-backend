@@ -19,20 +19,37 @@ export type MoneyArs = number & { readonly __brand: "MoneyArs" };
 /** Porcentaje serializado (puntos porcentuales, 2 decimales). */
 export type Pct = number & { readonly __brand: "Pct" };
 
-/** Valida un money serializado (tests de contrato): número finito, ≤2 decimales. */
-export const MoneyArsSchema = z.custom<MoneyArs>(
-  (value) =>
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
-  { message: "Se espera un número finito con a lo sumo 2 decimales." },
-);
+/**
+ * Valida un money serializado: número finito y ≤2 decimales.
+ *
+ * `z.number()` + `refine` en lugar de `z.custom`: `z.toJSONSchema` no puede representar tipos
+ * custom ("Custom types cannot be represented in JSON Schema") y este schema viaja dentro de las
+ * respuestas del contrato OpenAPI. La regla de 2 decimales viaja SOLO en la `description`:
+ * un `multipleOf: 0.01` en el JSON Schema se valida con división float (0.07/0.01 =
+ * 7.000000000000001) y hace que validadores estrictos (ajv) rechacen respuestas VÁLIDAS.
+ */
+export const MoneyArsSchema = z
+  .number()
+  .refine(
+    (value) =>
+      Number.isFinite(value) &&
+      Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
+    { message: "Se espera un número finito con a lo sumo 2 decimales." },
+  )
+  .meta({
+    description:
+      "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+  });
 
-/** Valida un porcentaje serializado: número finito. */
-export const PctSchema = z.custom<Pct>(
-  (value) => typeof value === "number" && Number.isFinite(value),
-  { message: "Se espera un número finito." },
-);
+/** Valida un porcentaje serializado: número finito, 2 decimales. */
+export const PctSchema = z
+  .number()
+  .refine((value) => Number.isFinite(value), {
+    message: "Se espera un número finito.",
+  })
+  // Sin `multipleOf` por lo mismo que MoneyArsSchema: la división float del validador
+  // rechazaría porcentajes válidos (la cuantización a 2 decimales la hace serializePct).
+  .meta({ description: "Porcentaje en puntos (2 decimales)." });
 
 const decimalFromWire = (value: unknown): unknown => {
   if (typeof value === "number") {

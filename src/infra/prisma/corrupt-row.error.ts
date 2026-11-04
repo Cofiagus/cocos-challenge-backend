@@ -1,4 +1,4 @@
-// Error de fila corrupta — FASE 2 (célula B).
+// Error de fila corrupta.
 //
 // El contrato (src/contracts/domain.ts) da por NO-NULOS varios campos que
 // el schema del snapshot permite en NULL (columnas legacy del COPY). Si una

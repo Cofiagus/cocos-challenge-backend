@@ -1,4 +1,4 @@
-// PrismaPortfolioReadRepository — FASE 2 (célula B). Implementa
+// PrismaPortfolioReadRepository. Implementa
 // PortfolioReadRepository de src/domain/ports (lado de lectura de UC-1 y
 // validación de fondos del envío).
 //

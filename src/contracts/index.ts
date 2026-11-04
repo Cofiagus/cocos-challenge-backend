@@ -1,6 +1,5 @@
-// Barrel de contratos — la API entre células: las células de FASE 2+
-// importan SOLO de acá (`src/contracts`). Nada de producción escribe acá
-// salvo la Célula 0 de FASE 1.
+// Barrel de contratos — la API entre módulos: el resto del código
+// importa SOLO de acá (`src/contracts`). Sólo los contratos se escriben acá.
 
 export * from "./enums.js";
 export * from "./money.js";

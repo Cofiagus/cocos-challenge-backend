@@ -1,11 +1,12 @@
-# PROGRESS.md — bitácora del orquestador
+# PROGRESS.md — bitácora del build
 
-Solo el orquestador escribe este archivo. Fuente de verdad del avance: fases, gates,
-estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
-
-La tabla de Células y la línea de HEAD de la sección Entorno se actualizan en el MISMO
-commit que cierra el gate. Si quedan atrás, una sesión que reanude lee estado falso: la
-tabla de abajo decía «no lanzada» para A–G mientras el texto ya daba GATE 4 por cerrado.
+> ⚠️ **ARTEFACTO HISTÓRICO. No es fuente de estado.** Describe el proceso de construcción por
+> fases y células, que ya terminó. Puede estar desactualizado (de hecho lo está: la tabla de
+> abajo marca la última fase como abierta mientras el repo está cerrado).
+> El estado real es `git log` y la topología real es `docs/CODEMAP.md`.
+> Glosario para leer el resto del archivo: Célula 0 = contratos · A = dominio puro · B = infra
+> Prisma · C = lectura UC-1/UC-2 · D = suite funcional UC-3 · E = UC-3 · F = UC-4 · G = UC-5 ·
+> H = documentación y entrega.
 
 ## Estado actual
 

@@ -1,8 +1,8 @@
-// UC-5 — POST /api/users/:userId/transfers (FASE 4 — Célula G).
+// UC-5 — POST /api/users/:userId/transfers.
 //
-// Router factory con DI (patrón C — igual que orders-router de la Célula
-// E): deps = las INTERFACES de src/domain/ports, que submitTransfer
-// (src/application) orquesta. El handler es FINO:
+// Router factory con DI (igual que orders-router): deps = las INTERFACES de
+// src/domain/ports, que submitTransfer (src/application) coordina. El handler
+// es FINO:
 //   - Zod estricto en el borde (params + body + Idempotency-Key) ⇒ 400
 //     VALIDATION_ERROR SIN crear orden;
 //   - submitTransfer ⇒ 201 OrderResponse (transferencia = order; también

@@ -31,11 +31,17 @@ export type PortfolioPosition = z.infer<typeof PortfolioPositionSchema>;
 
 export const PortfolioResponseSchema = z.strictObject({
   /** Disponible para operar: cashSettled − cashReserved. */
-  cash: MoneyArsSchema,
+  cash: MoneyArsSchema.meta({
+    description:
+      "Disponible para operar: settled − reservado por órdenes NEW de compra.",
+  }),
   /** Reservado por órdenes NEW BUY (limit × size). */
   reservedCash: MoneyArsSchema,
   /** cash disponible + cash reservado + Σ marketValue de posiciones con precio. */
-  totalAccountValue: MoneyArsSchema,
+  totalAccountValue: MoneyArsSchema.meta({
+    description:
+      "cash + reservedCash + Σ marketValue de las posiciones con precio; abrir o cancelar una orden no lo mueve.",
+  }),
   /** Sin MONEDA; sin posiciones de cantidad 0. */
   positions: z.array(PortfolioPositionSchema),
 });

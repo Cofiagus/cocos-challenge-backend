@@ -1,4 +1,4 @@
-// PrismaOrderRepository — FASE 2 (célula B). Implementa OrderRepository de
+// PrismaOrderRepository. Implementa OrderRepository de
 // src/domain/ports contra Prisma 7 + @prisma/adapter-pg.
 //
 // DECISIONS.md:

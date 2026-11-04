@@ -17,7 +17,7 @@ export type ApiErrorBody = z.infer<typeof ApiErrorBodySchema>;
 /**
  * Códigos estables del contrato (DECISIONS.md fija los status, no los
  * códigos; estos nombres son parte del contrato revisado por el
- * orquestador antes de FASE 2).
+ * de integración antes del build).
  */
 export const API_ERROR_CODES = {
   /** 400 — body/params inválidos (Zod). No crea orden. */

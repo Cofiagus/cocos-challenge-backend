@@ -1,4 +1,4 @@
-// Sizing por monto (FASE 2 — Célula A): utilidad pura de amountArs.
+// Sizing por monto: utilidad pura de amountArs.
 // DECISIONS.md: `size = floor(amount / precio)` — nunca se compra/vende más
 // de lo pedido; el residuo `amountArs − size × priceArs` queda como cash.
 // Dinero siempre Decimal.

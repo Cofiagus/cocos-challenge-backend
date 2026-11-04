@@ -1,9 +1,9 @@
-// PrismaClient singleton — FASE 2 (célula B).
+// PrismaClient singleton.
 //
 // Prisma 7 REQUIERE un driver adapter para instanciar PrismaClient (la URL
 // del datasource ya no viaja en el cliente generado): usamos
 // @prisma/adapter-pg@^7 (major alineada con @prisma/client 7.10.1, decisión
-// del orquestador). La URL sale de DATABASE_URL (.env en runtime, .env.test
+// de integración). La URL sale de DATABASE_URL (.env en runtime, .env.test
 // en los tests de integración — la suite la carga con dotenv ANTES del
 // primer uso, ver tests/integration/infra/**).
 //
