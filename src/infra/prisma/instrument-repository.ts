@@ -32,6 +32,23 @@ export class PrismaInstrumentRepository implements InstrumentRepository {
     return row === null ? null : mapInstrumentRow(row);
   };
 
+  readonly findByIds = async (
+    instrumentIds: readonly number[],
+    tx?: TransactionContext,
+  ): Promise<readonly InstrumentRecord[]> => {
+    if (instrumentIds.length === 0) {
+      // Sin ids no hay consulta que hacer.
+      return [];
+    }
+    const db: DbExecutor = tx ? resolveDbExecutor(tx) : this.client;
+    // UNA sola consulta IN. Sin ORDER BY: el port no promete orden; los
+    // duplicados de la entrada colapsan en una fila cada uno.
+    const rows = await db.instrument.findMany({
+      where: { id: { in: [...instrumentIds] } },
+    });
+    return rows.map(mapInstrumentRow);
+  };
+
   readonly findByTicker = async (
     ticker: string,
     tx?: TransactionContext,

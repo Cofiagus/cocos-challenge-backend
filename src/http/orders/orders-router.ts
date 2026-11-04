@@ -7,82 +7,78 @@
 //   - submitOrder ⇒ 201 OrderResponse (también para REJECTED/CANCELLED
 //     persistidas — DECISIONS.md);
 //   - SubmitOrderError ⇒ su status + apiErrorBody;
-//   - cualquier otro error propaga (500 no controlado — default de Express).
+//   - cualquier otro error propaga al manejador central (500 INTERNAL_ERROR).
 
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { z } from "zod";
 import {
   API_ERROR_CODES,
   CreateOrderParamsSchema,
   CreateOrderRequestSchema,
   IDEMPOTENCY_KEY_HEADER,
-  IdempotencyKeySchema,
   type ApiErrorBody,
-  type OrderResponse,
+  type CreateOrderRequest,
   apiErrorBody,
-  serializeLocalTimestamp,
-  serializeMoneyArs,
 } from "../../contracts/index.js";
 import {
   SubmitOrderError,
   submitOrder,
   type SubmitOrderDeps,
-  type SubmitOrderResult,
 } from "../../application/orders/submit-order.js";
+import { IdempotencyConflictError } from "../../application/orders/persist-order-decision.js";
+import {
+  parseIdempotencyKeyHeader,
+  toOrderResponse,
+  validationMessage,
+} from "../shared/edge.js";
 
 /** Deps del slice de orders: los PUERTOS (patrón C), orquestados por submitOrder. */
 export type OrdersRouterDeps = SubmitOrderDeps;
 
-/** Mensaje de validación: "campo: mensaje; ..." (ZodError → texto). */
-const validationMessage = (error: z.ZodError): string =>
-  error.issues
-    .map((issue) => `${issue.path.map(String).join(".")}: ${issue.message}`)
-    .join("; ");
+/** Request ya validado en el borde, o el body del 400 que corresponde. */
+type ParsedCreateOrder =
+  | {
+      readonly ok: true;
+      readonly userId: number;
+      readonly request: CreateOrderRequest;
+      readonly idempotencyKey: string | null;
+    }
+  | { readonly ok: false; readonly body: ApiErrorBody };
+
+const invalidRequest = (message: string): ParsedCreateOrder => ({
+  ok: false,
+  body: apiErrorBody(API_ERROR_CODES.VALIDATION_ERROR, message),
+});
 
 /**
- * Idempotency-Key del header (OPCIONAL): ausente ⇒ null; inválida
- * (no string / vacía / > 64) ⇒ invalid, y el borde responde 400 SIN crear orden.
+ * Borde: params de ruta (userId), Idempotency-Key opcional y body, con Zod
+ * estricto y en ese orden. Cualquier fallo ⇒ 400 SIN crear orden.
  */
-const parseIdempotencyKeyHeader = (
-  headers: Request["headers"],
-):
-  | { readonly ok: true; readonly key: string | null }
-  | { readonly ok: false } => {
-  const raw = headers[IDEMPOTENCY_KEY_HEADER];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  if (value === undefined) {
-    return { ok: true, key: null };
+const parseCreateOrderRequest = (req: Request): ParsedCreateOrder => {
+  const params = CreateOrderParamsSchema.safeParse(req.params);
+  if (!params.success) {
+    return invalidRequest(
+      `Parámetros inválidos: ${validationMessage(params.error)}`,
+    );
   }
-  const parsed = IdempotencyKeySchema.safeParse(value);
-  return parsed.success ? { ok: true, key: parsed.data } : { ok: false };
-};
 
-/** Fila persistida (SubmitOrderResult) → OrderResponse del contrato. */
-const toOrderResponse = (result: SubmitOrderResult): OrderResponse => {
-  const { order } = result;
-  // El mapper de infra ya falla ruidosamente ante un NULL acá:
-  // este estrechamiento es sólo de tipos (inalcanzable en runtime).
-  if (order.instrumentId === null) {
-    throw new Error("Orden persistida sin instrumentId (inalcanzable).");
+  const header = parseIdempotencyKeyHeader(req.headers);
+  if (!header.ok) {
+    return invalidRequest(
+      `Header ${IDEMPOTENCY_KEY_HEADER} inválido: se espera string de 1..64 caracteres.`,
+    );
   }
+
+  const body = CreateOrderRequestSchema.safeParse(req.body);
+  if (!body.success) {
+    return invalidRequest(`Body inválido: ${validationMessage(body.error)}`);
+  }
+
   return {
-    id: order.id,
-    instrumentId: order.instrumentId,
-    side: order.side,
-    type: order.type,
-    timeInForce: order.timeInForce,
-    status: order.status,
-    size: order.sizeShares,
-    price: order.priceArs === null ? null : serializeMoneyArs(order.priceArs),
-    filledPrice:
-      order.filledPriceArs === null
-        ? null
-        : serializeMoneyArs(order.filledPriceArs),
-    filledAt:
-      order.filledAt === null ? null : serializeLocalTimestamp(order.filledAt),
-    datetime: serializeLocalTimestamp(order.datetime),
-    reason: result.reason,
+    ok: true,
+    userId: params.data.userId,
+    request: body.data,
+    idempotencyKey: header.key,
   };
 };
 
@@ -92,58 +88,32 @@ export const buildOrdersRouter = (deps: OrdersRouterDeps): Router => {
   router.post(
     "/users/:userId/orders",
     async (req: Request, res: Response) => {
-      // Borde: params de ruta (userId) con Zod estricto, sin cast.
-      const params = CreateOrderParamsSchema.safeParse(req.params);
-      if (!params.success) {
-        res.status(400).json(
-          apiErrorBody(
-            API_ERROR_CODES.VALIDATION_ERROR,
-            `Parámetros inválidos: ${validationMessage(params.error)}`,
-          ),
-        );
-        return;
-      }
-
-      // Borde: Idempotency-Key opcional (ausente ⇒ null; inválida ⇒ 400).
-      const header = parseIdempotencyKeyHeader(req.headers);
-      if (!header.ok) {
-        const body: ApiErrorBody = apiErrorBody(
-          API_ERROR_CODES.VALIDATION_ERROR,
-          `Header ${IDEMPOTENCY_KEY_HEADER} inválido: se espera string de 1..64 caracteres.`,
-        );
-        res.status(400).json(body);
-        return;
-      }
-
-      // Borde: body con el contrato estricto (XORs del brief — 400 SIN orden).
-      const body = CreateOrderRequestSchema.safeParse(req.body);
-      if (!body.success) {
-        res.status(400).json(
-          apiErrorBody(
-            API_ERROR_CODES.VALIDATION_ERROR,
-            `Body inválido: ${validationMessage(body.error)}`,
-          ),
-        );
+      const parsed = parseCreateOrderRequest(req);
+      if (!parsed.ok) {
+        res.status(400).json(parsed.body);
         return;
       }
 
       try {
         const result = await submitOrder(deps, {
-          userId: params.data.userId,
-          request: body.data,
-          idempotencyKey: header.key,
+          userId: parsed.userId,
+          request: parsed.request,
+          idempotencyKey: parsed.idempotencyKey,
         });
         // 201 SIEMPRE que se persistió (FILLED/NEW/REJECTED/CANCELLED).
-        res.status(201).json(toOrderResponse(result));
+        res.status(201).json(toOrderResponse(result.order, result.reason));
       } catch (error) {
-        if (error instanceof SubmitOrderError) {
+        if (
+          error instanceof SubmitOrderError ||
+          error instanceof IdempotencyConflictError
+        ) {
           // Errores de aplicación → status + body del contrato.
           res
             .status(error.status)
             .json(apiErrorBody(error.code, error.message));
           return;
         }
-        throw error; // 500 no controlado (default de Express)
+        throw error; // lo responde el manejador central (500 INTERNAL_ERROR)
       }
     },
   );

@@ -11,4 +11,4 @@
 // a otra DB que sus fixtures (rojos/verdes según el scheduling). El
 // proyecto uc3-functional es el dueño exclusivo de esta URL.
 process.env["DATABASE_URL"] =
-  "postgresql://postgres@localhost:5433/cocos_challenge_ftest";
+  "postgresql://postgres:postgres@localhost:5433/cocos_challenge_ftest";

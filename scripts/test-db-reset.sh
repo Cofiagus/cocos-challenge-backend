@@ -4,9 +4,9 @@
 #
 #     npm run test:db:reset
 #
-# FASE 1 (Célula 0): la test DB ya NO sale de un template cargado con
-# db/schema.sql (ese snapshot NO tiene las columnas nuevas). Ahora sale del
-# SCHEMA MIGRADO (prisma/migrations/**) + db/seed.sql, igual que la dev DB:
+# La test DB ya NO sale de un template cargado con db/schema.sql (ese
+# snapshot NO tiene las columnas nuevas). Ahora sale del SCHEMA MIGRADO
+# (prisma/migrations/**) + db/seed.sql, igual que la dev DB:
 #
 #   1. Verifica psql + que el Postgres local acepte conexiones (falla ruidoso).
 #   2. (Re)crea `cocos_challenge_test` VACÍA (drop/create; template0 para no
@@ -22,11 +22,11 @@
 # Idempotente: correrlo de nuevo = drop/create/migrate/seed otra vez.
 # Sin docker: usa el cluster userspace de localhost:5433 (auth TRUST).
 #
-# El enfoque template de FASE 0 (`cocos_challenge_template`) quedó obsoleto:
+# El enfoque de template precargado (`cocos_challenge_template`) quedó obsoleto:
 # si existe de una corrida vieja, se borra acá.
 #
-# Postgres local de esta máquina: cluster userspace en localhost:5433, auth TRUST
-# (la URL no lleva password). Si no está levantado:
+# Postgres local de esta máquina: cluster userspace en localhost:5433 (auth TRUST,
+# el password se ignora) o docker-compose.yml (postgres:postgres). Si no está levantado:
 #   /usr/lib/postgresql/18/bin/pg_ctl -D ~/.pg/cocos -o '-p 5433 -k /tmp' \
 #     -l ~/.pg/cocos.log start
 #
@@ -36,7 +36,7 @@
 set -euo pipefail
 
 # Conexión al servidor (BD administrativa); overridable para otros entornos.
-DB_ADMIN_URL="${DB_ADMIN_URL:-postgresql://postgres@localhost:5433/postgres}"
+DB_ADMIN_URL="${DB_ADMIN_URL:-postgresql://postgres:postgres@localhost:5433/postgres}"
 # Nombre de la test DB overridable (p. ej. TEST_DB_NAME=cocos_challenge_ftest
 # para aislar suites que corren en paralelo contra el mismo cluster).
 TEST_DB="${TEST_DB_NAME:-cocos_challenge_test}"
@@ -61,10 +61,10 @@ if ! psql "$DB_ADMIN_URL" -tAc "SELECT 1" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Limpieza del enfoque de FASE 0 (template cargado desde db/schema.sql, sin
+# Limpieza del enfoque de template precargado (cargado desde db/schema.sql, sin
 # columnas nuevas): ya no aplica.
 if psql "$DB_ADMIN_URL" -tAc "SELECT 1 FROM pg_database WHERE datname = '$LEGACY_TEMPLATE_DB'" | grep -q 1; then
-  echo "→ borrando template obsoleto $LEGACY_TEMPLATE_DB (enfoque FASE 0)…"
+  echo "→ borrando template obsoleto $LEGACY_TEMPLATE_DB (enfoque anterior con template)…"
   psql "$DB_ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $LEGACY_TEMPLATE_DB"
 fi
 
