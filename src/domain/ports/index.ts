@@ -55,7 +55,17 @@ export interface OrderRepository {
     event: OrderEventDraft,
     tx: TransactionContext,
   ) => Promise<OrderEventRecord>;
-  readonly findById: (orderId: number) => Promise<OrderRecord | null>;
+  /**
+   * Fila de orders por id. Sin tx: lectura suelta del cancel (resuelve el
+   * 404 y el dueño del lock ANTES de abrir la transacción). Con tx: releer
+   * DENTRO de la misma ventana de la transacción (el status del mensaje
+   * 422 del cancel es el vigente al fallar el guard, no el de una lectura
+   * previa que pudo quedar vieja).
+   */
+  readonly findById: (
+    orderId: number,
+    tx?: TransactionContext,
+  ) => Promise<OrderRecord | null>;
   /**
    * Transición NEW → FILLED guardada por estado (WHERE status = 'NEW';
    * idempotente ante evaluaciones concurrentes). Null si ya no estaba NEW.

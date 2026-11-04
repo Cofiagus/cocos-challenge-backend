@@ -7,7 +7,7 @@
 //   - submitOrder ⇒ 201 OrderResponse (también para REJECTED/CANCELLED
 //     persistidas — DECISIONS.md);
 //   - SubmitOrderError ⇒ su status + apiErrorBody;
-//   - cualquier otro error propaga (500 no controlado — default de Express).
+//   - cualquier otro error propaga al manejador central (500 INTERNAL_ERROR).
 
 import { Router } from "express";
 import type { Request, Response } from "express";
@@ -25,6 +25,7 @@ import {
   submitOrder,
   type SubmitOrderDeps,
 } from "../../application/orders/submit-order.js";
+import { IdempotencyConflictError } from "../../application/orders/persist-order-decision.js";
 import {
   parseIdempotencyKeyHeader,
   toOrderResponse,
@@ -102,14 +103,17 @@ export const buildOrdersRouter = (deps: OrdersRouterDeps): Router => {
         // 201 SIEMPRE que se persistió (FILLED/NEW/REJECTED/CANCELLED).
         res.status(201).json(toOrderResponse(result.order, result.reason));
       } catch (error) {
-        if (error instanceof SubmitOrderError) {
+        if (
+          error instanceof SubmitOrderError ||
+          error instanceof IdempotencyConflictError
+        ) {
           // Errores de aplicación → status + body del contrato.
           res
             .status(error.status)
             .json(apiErrorBody(error.code, error.message));
           return;
         }
-        throw error; // 500 no controlado (default de Express)
+        throw error; // lo responde el manejador central (500 INTERNAL_ERROR)
       }
     },
   );

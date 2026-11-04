@@ -27,8 +27,6 @@ import {
   type CreateOrderRequest,
   type InstrumentRecord,
   type OrderDraft,
-  type OrderRejectionReason,
-  type OrderRecord,
   type TransactionContext,
 } from "../../contracts/index.js";
 import { deriveReservations } from "../../domain/index.js";
@@ -49,6 +47,11 @@ import {
   resolveSizing,
   type DecidedOrder,
 } from "./decide-order.js";
+import {
+  persistOrderDecision,
+  type OrderDraftBase,
+  type PersistedOrderDecision,
+} from "./persist-order-decision.js";
 
 /**
  * Código de error del envío: los códigos estables del contrato
@@ -90,64 +93,7 @@ export interface SubmitOrderInput {
 }
 
 /** Salida: la fila persistida + la razón (REJECTED/CANCELLED; null si NEW/FILLED). */
-export interface SubmitOrderResult {
-  readonly order: OrderRecord;
-  readonly reason: OrderRejectionReason | null;
-}
-
-/** Campos comunes del draft; el estado y el fill los agrega la decisión. */
-type OrderDraftBase = Omit<
-  OrderDraft,
-  "status" | "sizeShares" | "filledPriceArs" | "filledAt"
->;
-
-/**
- * Persiste la decisión: createOrder como PRIMERA escritura (claim idempotente)
- * y el evento de auditoría en la MISMA tx. Nada de esto corre si una
- * SubmitOrderError salió antes (el lock se libera con el rollback).
- */
-const persistDecidedOrder = async (
-  deps: SubmitOrderDeps,
-  tx: TransactionContext,
-  decided: DecidedOrder,
-  base: OrderDraftBase,
-): Promise<SubmitOrderResult> => {
-  const draft: OrderDraft = {
-    ...base,
-    status: decided.status,
-    sizeShares: decided.sizeShares,
-    filledPriceArs: decided.filledPriceArs,
-    filledAt: decided.filledAt,
-  };
-
-  // PRIMERA ESCRITURA de la tx de envío: claim idempotente (ON CONFLICT — B).
-  const created = await deps.orders.createOrder(draft, tx);
-
-  if (created.outcome === "IDEMPOTENT_CONFLICT") {
-    throw new SubmitOrderError(
-      409,
-      API_ERROR_CODES.IDEMPOTENCY_CONFLICT,
-      `Idempotency-Key ya usada con otro payload (orden existente ${String(created.order.id)}).`,
-    );
-  }
-  if (created.outcome === "IDEMPOTENT_REPLAY") {
-    // Misma key + mismo payload: la orden ORIGINAL, 201 sin nuevo evento.
-    return { order: created.order, reason: null };
-  }
-
-  // Auditoría en la MISMA tx que la mutación (DECISIONS.md).
-  await deps.orders.appendOrderEvent(
-    {
-      orderId: created.order.id,
-      eventType: decided.eventType,
-      reason: decided.reason,
-      metadata: decided.metadata,
-    },
-    tx,
-  );
-
-  return { order: created.order, reason: decided.reason };
-};
+export type SubmitOrderResult = PersistedOrderDecision;
 
 /** 404 de usuario (lectura en la tx: el lock ya está tomado). */
 const requireExistingUser = async (
@@ -352,7 +298,7 @@ const submitInsideTransaction = async (
     limitPriceArs,
   });
 
-  return persistDecidedOrder(deps, tx, decided, base);
+  return persistOrderDecision(deps.orders, tx, decided, base);
 };
 
 export const submitOrder = (

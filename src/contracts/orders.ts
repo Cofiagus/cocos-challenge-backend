@@ -110,7 +110,10 @@ export const CreateOrderRequestSchema = z
   });
 export type CreateOrderRequest = z.infer<typeof CreateOrderRequestSchema>;
 
-/** Orden en respuestas de POST /orders y DELETE /orders/:orderId. */
+/**
+ * Orden en respuestas de POST /orders, POST /transfers (UC-5) y
+ * DELETE /orders/:orderId.
+ */
 export const OrderResponseSchema = z.strictObject({
   id: z.number().int(),
   instrumentId: z.number().int(),
@@ -118,7 +121,11 @@ export const OrderResponseSchema = z.strictObject({
   type: OrderTypeSchema,
   timeInForce: TimeInForceSchema,
   status: OrderStatusSchema,
-  /** Acciones; 0 en un REJECTED por ZERO_SIZE. */
+  /**
+   * Doble uso del size INT (convención del seed — docs/database.md §2):
+   * acciones en órdenes de instrumento; pesos ARS en transferencias (orders
+   * del MONEDA ARS con price 1.00 — UC-5). 0 en un REJECTED por ZERO_SIZE.
+   */
   size: z.number().int().nullable(),
   /** Límite enviado (LIMIT); null en MARKET (DECISIONS.md: price = límite). */
   price: MoneyArsSchema.nullable(),
