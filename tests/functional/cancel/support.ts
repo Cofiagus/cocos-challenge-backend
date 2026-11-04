@@ -34,7 +34,7 @@ const execFileAsync = promisify(execFile);
 
 /** DB de ESTA suite (aislada por célula: el orquestador corre en paralelo). */
 export const CANCEL_DB_NAME = "cocos_challenge_cancel";
-export const CANCEL_DB_URL = `postgresql://postgres@localhost:5433/${CANCEL_DB_NAME}`;
+export const CANCEL_DB_URL = `postgresql://postgres:postgres@localhost:5433/${CANCEL_DB_NAME}`;
 
 // ANTES del primer uso del singleton lazy (patrón orders-submit/support.ts).
 // Se RESTAURA en closeCancelDbPool: el worker de jest se reusa para otros
