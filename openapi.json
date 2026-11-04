@@ -15,7 +15,7 @@
     "/api/users/{userId}/portfolio": {
       "get": {
         "summary": "Portfolio de un usuario",
-        "description": "Proyección de `orders`: `cash` = settled − reservado por órdenes `NEW` de compra. Posiciones con cantidad 0 no se listan; sin precio de referencia `marketValue` es `null` y la posición no suma a `totalAccountValue`. `MONEDA` nunca aparece.",
+        "description": "Proyección de `orders`: `cash` = settled − reservado por órdenes `NEW` de compra; `totalAccountValue` = `cash` + `reservedCash` + Σ `marketValue` de las posiciones con precio (abrir o cancelar una orden no lo mueve). Posiciones con cantidad 0 no se listan; sin precio de referencia `marketValue` es `null` y la posición no suma al total. `MONEDA` nunca aparece.",
         "operationId": "get-api-users--userId--portfolio",
         "tags": [
           "users"
@@ -42,7 +42,7 @@
                   "properties": {
                     "cash": {
                       "type": "number",
-                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
+                      "description": "Disponible para operar: settled − reservado por órdenes NEW de compra."
                     },
                     "reservedCash": {
                       "type": "number",
@@ -50,7 +50,7 @@
                     },
                     "totalAccountValue": {
                       "type": "number",
-                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
+                      "description": "cash + reservedCash + Σ marketValue de las posiciones con precio; abrir o cancelar una orden no lo mueve."
                     },
                     "positions": {
                       "type": "array",
@@ -117,23 +117,31 @@
                 "example": {
                   "cash": 627500,
                   "reservedCash": 125500,
-                  "totalAccountValue": 764256,
+                  "totalAccountValue": 889756,
                   "positions": [
-                    {
-                      "ticker": "PAMP",
-                      "name": "Pampa Energía S.A.",
-                      "quantity": 40,
-                      "marketValue": 37034,
-                      "priceAvailable": true,
-                      "totalReturnPct": -0.45
-                    },
                     {
                       "ticker": "BMA",
                       "name": "Banco Macro S.A.",
                       "quantity": -10,
                       "marketValue": -15028,
                       "priceAvailable": true,
-                      "totalReturnPct": null
+                      "totalReturnPct": -2.42
+                    },
+                    {
+                      "ticker": "PAMP",
+                      "name": "Pampa Holding S.A.",
+                      "quantity": 40,
+                      "marketValue": 37034,
+                      "priceAvailable": true,
+                      "totalReturnPct": -0.45
+                    },
+                    {
+                      "ticker": "METR",
+                      "name": "MetroGAS S.A.",
+                      "quantity": 500,
+                      "marketValue": 114750,
+                      "priceAvailable": true,
+                      "totalReturnPct": -8.2
                     }
                   ]
                 }
@@ -173,14 +181,14 @@
                 "example": {
                   "error": {
                     "code": "VALIDATION_ERROR",
-                    "message": "`userId` no es entero > 0."
+                    "message": "Parámetros inválidos: userId: Too small: expected number to be >0"
                   }
                 }
               }
             }
           },
           "404": {
-            "description": "El usuario no existe. Código: `USER_NOT_FOUND`.",
+            "description": "El usuario no existe. Código: `USER_NOT_FOUND`. Alternativa: Ruta o método inexistente: método no soportado en esta ruta: el servidor responde 404, no 405. Código: `NOT_FOUND`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -212,7 +220,46 @@
                 "example": {
                   "error": {
                     "code": "USER_NOT_FOUND",
-                    "message": "El usuario no existe."
+                    "message": "No existe el usuario 999."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error inesperado; el detalle queda en el log del servidor y el cliente recibe un mensaje genérico. Código: `INTERNAL_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Error interno del servidor."
                   }
                 }
               }
@@ -365,7 +412,85 @@
                 "example": {
                   "error": {
                     "code": "VALIDATION_ERROR",
-                    "message": "`query` vacía o ausente; `limit` fuera de 1..100."
+                    "message": "Query inválida: query: Invalid input: expected string, received undefined"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ruta o método inexistente: método no soportado en esta ruta: el servidor responde 404, no 405. Código: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Ruta inexistente."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error inesperado; el detalle queda en el log del servidor y el cliente recibe un mensaje genérico. Código: `INTERNAL_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Error interno del servidor."
                   }
                 }
               }
@@ -377,7 +502,7 @@
     "/api/users/{userId}/orders": {
       "post": {
         "summary": "Enviar una orden",
-        "description": "Persiste SIEMPRE que el input sea válido: 201 también para resultados `REJECTED` o `CANCELLED` (el negocio rechazó la orden, no el endpoint). `MARKET` se llena al precio de referencia; `LIMIT GTC` queda `NEW` y reserva; `IOC/FOK` se evalúan una vez. Con `Idempotency-Key`: misma key + mismo payload devuelve la orden original; payload distinto → 409; `reason` es `null` en el replay.",
+        "description": "Persiste SIEMPRE que el input sea válido: 201 también para resultados `REJECTED` o `CANCELLED` (el negocio rechazó la orden, no el endpoint). `size` es entero 1..2147483647. `MARKET` se llena al precio de referencia y acepta `price` omitido o `null` (un número es 400); `LIMIT` exige `price` > 0. `LIMIT GTC` queda `NEW` y reserva; `IOC/FOK` se evalúan una vez. Con `Idempotency-Key`: misma key + mismo payload devuelve la orden original; payload distinto → 409; `reason` es `null` en el replay.",
         "operationId": "post-api-users--userId--orders",
         "tags": [
           "users"
@@ -448,7 +573,7 @@
                   "size": {
                     "type": "integer",
                     "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "amountArs": {
                     "description": "Monto ARS > 0: número JSON o string decimal.",
@@ -458,10 +583,17 @@
                     ]
                   },
                   "price": {
-                    "description": "Monto ARS > 0: número JSON o string decimal.",
-                    "type": [
-                      "number",
-                      "string"
+                    "anyOf": [
+                      {
+                        "description": "Monto ARS > 0: número JSON o string decimal.",
+                        "type": [
+                          "number",
+                          "string"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   }
                 },
@@ -470,7 +602,7 @@
                   "type"
                 ],
                 "additionalProperties": false,
-                "description": "Exactamente uno de `instrumentId` | `ticker`; exactamente uno de `size` | `amountArs`; `price` > 0 obligatorio si `type=LIMIT` y prohibido si `type=MARKET`."
+                "description": "Exactamente uno de `instrumentId` | `ticker`; exactamente uno de `size` | `amountArs`; `size` entero 1..2147483647; `price` > 0 obligatorio si `type=LIMIT`; en `type=MARKET` se omite o va `null` (un número es 400)."
               }
             }
           }
@@ -610,18 +742,18 @@
                   "type": "LIMIT",
                   "timeInForce": "GTC",
                   "status": "REJECTED",
-                  "size": 1,
+                  "size": 1000000,
                   "price": 100,
                   "filledPrice": null,
                   "filledAt": null,
-                  "datetime": "2026-11-03T12:00:00",
+                  "datetime": "2026-11-04T10:27:18",
                   "reason": "INSUFFICIENT_FUNDS"
                 }
               }
             }
           },
           "400": {
-            "description": "Body inválido (XOR, LIMIT sin price, MARKET con price) o header inválido. Código: `VALIDATION_ERROR`. Alternativa: El instrumento es `MONEDA`: no operable. Código: `INSTRUMENT_NOT_OPERABLE`.",
+            "description": "Body inválido (XOR, LIMIT sin price, MARKET con price) o header inválido. Código: `VALIDATION_ERROR`. Alternativa: El instrumento es `MONEDA`: no operable. Código: `INSTRUMENT_NOT_OPERABLE`. Alternativa: El body no parsea como JSON. Código: `INVALID_JSON`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -653,14 +785,14 @@
                 "example": {
                   "error": {
                     "code": "VALIDATION_ERROR",
-                    "message": "Body inválido (XOR, LIMIT sin price, MARKET con price) o header inválido."
+                    "message": "Body inválido: price: LIMIT requiere price > 0."
                   }
                 }
               }
             }
           },
           "404": {
-            "description": "El usuario no existe. Código: `USER_NOT_FOUND`. Alternativa: El instrumento no existe. Código: `INSTRUMENT_NOT_FOUND`.",
+            "description": "El usuario no existe. Código: `USER_NOT_FOUND`. Alternativa: El instrumento no existe. Código: `INSTRUMENT_NOT_FOUND`. Alternativa: Ruta o método inexistente: método no soportado en esta ruta: el servidor responde 404, no 405. Código: `NOT_FOUND`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -692,7 +824,7 @@
                 "example": {
                   "error": {
                     "code": "USER_NOT_FOUND",
-                    "message": "El usuario no existe."
+                    "message": "No existe el usuario 999."
                   }
                 }
               }
@@ -731,7 +863,85 @@
                 "example": {
                   "error": {
                     "code": "IDEMPOTENCY_CONFLICT",
-                    "message": "Misma `Idempotency-Key` con otro payload."
+                    "message": "Idempotency-Key ya usada con otro payload (orden existente 15)."
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "El body supera el límite de 100 KB. Código: `PAYLOAD_TOO_LARGE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": "El body supera el límite de 100 KB."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error inesperado; el detalle queda en el log del servidor y el cliente recibe un mensaje genérico. Código: `INTERNAL_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Error interno del servidor."
                   }
                 }
               }
@@ -889,17 +1099,17 @@
                   "additionalProperties": false
                 },
                 "example": {
-                  "id": 5,
+                  "id": 12,
                   "instrumentId": 45,
                   "side": "BUY",
                   "type": "LIMIT",
                   "timeInForce": "GTC",
                   "status": "CANCELLED",
-                  "size": 50,
-                  "price": 710,
+                  "size": 1,
+                  "price": 100,
                   "filledPrice": null,
                   "filledAt": null,
-                  "datetime": "2026-07-12T10:00:00",
+                  "datetime": "2026-11-04T10:27:08",
                   "reason": null
                 }
               }
@@ -938,14 +1148,14 @@
                 "example": {
                   "error": {
                     "code": "VALIDATION_ERROR",
-                    "message": "`orderId` no es entero > 0."
+                    "message": "Parámetros inválidos: orderId: Too small: expected number to be >0"
                   }
                 }
               }
             }
           },
           "404": {
-            "description": "La orden no existe. Código: `ORDER_NOT_FOUND`.",
+            "description": "La orden no existe. Código: `ORDER_NOT_FOUND`. Alternativa: Ruta o método inexistente: método no soportado en esta ruta: el servidor responde 404, no 405. Código: `NOT_FOUND`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -977,7 +1187,7 @@
                 "example": {
                   "error": {
                     "code": "ORDER_NOT_FOUND",
-                    "message": "La orden no existe."
+                    "message": "No existe la orden 999999."
                   }
                 }
               }
@@ -1016,7 +1226,46 @@
                 "example": {
                   "error": {
                     "code": "ORDER_NOT_CANCELLABLE",
-                    "message": "La orden no está `NEW` (ya llena, cancelada o rechazada)."
+                    "message": "La orden 1 no está NEW (status 'FILLED'): sólo se cancelan órdenes NEW."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error inesperado; el detalle queda en el log del servidor y el cliente recibe un mensaje genérico. Código: `INTERNAL_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Error interno del servidor."
                   }
                 }
               }
@@ -1217,7 +1466,7 @@
                   "additionalProperties": false
                 },
                 "example": {
-                  "id": 20,
+                  "id": 13,
                   "instrumentId": 66,
                   "side": "CASH_IN",
                   "type": "MARKET",
@@ -1226,15 +1475,15 @@
                   "size": 123,
                   "price": 1,
                   "filledPrice": 1,
-                  "filledAt": "2026-11-03T12:00:00",
-                  "datetime": "2026-11-03T12:00:00",
+                  "filledAt": "2026-11-04T10:27:08",
+                  "datetime": "2026-11-04T10:27:08",
                   "reason": null
                 }
               }
             }
           },
           "400": {
-            "description": "Monto ≤ 0, no numérico, o `side` inválido. Código: `VALIDATION_ERROR`.",
+            "description": "Monto ≤ 0, no numérico, o `side` inválido. Código: `VALIDATION_ERROR`. Alternativa: El body no parsea como JSON. Código: `INVALID_JSON`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1266,14 +1515,14 @@
                 "example": {
                   "error": {
                     "code": "VALIDATION_ERROR",
-                    "message": "Monto ≤ 0, no numérico, o `side` inválido."
+                    "message": "Body inválido: amountArs: El monto debe ser mayor que 0."
                   }
                 }
               }
             }
           },
           "404": {
-            "description": "El usuario no existe. Código: `USER_NOT_FOUND`.",
+            "description": "El usuario no existe. Código: `USER_NOT_FOUND`. Alternativa: Ruta o método inexistente: método no soportado en esta ruta: el servidor responde 404, no 405. Código: `NOT_FOUND`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1305,7 +1554,7 @@
                 "example": {
                   "error": {
                     "code": "USER_NOT_FOUND",
-                    "message": "El usuario no existe."
+                    "message": "No existe el usuario 999."
                   }
                 }
               }
@@ -1344,7 +1593,85 @@
                 "example": {
                   "error": {
                     "code": "IDEMPOTENCY_CONFLICT",
-                    "message": "Misma `Idempotency-Key` con otro payload."
+                    "message": "Idempotency-Key ya usada con otro payload (orden existente 17)."
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "El body supera el límite de 100 KB. Código: `PAYLOAD_TOO_LARGE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": "El body supera el límite de 100 KB."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error inesperado; el detalle queda en el log del servidor y el cliente recibe un mensaje genérico. Código: `INTERNAL_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Error interno del servidor."
                   }
                 }
               }
