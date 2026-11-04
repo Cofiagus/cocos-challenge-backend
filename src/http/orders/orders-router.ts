@@ -25,6 +25,7 @@ import {
   submitOrder,
   type SubmitOrderDeps,
 } from "../../application/orders/submit-order.js";
+import { IdempotencyConflictError } from "../../application/orders/persist-order-decision.js";
 import {
   parseIdempotencyKeyHeader,
   toOrderResponse,
@@ -102,7 +103,10 @@ export const buildOrdersRouter = (deps: OrdersRouterDeps): Router => {
         // 201 SIEMPRE que se persistió (FILLED/NEW/REJECTED/CANCELLED).
         res.status(201).json(toOrderResponse(result.order, result.reason));
       } catch (error) {
-        if (error instanceof SubmitOrderError) {
+        if (
+          error instanceof SubmitOrderError ||
+          error instanceof IdempotencyConflictError
+        ) {
           // Errores de aplicación → status + body del contrato.
           res
             .status(error.status)

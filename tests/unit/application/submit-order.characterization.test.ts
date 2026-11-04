@@ -15,6 +15,7 @@ import {
   SubmitOrderError,
   submitOrder,
 } from "../../../src/application/orders/submit-order.js";
+import { IdempotencyConflictError } from "../../../src/application/orders/persist-order-decision.js";
 import type {
   CreateOrderRequest,
   InstrumentRecord,
@@ -211,6 +212,8 @@ interface ErrorCase {
   readonly seed: SubmitOrderFakeSeed;
   readonly userId?: number;
   readonly idempotencyKey?: string;
+  /** Clase del 409 de idempotencia (compartida con las transferencias). */
+  readonly errorClass?: "IdempotencyConflictError";
   readonly expected: {
     readonly status: number;
     readonly code: string;
@@ -1328,6 +1331,7 @@ const errorCases: ErrorCase[] = [
       createOutcome: "IDEMPOTENT_CONFLICT",
     },
     idempotencyKey: "idem-conflicto",
+    errorClass: "IdempotencyConflictError",
     expected: {
       status: 409,
       code: "IDEMPOTENCY_CONFLICT",
@@ -1553,9 +1557,15 @@ describe("submitOrder — caracterización del envío (UC-3)", () => {
       testCase.idempotencyKey ?? null,
     );
 
-    expect(error).toBeInstanceOf(SubmitOrderError);
-    if (!(error instanceof SubmitOrderError)) {
-      throw new Error("Se esperaba un SubmitOrderError.");
+    // El 409 de idempotencia es la clase COMPARTIDA (D-12); el resto de los
+    // errores de aplicación siguen siendo SubmitOrderError.
+    const errorClass =
+      testCase.errorClass === "IdempotencyConflictError"
+        ? IdempotencyConflictError
+        : SubmitOrderError;
+    expect(error).toBeInstanceOf(errorClass);
+    if (!(error instanceof errorClass)) {
+      throw new Error(`Se esperaba un ${errorClass.name}.`);
     }
     expect(error.status).toBe(testCase.expected.status);
     expect(error.code).toBe(testCase.expected.code);
