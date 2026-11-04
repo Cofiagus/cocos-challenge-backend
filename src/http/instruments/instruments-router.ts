@@ -13,7 +13,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { Decimal } from "decimal.js";
-import { z } from "zod";
 import {
   API_ERROR_CODES,
   InstrumentSearchQuerySchema,
@@ -23,6 +22,7 @@ import {
 } from "../../contracts/index.js";
 import type { InstrumentSearchResult } from "../../contracts/index.js";
 import type { MarketdataSnapshot } from "../../contracts/index.js";
+import { validationMessage } from "../shared/edge.js";
 import type {
   InstrumentRepository,
   MarketdataRepository,
@@ -38,12 +38,6 @@ export interface InstrumentsRouterDeps {
   /** Precios de referencia: UN batch de snapshots de los resultados. */
   readonly marketdata: MarketdataRepository;
 }
-
-/** Mensaje de validación: "campo: mensaje; ..." (ZodError → texto). */
-const validationMessage = (error: z.ZodError): string =>
-  error.issues
-    .map((issue) => `${issue.path.map(String).join(".")}: ${issue.message}`)
-    .join("; ");
 
 /**
  * Variación diaria del snapshot (serialización del contrato, UC-2):
