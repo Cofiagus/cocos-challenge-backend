@@ -1,34 +1,18 @@
-// Borde HTTP — lectura del header Idempotency-Key (tests SIN DB).
+// Borde HTTP compartido — lectura del header Idempotency-Key y mapeo de la
+// fila persistida al contrato (tests SIN DB).
 //
-// Caracteriza el comportamiento que hoy vive embebido en
-// src/http/orders/orders-router.ts: el header es OPCIONAL, su valor viaja al
-// caso de uso TAL CUAL (no se recortan espacios) y Express entrega un header
-// repetido como array. La réplica de abajo es una copia fiel de esa lectura;
-// el refactor la reemplaza por la función compartida de src/http/shared/edge.ts
-// sin tocar ningún caso.
+// El header es OPCIONAL, su valor viaja al caso de uso TAL CUAL (no se
+// recortan espacios) y Express entrega un header repetido como array.
 
-import type { IncomingHttpHeaders } from "node:http";
+import { Decimal } from "decimal.js";
 import {
   IDEMPOTENCY_KEY_HEADER,
-  IdempotencyKeySchema,
+  type OrderRecord,
 } from "../../../src/contracts/index.js";
-
-type IdempotencyKeyHeader =
-  | { readonly ok: true; readonly key: string | null }
-  | { readonly ok: false };
-
-/** Réplica fiel de la lectura actual del router de órdenes. */
-const parseIdempotencyKeyHeader = (
-  headers: IncomingHttpHeaders,
-): IdempotencyKeyHeader => {
-  const raw = headers[IDEMPOTENCY_KEY_HEADER];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  if (value === undefined) {
-    return { ok: true, key: null };
-  }
-  const parsed = IdempotencyKeySchema.safeParse(value);
-  return parsed.success ? { ok: true, key: parsed.data } : { ok: false };
-};
+import {
+  parseIdempotencyKeyHeader,
+  toOrderResponse,
+} from "../../../src/http/shared/edge.js";
 
 describe("parseIdempotencyKeyHeader", () => {
   it("header ausente ⇒ key null (la key es opcional)", () => {
@@ -80,5 +64,73 @@ describe("parseIdempotencyKeyHeader", () => {
     expect(
       parseIdempotencyKeyHeader({ [IDEMPOTENCY_KEY_HEADER]: "a".repeat(65) }),
     ).toEqual({ ok: false });
+  });
+});
+
+/** Fila persistida mínima; cada caso cambia sólo lo que mira. */
+const orderRecord = (overrides: Partial<OrderRecord> = {}): OrderRecord => ({
+  id: 7,
+  instrumentId: 1,
+  userId: 3,
+  side: "BUY",
+  type: "LIMIT",
+  timeInForce: "GTC",
+  status: "NEW",
+  sizeShares: 10,
+  priceArs: new Decimal("150.5"),
+  filledPriceArs: null,
+  filledAt: null,
+  idempotencyKey: null,
+  // Componentes LOCALES: el contrato serializa la hora local del mercado.
+  datetime: new Date(2026, 0, 2, 3, 4, 5),
+  ...overrides,
+});
+
+describe("toOrderResponse", () => {
+  it("LIMIT NEW ⇒ price serializado, sin ejecución y reason null", () => {
+    expect(toOrderResponse(orderRecord(), null)).toEqual({
+      id: 7,
+      instrumentId: 1,
+      side: "BUY",
+      type: "LIMIT",
+      timeInForce: "GTC",
+      status: "NEW",
+      size: 10,
+      price: 150.5,
+      filledPrice: null,
+      filledAt: null,
+      datetime: "2026-01-02T03:04:05",
+      reason: null,
+    });
+  });
+
+  it("FILLED ⇒ filledPrice y filledAt serializados", () => {
+    const response = toOrderResponse(
+      orderRecord({
+        status: "FILLED",
+        filledPriceArs: new Decimal("149.99"),
+        filledAt: new Date(2026, 0, 2, 3, 4, 5),
+      }),
+      null,
+    );
+    expect(response.filledPrice).toBe(149.99);
+    expect(response.filledAt).toBe("2026-01-02T03:04:05");
+  });
+
+  it("MARKET sin precio ⇒ price null (no se inventa un valor)", () => {
+    const response = toOrderResponse(
+      orderRecord({ type: "MARKET", priceArs: null }),
+      null,
+    );
+    expect(response.price).toBeNull();
+  });
+
+  it("REJECTED ⇒ la razón viaja tal cual en el body", () => {
+    const response = toOrderResponse(
+      orderRecord({ status: "REJECTED", sizeShares: 0 }),
+      "INSUFFICIENT_FUNDS",
+    );
+    expect(response.reason).toBe("INSUFFICIENT_FUNDS");
+    expect(response.size).toBe(0);
   });
 });
