@@ -1,11 +1,15 @@
 -- ============================================================================
 -- db/queries/portfolio.sql — proyección de cash + posiciones desde orders.
 --
--- Es la query que resuelve GET /api/users/portfolio. Verificada contra el seed:
+-- Es la query que resuelve GET /api/users/:userId/portfolio. Verificada contra el seed:
 --   user 1 -> cash 753000.00, PAMP 40, METR 500, BMA -10
 --
 -- Uso: pegar en psql y reemplazar :userid, o
 --   psql "$DATABASE_URL" -v userid=1 -f db/queries/portfolio.sql
+--
+-- Esquema: la query es para el esquema MIGRADO (prisma/migrations/**), que tiene la
+-- columna "filledPrice" con el precio de ejecución. Sobre el snapshot legacy
+-- (db/schema.sql, sin esa columna) sustituir coalesce("filledPrice", price) por price.
 -- ============================================================================
 
 \if :{?userid}
@@ -20,10 +24,10 @@
 SELECT
   :userid AS userid,
   coalesce(sum(CASE side
-                 WHEN 'CASH_IN'  THEN  size * price
-                 WHEN 'SELL'     THEN  size * price
-                 WHEN 'CASH_OUT' THEN -size * price
-                 WHEN 'BUY'      THEN -size * price
+                 WHEN 'CASH_IN'  THEN  size * coalesce("filledPrice", price)
+                 WHEN 'SELL'     THEN  size * coalesce("filledPrice", price)
+                 WHEN 'CASH_OUT' THEN -size * coalesce("filledPrice", price)
+                 WHEN 'BUY'      THEN -size * coalesce("filledPrice", price)
                END), 0)::numeric(14,2) AS cash
 FROM orders
 WHERE userid = :userid
@@ -54,7 +58,7 @@ WITH last_price AS (
 pos AS (
   SELECT o.instrumentid,
          sum(CASE o.side WHEN 'BUY' THEN o.size ELSE -o.size END) AS quantity,
-         sum(CASE WHEN o.side = 'BUY' THEN o.size * o.price ELSE 0 END)
+         sum(CASE WHEN o.side = 'BUY' THEN o.size * coalesce(o."filledPrice", o.price) ELSE 0 END)
            / nullif(sum(CASE WHEN o.side = 'BUY' THEN o.size ELSE 0 END), 0) AS avg_price
   FROM   orders o
   WHERE  o.userid = :userid

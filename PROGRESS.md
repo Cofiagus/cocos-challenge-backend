@@ -3,6 +3,10 @@
 Solo el orquestador escribe este archivo. Fuente de verdad del avance: fases, gates,
 estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 
+La tabla de Células y la línea de HEAD de la sección Entorno se actualizan en el MISMO
+commit que cierra el gate. Si quedan atrás, una sesión que reanude lee estado falso: la
+tabla de abajo decía «no lanzada» para A–G mientras el texto ya daba GATE 4 por cerrado.
+
 ## Estado actual
 
 - **FASE 0** (Célula 0 — entorno): **DONE — merge `b590dfb`, GATE 0 verificado por el orquestador** (typecheck/lint/test verde, `test:db:reset` idempotente, Prisma CLI 7.10.1 = client 7.10.1).
@@ -10,7 +14,9 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 - **FASE 2** (paralelo): **DONE — GATE 2 cerrado.** A merge `1f4bdba` (44 tests), B merge `54cdd40` (34 tests), C merge `1e27c94` (15 tests, golden values verificados por la célula contra la DB: 627500/125500/764256), D merge `18b16bd` (matriz roja — su DONE = typecheck+lint verde + 25 reds por 404-asserts). Todos los gates re-corridos por el orquestador. Post-B: `npm install` en main por `@prisma/adapter-pg` (TS2307). Composition root `server.ts` montando lectura (C) @ `9d2f6b8` + fix de imports `98a25fb` (commiteé con typecheck rojo — `&&` no frenó la cadena; lección: gate explícito antes de commit). Suite main: 12 suites → 89 passed + 25 reds (matriz D, esperados hasta FASE 3). Sanity vivo: portfolio 200/cash 627500/3 posiciones; search "pam"→PAMP; POST orders→404.
 - **FASE 3** (Célula E — UC-3): **DONE — GATE 3 cerrado.** Merge `1233c66` + integración `bae8eed`: mapper `filledPrice ?? price` (seam B↔DECISIONS.md reportado por E, QUESTION opción A), router orders cableado en `server.ts`, `jest.config.js` con projects (la suite de D no setea `DATABASE_URL` y GATE 3 la corre sin modificarla → proyecto uc3-functional apunta a `cocos_challenge_ftest`, su misma DB de asserts). **Suite main: 13 suites / 134 tests — los 25 de D en verde SIN tocar un archivo suyo.** Decisiones de E aceptadas: LIMIT+amountArs dimensiona por límite (GTC no resuelve ref); NO_PRICE con amountArs persiste size 0; INSTRUMENT_NOT_FOUND → 404 (DECISIONS no fija status para instrumento inexistente; spec Rev.3 sugería 400 — documentar en README); replay REJECTED devuelve reason null; SELL valida contra posición FILLED − reservadas (BMA −10 ⇒ vendible negativo).
 - **FASE 4** (F cancelar + G transferencias): **DONE — GATE 4 cerrado.** F merge `b915058` (cancelOrder: guard atómico `WHERE status='NEW'` dentro de `withUserTransaction`, 422 sin mutar, 404/400, doble DELETE concurrente ⇒ una 200 + una 422, liberación de reserva visible en portfolio — 11 tests). G merge `086dd89` (submitTransfer espejando E: transferencias = orders del instrumento ARS id 66 con `price=1.00, size=pesos` — convención del seed; CASH_OUT valida contra DISPONIBLE dentro de la tx; el caso clave 630000 < settled 753000 pero > disponible 627500 ⇒ REJECTED — 14 tests). Gates re-corridos por el orquestador en ambos worktrees (145/145 y 148/148). Cableado `server.ts` @ `8bbac23` ⇒ **GATE 4: 15 suites / 159 tests verde**. Sanity vivo de los 5 endpoints: portfolio 200 (cash 627500), search METR, POST LIMIT de user 2 sin cash ⇒ REJECTED (fondos), cancel de REJECTED ⇒ 422 (guard), transfer IN ⇒ FILLED, OUT excesiva ⇒ REJECTED.
-- **FASE 5** (Célula H — docs y entrega): EN CURSO (wt-h). GATE 5 lo corre el orquestador ( revisor distinto del autor): seguir el README desde cero en DB limpia → tests verdes + request exitoso.
+- **FASE 5** (Célula H — docs y entrega): **DONE — GATE 5 cerrado por el orquestador como revisor independiente.** Merge `8f23a5c` (README con 27 decisiones documentadas, docs/database.md corregido legacy vs migrado, collection/ REST Client con un ejemplo por caso). GATE 5 (revisor distinto del autor, DB limpia nueva `cocos_challenge_gate5`): drop/create → `migrate deploy` → seed (4/66/11/126) → `test:db:reset` + **`npm test` 15 suites / 159 tests verde** → server vivo + requests reales: portfolio golden (627500/125500/764256), búsqueda, transfer CASH_IN FILLED, orden LIMIT GTC NEW, **replay idempotente (misma id 13)**, **409 con otra key=payload**, 404 orden inexistente, **DELETE NEW → 200 CANCELLED**, DELETE repetido → 422, reserva liberada visible en portfolio (user 2: reserved 9000→0, cash 50000). Lint 0 warnings (fix propio de la directiva sin uso en `src/index.ts`).
+
+**DEFINICIÓN DE TERMINADO — VERIFICADA (2026-11-03):** `typecheck && lint && test` verde desde DB limpia ✓ · 5 endpoints cumplen DECISIONS.md ✓ (verificados en vivo) · matriz UC-3 completa (los 25 de la Célula D en verde sin editarlos) ✓ · README con "Supuestos y decisiones" (27) y "Evolución propuesta" (7) ✓ · cero decisiones sin documentar ✓.
 
 ### Decisiones firmadas por el orquestador en FASE 4 (para el README de H)
 
@@ -65,7 +71,7 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 
 ## Entorno (verificado 2026-11-03 por el orquestador)
 
-- Repo: `/home/cofi/repos/cocos-challenge-backend`, branch `main` @ `41af211`.
+- Repo: `/home/cofi/repos/cocos-challenge-backend`, branch de trabajo `pr/fase-5-orchestration` (la pila avanza en ramas de fase, no en `main`; hash real: `git log -1 --oneline` — este archivo se commitea después del gate y mueve HEAD).
 - Node v26.12.1, npm 12.0.2. **Sin docker** en esta máquina.
 - PostgreSQL 18 como cluster userspace: `~/.pg/cocos`, puerto 5433, user `postgres`,
   auth trust (`.env` ya apunta ahí). Socket dir: `/tmp` (arranque:
@@ -85,15 +91,15 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 | Célula | Fase | Estado | Gate |
 |---|---|---|---|
 | 0 — entorno | 0 | **DONE (merge `b590dfb`)** | GATE 0 ✓ |
-| 0 — contratos | 1 | EN CURSO | pendiente |
-| A — dominio puro | 2 | no lanzada | — |
-| B — persistencia e infra | 2 | no lanzada | — |
-| C — endpoints de lectura | 2 | no lanzada | — |
-| D — tests funcionales UC-3 (rojos) | 2 | no lanzada | — |
-| E — integración UC-3 | 3 | no lanzada | — |
-| F — cancelar orden | 4 | no lanzada | — |
-| G — transferencias | 4 | no lanzada | — |
-| H — docs y entrega | 5 | no lanzada | — |
+| 0 — contratos | 1 | **DONE (merge `86bc9c3`)** | GATE 1 ✓ |
+| A — dominio puro | 2 | **DONE (merge `1f4bdba`)** | GATE 2 ✓ |
+| B — persistencia e infra | 2 | **DONE (merge `54cdd40`)** | GATE 2 ✓ |
+| C — endpoints de lectura | 2 | **DONE (merge `1e27c94`)** | GATE 2 ✓ |
+| D — tests funcionales UC-3 (rojos) | 2 | **DONE (merge `18b16bd`)** | GATE 2 ✓ |
+| E — integración UC-3 | 3 | **DONE (merge `1233c66`)** | GATE 3 ✓ |
+| F — cancelar orden | 4 | **DONE (merge `b915058`)** | GATE 4 ✓ |
+| G — transferencias | 4 | **DONE (merge `086dd89`)** | GATE 4 ✓ |
+| H — docs y entrega | 5 | **DONE (merge `8f23a7c`)** | GATE 5 ✓ |
 
 ## QUESTIONs abiertas
 

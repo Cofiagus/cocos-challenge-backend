@@ -1,0 +1,14 @@
+### UC-1 — Portfolio
+
+@base_url = http://localhost:3000
+
+### Portfolio del usuario 1 (seed) — 200
+# Respuesta real verificada: cash disponible 627500 (settled 753000 − reservado 125500),
+# BMA −10 (posición negativa heredada del seed, lista tal cual y RESTA del total).
+GET {{base_url}}/api/users/1/portfolio
+
+### Portfolio de un usuario inexistente — 404 USER_NOT_FOUND
+GET {{base_url}}/api/users/999/portfolio
+
+### userId inválido (no entero) — 400 VALIDATION_ERROR
+GET {{base_url}}/api/users/abc/portfolio

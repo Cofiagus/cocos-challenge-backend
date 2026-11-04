@@ -1,0 +1,21 @@
+### UC-2 — Búsqueda de instrumentos
+
+@base_url = http://localhost:3000
+
+### Búsqueda por ticker — 200, array plano (sin wrapper)
+# Respuesta real verificada: price = close de la última marketdata por date (2023-07-14).
+# MONEDA (ARS) nunca aparece en los resultados.
+GET {{base_url}}/api/instruments?query=METR
+
+### Búsqueda por nombre parcial (case-insensitive) — 200
+GET {{base_url}}/api/instruments?query=pampa
+
+### Instrumento sin marketdata — 200 con price null
+# PGR no tiene filas en marketdata: price/previousClose/dailyVariationPct en null.
+GET {{base_url}}/api/instruments?query=PGR
+
+### Query vacía — 400 VALIDATION_ERROR
+GET {{base_url}}/api/instruments?query=
+
+### limit fuera de rango (> 100) — 400 VALIDATION_ERROR
+GET {{base_url}}/api/instruments?query=A&limit=5000

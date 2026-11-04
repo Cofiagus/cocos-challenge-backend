@@ -1,0 +1,20 @@
+### UC-4 — Cancelar orden (DELETE /api/orders/:orderId)
+
+@base_url = http://localhost:3000
+
+### Cancelar una orden NEW del seed — 200 con la orden CANCELLED
+# Orden 5 del seed (LOMA BUY LIMIT 50 @ 710, status NEW). Respuesta real verificada:
+# 200 (no 201), reason null (la cancelación del usuario no lleva razón) y al volver a
+# consultar el portfolio baja el reservedCash (se libera la reserva de 50 × 710).
+DELETE {{base_url}}/api/orders/5
+
+### Cancelar una orden que NO está NEW — 422 ORDER_NOT_CANCELLABLE
+# Orden 6 del seed: SELL MARKET REJECTED (vender 100 PAMP con 40 en cartera).
+# Sin mutar: el guard WHERE status='NEW' del UPDATE decide y no toca la fila.
+DELETE {{base_url}}/api/orders/6
+
+### Orden inexistente — 404 ORDER_NOT_FOUND
+DELETE {{base_url}}/api/orders/99999
+
+### orderId inválido (no entero) — 400 VALIDATION_ERROR
+DELETE {{base_url}}/api/orders/abc
