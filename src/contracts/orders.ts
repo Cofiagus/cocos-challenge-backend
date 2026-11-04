@@ -6,6 +6,7 @@
 // opcional (misma key + mismo payload → la orden original; key + otro
 // payload → 409). price = límite enviado; filledPrice = ejecución.
 
+import type { Decimal } from "decimal.js";
 import { z } from "zod";
 import {
   OrderRejectionReasonSchema,
@@ -21,6 +22,17 @@ import { PositiveArsInputSchema, MoneyArsSchema } from "./money.js";
 export const IDEMPOTENCY_KEY_HEADER = "idempotency-key" as const;
 export const IdempotencyKeySchema = z.string().min(1).max(64);
 export type IdempotencyKey = z.infer<typeof IdempotencyKeySchema>;
+
+/**
+ * Cota de `size`: la columna `size` es INTEGER (INT4) de Postgres, cuyo máximo
+ * es 2^31−1. Sin esta cota el valor pasa Zod y el INSERT falla con 500 en vez
+ * de llegar como 400 del contrato.
+ */
+export const MAX_ORDER_SIZE_SHARES = 2147483647;
+
+/** `null` explícito es "ausente" en campos opcionales del body. */
+const isPriceAbsent = (price: Decimal | null | undefined): boolean =>
+  price === undefined || price === null;
 
 /** Params de ruta de POST (userId) y DELETE (orderId). */
 export const CreateOrderParamsSchema = z.strictObject({
@@ -41,7 +53,7 @@ export type CancelOrderParams = z.infer<typeof CancelOrderParamsSchema>;
  *  - exactamente UNO de `instrumentId` / `ticker`;
  *  - exactamente UNO de `size` (acciones) / `amountArs` (pesos);
  *  - `price` > 0 obligatorio si LIMIT y ausente en MARKET (se ejecuta al
- *    precio de referencia);
+ *    precio de referencia); en MARKET, `price: null` se acepta como ausente;
  *  - `timeInForce` default GTC (DAY fuera de alcance);
  *  - `side` de trading: BUY/SELL (transferencias van por su ruta).
  */
@@ -52,12 +64,16 @@ export const CreateOrderRequestSchema = z
     side: TradingSideSchema,
     type: OrderTypeSchema,
     timeInForce: TimeInForceSchema.default("GTC"),
-    /** Acciones enteras > 0 (nunca fracciones). */
-    size: z.number().int().positive().optional(),
+    /** Acciones enteras > 0 (nunca fracciones) y ≤ INT4. */
+    size: z.number().int().positive().max(MAX_ORDER_SIZE_SHARES).optional(),
     /** Monto total en ARS (size = floor(amountArs / precio) — DECISIONS.md). */
     amountArs: PositiveArsInputSchema.optional(),
-    /** Precio límite en ARS (> 0, sólo LIMIT). */
-    price: PositiveArsInputSchema.optional(),
+    /**
+     * Precio límite en ARS (> 0, sólo LIMIT). En MARKET, `null` es "sin
+     * precio": el campo es opcional y un cliente que lo serializa como null
+     * no recibe 400.
+     */
+    price: PositiveArsInputSchema.nullable().optional(),
   })
   .superRefine((order, ctx) => {
     if (
@@ -77,14 +93,14 @@ export const CreateOrderRequestSchema = z
         path: ["size"],
       });
     }
-    if (order.type === "LIMIT" && order.price === undefined) {
+    if (order.type === "LIMIT" && isPriceAbsent(order.price)) {
       ctx.addIssue({
         code: "custom",
         message: "LIMIT requiere price > 0.",
         path: ["price"],
       });
     }
-    if (order.type === "MARKET" && order.price !== undefined) {
+    if (order.type === "MARKET" && !isPriceAbsent(order.price)) {
       ctx.addIssue({
         code: "custom",
         message: "MARKET no admite price: se ejecuta al precio de referencia.",

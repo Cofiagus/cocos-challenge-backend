@@ -9,87 +9,82 @@
 //     para REJECTED persistida — DECISIONS.md);
 //   - SubmitTransferError ⇒ su status + apiErrorBody (los códigos de la
 //     transferencia son TODOS del contrato: sin cast, a diferencia de E);
-//   - cualquier otro error propaga (500 no controlado — default Express).
+//   - cualquier otro error propaga al manejador central (500 INTERNAL_ERROR).
 //
-// validationMessage / parseIdempotencyKeyHeader / toOrderResponse son
-// espejos LOCALES de los privados de orders-router.ts (Célula E): no se
-// editan archivos de otras células ni se exportan helpers compartidos sin
-// decisión del orquestador.
+// validationMessage / parseIdempotencyKeyHeader / toOrderResponse son las
+// COMPARTIDAS de src/http/shared/edge.ts: mismos status, códigos y
+// mensajes que los espejos locales que reemplazan.
 
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { z } from "zod";
 import {
   API_ERROR_CODES,
   CreateTransferParamsSchema,
   CreateTransferRequestSchema,
   IDEMPOTENCY_KEY_HEADER,
-  IdempotencyKeySchema,
   type ApiErrorBody,
-  type OrderResponse,
+  type CreateTransferRequest,
   apiErrorBody,
-  serializeLocalTimestamp,
-  serializeMoneyArs,
 } from "../../contracts/index.js";
 import {
   SubmitTransferError,
   submitTransfer,
   type SubmitTransferDeps,
-  type SubmitTransferResult,
 } from "../../application/transfers/submit-transfer.js";
+import { IdempotencyConflictError } from "../../application/orders/persist-order-decision.js";
+import {
+  parseIdempotencyKeyHeader,
+  toOrderResponse,
+  validationMessage,
+} from "../shared/edge.js";
 
 /** Deps del slice de transfers: los PUERTOS (patrón C), orquestados por submitTransfer. */
 export type TransfersRouterDeps = SubmitTransferDeps;
 
-/** Mensaje de validación: "campo: mensaje; ..." (ZodError → texto) — espejo de E. */
-const validationMessage = (error: z.ZodError): string =>
-  error.issues
-    .map((issue) => `${issue.path.map(String).join(".")}: ${issue.message}`)
-    .join("; ");
+/** Request ya validado en el borde, o el body del 400 que corresponde. */
+type ParsedCreateTransfer =
+  | {
+      readonly ok: true;
+      readonly userId: number;
+      readonly request: CreateTransferRequest;
+      readonly idempotencyKey: string | null;
+    }
+  | { readonly ok: false; readonly body: ApiErrorBody };
+
+const invalidRequest = (message: string): ParsedCreateTransfer => ({
+  ok: false,
+  body: apiErrorBody(API_ERROR_CODES.VALIDATION_ERROR, message),
+});
 
 /**
- * Idempotency-Key del header (OPCIONAL): ausente ⇒ null; inválida
- * (no string / vacía / > 64) ⇒ 400 SIN crear orden — espejo de E.
+ * Borde: params de ruta (userId), Idempotency-Key opcional y body, con Zod
+ * estricto y en ese orden. Cualquier fallo ⇒ 400 SIN crear orden.
  */
-const parseIdempotencyKeyHeader = (
-  headers: Request["headers"],
-):
-  | { readonly ok: true; readonly key: string | null }
-  | { readonly ok: false } => {
-  const raw = headers[IDEMPOTENCY_KEY_HEADER];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  if (value === undefined) {
-    return { ok: true, key: null };
+const parseCreateTransferRequest = (req: Request): ParsedCreateTransfer => {
+  const params = CreateTransferParamsSchema.safeParse(req.params);
+  if (!params.success) {
+    return invalidRequest(
+      `Parámetros inválidos: ${validationMessage(params.error)}`,
+    );
   }
-  const parsed = IdempotencyKeySchema.safeParse(value);
-  return parsed.success ? { ok: true, key: parsed.data } : { ok: false };
-};
 
-/** Fila persistida (SubmitTransferResult) → OrderResponse del contrato. */
-const toOrderResponse = (result: SubmitTransferResult): OrderResponse => {
-  const { order } = result;
-  // El mapper de infra (célula B) ya falla ruidosamente ante un NULL acá:
-  // este estrechamiento es sólo de tipos (inalcanzable en runtime).
-  if (order.instrumentId === null) {
-    throw new Error("Orden persistida sin instrumentId (inalcanzable).");
+  const header = parseIdempotencyKeyHeader(req.headers);
+  if (!header.ok) {
+    return invalidRequest(
+      `Header ${IDEMPOTENCY_KEY_HEADER} inválido: se espera string de 1..64 caracteres.`,
+    );
   }
+
+  const body = CreateTransferRequestSchema.safeParse(req.body);
+  if (!body.success) {
+    return invalidRequest(`Body inválido: ${validationMessage(body.error)}`);
+  }
+
   return {
-    id: order.id,
-    instrumentId: order.instrumentId,
-    side: order.side,
-    type: order.type,
-    timeInForce: order.timeInForce,
-    status: order.status,
-    size: order.sizeShares,
-    price: order.priceArs === null ? null : serializeMoneyArs(order.priceArs),
-    filledPrice:
-      order.filledPriceArs === null
-        ? null
-        : serializeMoneyArs(order.filledPriceArs),
-    filledAt:
-      order.filledAt === null ? null : serializeLocalTimestamp(order.filledAt),
-    datetime: serializeLocalTimestamp(order.datetime),
-    reason: result.reason,
+    ok: true,
+    userId: params.data.userId,
+    request: body.data,
+    idempotencyKey: header.key,
   };
 };
 
@@ -99,59 +94,32 @@ export const buildTransfersRouter = (deps: TransfersRouterDeps): Router => {
   router.post(
     "/users/:userId/transfers",
     async (req: Request, res: Response) => {
-      // Borde: params de ruta (userId) con Zod estricto, sin cast.
-      const params = CreateTransferParamsSchema.safeParse(req.params);
-      if (!params.success) {
-        res.status(400).json(
-          apiErrorBody(
-            API_ERROR_CODES.VALIDATION_ERROR,
-            `Parámetros inválidos: ${validationMessage(params.error)}`,
-          ),
-        );
-        return;
-      }
-
-      // Borde: Idempotency-Key opcional (ausente ⇒ null; inválida ⇒ 400).
-      const header = parseIdempotencyKeyHeader(req.headers);
-      if (!header.ok) {
-        const body: ApiErrorBody = apiErrorBody(
-          API_ERROR_CODES.VALIDATION_ERROR,
-          `Header ${IDEMPOTENCY_KEY_HEADER} inválido: se espera string de 1..64 caracteres.`,
-        );
-        res.status(400).json(body);
-        return;
-      }
-
-      // Borde: body con el contrato estricto (amountArs > 0 — número o
-      // string parseado con Decimal; side CASH_IN/CASH_OUT) ⇒ 400 SIN orden.
-      const body = CreateTransferRequestSchema.safeParse(req.body);
-      if (!body.success) {
-        res.status(400).json(
-          apiErrorBody(
-            API_ERROR_CODES.VALIDATION_ERROR,
-            `Body inválido: ${validationMessage(body.error)}`,
-          ),
-        );
+      const parsed = parseCreateTransferRequest(req);
+      if (!parsed.ok) {
+        res.status(400).json(parsed.body);
         return;
       }
 
       try {
         const result = await submitTransfer(deps, {
-          userId: params.data.userId,
-          amountArs: body.data.amountArs,
-          side: body.data.side,
-          idempotencyKey: header.key,
+          userId: parsed.userId,
+          amountArs: parsed.request.amountArs,
+          side: parsed.request.side,
+          idempotencyKey: parsed.idempotencyKey,
         });
         // 201 SIEMPRE que se persistió (FILLED o REJECTED).
-        res.status(201).json(toOrderResponse(result));
+        res.status(201).json(toOrderResponse(result.order, result.reason));
       } catch (error) {
-        if (error instanceof SubmitTransferError) {
+        if (
+          error instanceof SubmitTransferError ||
+          error instanceof IdempotencyConflictError
+        ) {
           // Los códigos de la transferencia son todos ApiErrorCode (sin
           // INSTRUMENT_NOT_FOUND custom — a diferencia de E, sin cast).
           res.status(error.status).json(apiErrorBody(error.code, error.message));
           return;
         }
-        throw error; // 500 no controlado (default de Express)
+        throw error; // lo responde el manejador central (500 INTERNAL_ERROR)
       }
     },
   );

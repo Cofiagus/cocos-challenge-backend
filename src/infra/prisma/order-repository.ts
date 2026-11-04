@@ -12,7 +12,7 @@
 //  - markFilled/markCancelled: guard por estado (WHERE status='NEW'),
 //    null si no estaba NEW.
 
-import { PrismaClient, type Prisma } from "@prisma/client";
+import { PrismaClient, type Order, type Prisma } from "@prisma/client";
 import { Decimal } from "decimal.js";
 import type {
   CreateOrderResult,
@@ -38,6 +38,108 @@ import {
   unbrandTransactionContext,
   type DbExecutor,
 } from "./transaction-context.js";
+
+// ---------------------------------------------------------------------------
+// Insert idempotente — piezas puras/aisladas de createOrder
+// ---------------------------------------------------------------------------
+
+/** Parámetros de escritura del dinero del draft (Decimal → string; NULL se conserva). */
+interface OrderWriteParams {
+  readonly price: string | null;
+  readonly filledPrice: string | null;
+}
+
+const orderWriteParams = (draft: OrderDraft): OrderWriteParams => ({
+  price: draft.priceArs === null ? null : decimalToDbParam(draft.priceArs),
+  filledPrice:
+    draft.filledPriceArs === null ? null : decimalToDbParam(draft.filledPriceArs),
+});
+
+/** Datos del INSERT directo (sin idempotencyKey no hay claim que defender). */
+const orderCreateData = (
+  draft: OrderDraft,
+  params: OrderWriteParams,
+): Prisma.OrderUncheckedCreateInput => ({
+  instrumentId: draft.instrumentId,
+  userId: draft.userId,
+  size: draft.sizeShares,
+  price: params.price,
+  type: draft.type,
+  side: draft.side,
+  status: draft.status,
+  datetime: draft.datetime,
+  timeInForce: draft.timeInForce,
+  filledPrice: params.filledPrice,
+  filledAt: draft.filledAt,
+  idempotencyKey: null,
+});
+
+/** price de la fila vs price del draft (Decimal por string, nunca float). */
+const pricesEqual = (
+  dbValue: Prisma.Decimal | null,
+  draftValue: Decimal | null,
+): boolean => {
+  if (dbValue === null || draftValue === null) {
+    return dbValue === null && draftValue === null;
+  }
+  return decimalFromDb(dbValue).equals(draftValue);
+};
+
+/**
+ * Mismo PAYLOAD idempotente: instrumentId/side/type/size/price/timeInForce
+ * (DECISIONS.md; status/filled* los decide la app, no integran el payload).
+ */
+const sameOrderPayload = (row: Order, draft: OrderDraft): boolean =>
+  row.instrumentId === draft.instrumentId &&
+  row.side === draft.side &&
+  row.type === draft.type &&
+  row.timeInForce === draft.timeInForce &&
+  row.size === draft.sizeShares &&
+  pricesEqual(row.price, draft.priceArs);
+
+interface ClaimedOrderRow {
+  /** true si ESTE envío insertó la fila; false si la key ya estaba reclamada. */
+  readonly inserted: boolean;
+  readonly row: Order;
+}
+
+/**
+ * Claim idempotente: INSERT ... ON CONFLICT DO NOTHING sobre
+ * UNIQUE(userid, idempotencyKey) — PRIMERA escritura del envío. Count 1 ⇒
+ * insertamos; 0 ⇒ otra orden YA reclamó la key. Devuelve la fila única
+ * (insertada ahora o preexistente).
+ */
+const claimOrderRow = async (
+  db: Prisma.TransactionClient,
+  draft: OrderDraft,
+  params: OrderWriteParams,
+): Promise<ClaimedOrderRow> => {
+  const inserted = await db.$executeRaw`
+    INSERT INTO orders
+      ("instrumentid", "userid", "size", "price", "type", "side", "status",
+       "datetime", "timeInForce", "filledPrice", "filledAt", "idempotencyKey")
+    VALUES
+      (${draft.instrumentId}, ${draft.userId}, ${draft.sizeShares}, ${params.price},
+       ${draft.type}, ${draft.side}, ${draft.status}, ${draft.datetime},
+       ${draft.timeInForce}, ${params.filledPrice}, ${draft.filledAt},
+       ${draft.idempotencyKey})
+    ON CONFLICT ("userid", "idempotencyKey") DO NOTHING
+  `;
+  if (inserted !== 0 && inserted !== 1) {
+    throw new CorruptRowError("orders", "insert (count inesperado)");
+  }
+
+  // La fila (insertada ahora o preexistente): única por (userid, key).
+  const row = await db.order.findFirst({
+    where: { userId: draft.userId, idempotencyKey: draft.idempotencyKey },
+    orderBy: { id: "asc" },
+  });
+  if (row === null) {
+    // El ON CONFLICT garantiza que la fila exista: no encontrarla es corrupción.
+    throw new CorruptRowError("orders", "fila del claim idempotente");
+  }
+  return { inserted: inserted === 1, row };
+};
 
 export class PrismaOrderRepository implements OrderRepository {
   constructor(private readonly client: PrismaClient = getPrismaClient()) {}
@@ -73,80 +175,27 @@ export class PrismaOrderRepository implements OrderRepository {
     tx: TransactionContext,
   ): Promise<CreateOrderResult> => {
     const db = unbrandTransactionContext(tx);
-
-    // Dinero → string (parámetros de escritura); Prisma/pg parsean el texto
-    // a NUMERIC: jamás pasa por float.
-    const priceParam =
-      draft.priceArs === null ? null : decimalToDbParam(draft.priceArs);
-    const filledPriceParam =
-      draft.filledPriceArs === null ? null : decimalToDbParam(draft.filledPriceArs);
+    const params = orderWriteParams(draft);
 
     if (draft.idempotencyKey === null) {
       // Sin key no hay claim que defender: INSERT directo (las filas NULL
       // nunca chocan el UNIQUE: PG trata NULL ≠ NULL).
       const row = await db.order.create({
-        data: {
-          instrumentId: draft.instrumentId,
-          userId: draft.userId,
-          size: draft.sizeShares,
-          price: priceParam,
-          type: draft.type,
-          side: draft.side,
-          status: draft.status,
-          datetime: draft.datetime,
-          timeInForce: draft.timeInForce,
-          filledPrice: filledPriceParam,
-          filledAt: draft.filledAt,
-          idempotencyKey: null,
-        },
+        data: orderCreateData(draft, params),
       });
       return { outcome: "CREATED", order: mapOrderRow(row) };
     }
 
-    // Con key: INSERT ... ON CONFLICT DO NOTHING sobre
-    // UNIQUE(userid, idempotencyKey). Count 1 ⇒ insertamos; 0 ⇒ conflicto
-    // (otra orden YA reclamó esta key).
-    const inserted = await db.$executeRaw`
-      INSERT INTO orders
-        ("instrumentid", "userid", "size", "price", "type", "side", "status",
-         "datetime", "timeInForce", "filledPrice", "filledAt", "idempotencyKey")
-      VALUES
-        (${draft.instrumentId}, ${draft.userId}, ${draft.sizeShares}, ${priceParam},
-         ${draft.type}, ${draft.side}, ${draft.status}, ${draft.datetime},
-         ${draft.timeInForce}, ${filledPriceParam}, ${draft.filledAt},
-         ${draft.idempotencyKey})
-      ON CONFLICT ("userid", "idempotencyKey") DO NOTHING
-    `;
-    if (inserted !== 0 && inserted !== 1) {
-      throw new CorruptRowError("orders", "insert (count inesperado)");
-    }
-
-    // La fila (insertada ahora o preexistente): única por (userid, key).
-    const row = await db.order.findFirst({
-      where: { userId: draft.userId, idempotencyKey: draft.idempotencyKey },
-      orderBy: { id: "asc" },
-    });
-    if (row === null) {
-      // El ON CONFLICT garantiza que la fila exista: no encontrarla es corrupción.
-      throw new CorruptRowError("orders", "fila del claim idempotente");
-    }
-
-    if (inserted === 1) {
+    const { inserted, row } = await claimOrderRow(db, draft, params);
+    if (inserted) {
       return { outcome: "CREATED", order: mapOrderRow(row) };
     }
 
-    // Conflicto: ¿mismo PAYLOAD? (instrumentId/side/type/size/price/tif —
-    // DECISIONS.md; status/filled* los decide la app, no integran el payload).
-    const samePayload =
-      row.instrumentId === draft.instrumentId &&
-      row.side === draft.side &&
-      row.type === draft.type &&
-      row.timeInForce === draft.timeInForce &&
-      row.size === draft.sizeShares &&
-      this.pricesEqual(row.price, draft.priceArs);
-
+    // Conflicto: el payload decide REPLAY vs CONFLICT (la API mapea 409).
     return {
-      outcome: samePayload ? "IDEMPOTENT_REPLAY" : "IDEMPOTENT_CONFLICT",
+      outcome: sameOrderPayload(row, draft)
+        ? "IDEMPOTENT_REPLAY"
+        : "IDEMPOTENT_CONFLICT",
       order: mapOrderRow(row),
     };
   };
@@ -238,16 +287,5 @@ export class PrismaOrderRepository implements OrderRepository {
       throw new CorruptRowError("orders", `id=${orderId} tras el UPDATE guard`);
     }
     return mapOrderRow(row);
-  };
-
-  /** price de la fila vs price del draft (Decimal por string, nunca float). */
-  private readonly pricesEqual = (
-    dbValue: Prisma.Decimal | null,
-    draftValue: Decimal | null,
-  ): boolean => {
-    if (dbValue === null || draftValue === null) {
-      return dbValue === null && draftValue === null;
-    }
-    return decimalFromDb(dbValue).equals(draftValue);
   };
 }

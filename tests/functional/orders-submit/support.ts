@@ -32,7 +32,7 @@ const execFileAsync = promisify(execFile);
 
 /** DB de ESTA suite (aislada por célula: el orquestador corre en paralelo). */
 export const SUBMIT_DB_NAME = "cocos_challenge_submit";
-export const SUBMIT_DB_URL = `postgresql://postgres@localhost:5433/${SUBMIT_DB_NAME}`;
+export const SUBMIT_DB_URL = `postgresql://postgres:postgres@localhost:5433/${SUBMIT_DB_NAME}`;
 
 // ANTES del primer uso del singleton lazy (patrón read/support.ts).
 process.env["DATABASE_URL"] = SUBMIT_DB_URL;

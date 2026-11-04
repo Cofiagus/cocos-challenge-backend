@@ -16,7 +16,7 @@ import { Pool, type QueryResultRow } from "pg";
 const execFileAsync = promisify(execFile);
 
 export const FUNCTIONAL_DB_NAME = "cocos_challenge_ftest";
-export const FUNCTIONAL_DATABASE_URL = `postgresql://postgres@localhost:5433/${FUNCTIONAL_DB_NAME}`;
+export const FUNCTIONAL_DATABASE_URL = `postgresql://postgres:postgres@localhost:5433/${FUNCTIONAL_DB_NAME}`;
 
 /**
  * Recrea la DB de la célula D al estado del seed (migración versionada +

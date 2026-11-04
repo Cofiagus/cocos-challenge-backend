@@ -6,9 +6,8 @@
 // DB antes de que ningún repositorio construya el PrismaClient (el singleton
 // de src/lib/prisma-client.ts es lazy, pero vive POR PROCESO del worker).
 //
-// Self-reset en beforeAll: scripts/test-db-reset.sh con TEST_DB_NAME — el
-// MISMO flujo de tests/helpers/dbReset.ts (migrate deploy + db/seed.sql),
-// apuntando a ESTA DB.
+// Self-reset en beforeAll: corre scripts/test-db-reset.sh con TEST_DB_NAME
+// apuntando a ESTA DB (migrate deploy + db/seed.sql).
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -25,7 +24,7 @@ const execFileAsync = promisify(execFile);
 
 /** DB de ESTA suite (aislada por célula: el orquestador corre en paralelo). */
 export const READ_DB_NAME = "cocos_challenge_read";
-export const READ_DB_URL = `postgresql://postgres@localhost:5433/${READ_DB_NAME}`;
+export const READ_DB_URL = `postgresql://postgres:postgres@localhost:5433/${READ_DB_NAME}`;
 
 // ANTES del primer uso del singleton lazy: la URL de ESTA DB (nunca la de
 // .env.test, que apunta a cocos_challenge_test — la DB de la célula B).
