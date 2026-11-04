@@ -12,6 +12,7 @@ import { PrismaInstrumentRepository } from "../../../src/infra/prisma/instrument
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
 import {
   SEED_INSTRUMENT_ARS_ID,
+  SEED_INSTRUMENT_METR_ID,
   SEED_INSTRUMENT_PAMP_ID,
 } from "../../helpers/fixtures.js";
 
@@ -81,5 +82,40 @@ describe("PrismaInstrumentRepository — catálogo (DB real)", () => {
     // limit mayor ⇒ mismo prefijo de orden (prefijo estable por ORDER BY).
     const bigger = await instrumentRepo.searchByQuery("a", 8);
     expect(bigger.slice(0, 5).map((i) => i.ticker)).toEqual(tickers);
+  });
+
+  it("findByIds devuelve SOLO los ids pedidos, en una sola consulta", async () => {
+    const results = await instrumentRepo.findByIds([
+      SEED_INSTRUMENT_PAMP_ID,
+      SEED_INSTRUMENT_METR_ID,
+    ]);
+    expect(results.map((i) => i.id).sort((a, b) => a - b)).toEqual(
+      [SEED_INSTRUMENT_PAMP_ID, SEED_INSTRUMENT_METR_ID].sort((a, b) => a - b),
+    );
+    const pamp = results.find((i) => i.id === SEED_INSTRUMENT_PAMP_ID);
+    expect(pamp?.ticker).toBe("PAMP");
+  });
+
+  it("findByIds ignora ids desconocidos", async () => {
+    const results = await instrumentRepo.findByIds([
+      SEED_INSTRUMENT_PAMP_ID,
+      999999999,
+    ]);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.id).toBe(SEED_INSTRUMENT_PAMP_ID);
+  });
+
+  it("findByIds con ids repetidos no duplica resultados", async () => {
+    const results = await instrumentRepo.findByIds([
+      SEED_INSTRUMENT_PAMP_ID,
+      SEED_INSTRUMENT_PAMP_ID,
+      SEED_INSTRUMENT_METR_ID,
+    ]);
+    expect(results).toHaveLength(2);
+    expect(new Set(results.map((i) => i.id)).size).toBe(2);
+  });
+
+  it("findByIds con entrada vacía ⇒ []", async () => {
+    expect(await instrumentRepo.findByIds([])).toEqual([]);
   });
 });

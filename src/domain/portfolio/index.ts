@@ -12,6 +12,7 @@ import type {
   Reservations,
   RestingOrder,
   SettledOrderMovement,
+  TradingSide,
 } from "../../contracts/index.js";
 
 /** 100, para el retorno porcentual — Decimal, nunca float. */
@@ -104,6 +105,106 @@ export const weightedAverageCost = (
   return totalCostArs.div(sizeAsDecimal(totalShares));
 };
 
+/** Actividad de trading de UN instrumento: cantidad neta y sus compras. */
+interface InstrumentActivity {
+  quantityShares: number;
+  readonly buyMovements: SettledOrderMovement[];
+}
+
+/** ¿El side mueve acciones? (CASH_IN/CASH_OUT no son posiciones). */
+const isTradingSide = (
+  side: SettledOrderMovement["side"],
+): side is TradingSide => side === "BUY" || side === "SELL";
+
+/**
+ * Acumula UN movimiento de trading en su instrumento: cantidad firmada
+ * (BUY suma, SELL resta) y, sólo en BUY, la compra que alimenta el costo
+ * promedio. Muta el mapa de trabajo privado de la derivación.
+ */
+const addTradingMovement = (
+  activityByInstrument: Map<number, InstrumentActivity>,
+  movement: SettledOrderMovement,
+): void => {
+  const activity = activityByInstrument.get(movement.instrumentId) ?? {
+    quantityShares: 0,
+    buyMovements: [],
+  };
+  activity.quantityShares +=
+    movement.side === "BUY" ? movement.sizeShares : -movement.sizeShares;
+  if (movement.side === "BUY") {
+    activity.buyMovements.push(movement);
+  }
+  activityByInstrument.set(movement.instrumentId, activity);
+};
+
+/** Agrupa los movimientos FILLED por instrumento (ignora CASH_IN/CASH_OUT). */
+const groupTradingActivity = (
+  settledMovements: readonly SettledOrderMovement[],
+): ReadonlyMap<number, InstrumentActivity> => {
+  const activityByInstrument = new Map<number, InstrumentActivity>();
+  for (const movement of settledMovements) {
+    if (!isTradingSide(movement.side)) continue;
+    addTradingMovement(activityByInstrument, movement);
+  }
+  return activityByInstrument;
+};
+
+/**
+ * Snapshot más reciente por instrumento. El port entrega la última fila
+ * por `date`; si el caller pasara duplicados, gana la de mayor date (las
+ * fechas YYYY-MM-DD comparan bien lexicográficamente) y, a igual fecha,
+ * queda la primera leída.
+ */
+const latestSnapshotPerInstrument = (
+  marketdataSnapshots: readonly MarketdataSnapshot[],
+): ReadonlyMap<number, MarketdataSnapshot> => {
+  const latestByInstrument = new Map<number, MarketdataSnapshot>();
+  for (const snapshot of marketdataSnapshots) {
+    const current = latestByInstrument.get(snapshot.instrumentId);
+    if (current === undefined || snapshot.date > current.date) {
+      latestByInstrument.set(snapshot.instrumentId, snapshot);
+    }
+  }
+  return latestByInstrument;
+};
+
+/**
+ * Posición con P&L no realizado de UN instrumento. `snapshot` undefined
+ * significa sin precio (NO_PRICE): marketValue y totalReturn null, y la
+ * posición no suma al total. Costo 0 (sin compras) ⇒ retorno indefinido.
+ */
+const toPositionPnl = (
+  instrumentId: number,
+  activity: InstrumentActivity,
+  snapshot: MarketdataSnapshot | undefined,
+): PositionPnl => {
+  const quantityShares = activity.quantityShares;
+  const weightedAverageCostArs = weightedAverageCost(activity.buyMovements);
+  const marketValueArs =
+    snapshot === undefined
+      ? null
+      : sizeAsDecimal(quantityShares).mul(snapshot.closeArs);
+
+  // Costo de la posición: quantity × costo promedio (negativo si la
+  // posición es negativa).
+  const costBasisArs = sizeAsDecimal(quantityShares).mul(
+    weightedAverageCostArs,
+  );
+  const totalReturnPctX100 =
+    marketValueArs !== null && !costBasisArs.isZero()
+      ? marketValueArs.minus(costBasisArs).div(costBasisArs).mul(HUNDRED)
+      : null;
+
+  return {
+    instrumentId,
+    quantityShares,
+    weightedAverageCostArs,
+    marketValueArs,
+    priceAvailable: snapshot !== undefined,
+    totalReturnPctX100,
+  };
+};
+
 /**
  * Posiciones con P&L no realizado de un usuario a partir de sus movimientos
  * FILLED de trading y los precios de referencia disponibles.
@@ -127,75 +228,39 @@ export const derivePositions = (
   settledMovements: readonly SettledOrderMovement[],
   marketdataSnapshots: readonly MarketdataSnapshot[],
 ): readonly PositionPnl[] => {
-  const quantityByInstrument = new Map<number, number>();
-  const buyMovementsByInstrument = new Map<number, SettledOrderMovement[]>();
+  const activityByInstrument = groupTradingActivity(settledMovements);
+  const latestSnapshotByInstrument =
+    latestSnapshotPerInstrument(marketdataSnapshots);
 
-  for (const movement of settledMovements) {
-    if (movement.side !== "BUY" && movement.side !== "SELL") continue;
-
-    const currentQuantity =
-      quantityByInstrument.get(movement.instrumentId) ?? 0;
-    const signedQuantity =
-      movement.side === "BUY" ? movement.sizeShares : -movement.sizeShares;
-    quantityByInstrument.set(
-      movement.instrumentId,
-      currentQuantity + signedQuantity,
+  return [...activityByInstrument.entries()]
+    .filter(([, activity]) => activity.quantityShares !== 0) // cerrada: no se lista
+    .sort(([leftId], [rightId]) => leftId - rightId)
+    .map(([instrumentId, activity]) =>
+      toPositionPnl(
+        instrumentId,
+        activity,
+        latestSnapshotByInstrument.get(instrumentId),
+      ),
     );
-
-    if (movement.side === "BUY") {
-      const buys =
-        buyMovementsByInstrument.get(movement.instrumentId) ?? [];
-      buys.push(movement);
-      buyMovementsByInstrument.set(movement.instrumentId, buys);
-    }
-  }
-
-  // Snapshot más reciente por instrumento. El port entrega la última fila
-  // por `date`; si el caller pasara duplicados, gana la de mayor date (las
-  // fechas YYYY-MM-DD comparan bien lexicográficamente).
-  const latestSnapshotByInstrument = new Map<number, MarketdataSnapshot>();
-  for (const snapshot of marketdataSnapshots) {
-    const current = latestSnapshotByInstrument.get(snapshot.instrumentId);
-    if (current === undefined || snapshot.date > current.date) {
-      latestSnapshotByInstrument.set(snapshot.instrumentId, snapshot);
-    }
-  }
-
-  const positions: PositionPnl[] = [];
-  const instrumentIds = [...quantityByInstrument.keys()].sort((a, b) => a - b);
-
-  for (const instrumentId of instrumentIds) {
-    const quantityShares = quantityByInstrument.get(instrumentId) ?? 0;
-    if (quantityShares === 0) continue; // posición cerrada: no se lista
-
-    const buyMovements = buyMovementsByInstrument.get(instrumentId) ?? [];
-    const weightedAverageCostArs = weightedAverageCost(buyMovements);
-
-    const snapshot = latestSnapshotByInstrument.get(instrumentId);
-    const priceAvailable = snapshot !== undefined;
-    const marketValueArs = priceAvailable
-      ? sizeAsDecimal(quantityShares).mul(snapshot.closeArs)
-      : null;
-
-    // Costo de la posición: quantity × costo promedio (negativo si la
-    // posición es negativa). Costo 0 (sin compras) ⇒ retorno indefinido.
-    const costBasisArs = sizeAsDecimal(quantityShares).mul(
-      weightedAverageCostArs,
-    );
-    const totalReturnPctX100 =
-      marketValueArs !== null && !costBasisArs.isZero()
-        ? marketValueArs.minus(costBasisArs).div(costBasisArs).mul(HUNDRED)
-        : null;
-
-    positions.push({
-      instrumentId,
-      quantityShares,
-      weightedAverageCostArs,
-      marketValueArs,
-      priceAvailable,
-      totalReturnPctX100,
-    });
-  }
-
-  return positions;
 };
+
+/**
+ * Patrimonio total de la cuenta: cash liquidado + Σ marketValue de las
+ * posiciones CON precio. Equivale a cash disponible + cash reservado + Σ
+ * marketValue, así que abrir o cancelar una orden NEW no lo mueve (reservar
+ * cash no saca patrimonio). Las posiciones sin precio no suman; las
+ * negativas restan.
+ *
+ * PURA: no mira reservas — recibe el cash liquidado, no el disponible.
+ */
+export const deriveTotalAccountValue = (
+  cashSettledArs: Decimal,
+  positions: readonly PositionPnl[],
+): Decimal =>
+  positions.reduce<Decimal>(
+    (total, position) =>
+      position.marketValueArs === null
+        ? total
+        : total.plus(position.marketValueArs),
+    cashSettledArs,
+  );
