@@ -30,7 +30,7 @@ export type IdempotencyKey = z.infer<typeof IdempotencyKeySchema>;
  */
 export const MAX_ORDER_SIZE_SHARES = 2147483647;
 
-/** `null` explícito es "ausente" en campos opcionales del body (D-2). */
+/** `null` explícito es "ausente" en campos opcionales del body. */
 const isPriceAbsent = (price: Decimal | null | undefined): boolean =>
   price === undefined || price === null;
 

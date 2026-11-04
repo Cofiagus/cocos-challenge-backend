@@ -62,7 +62,7 @@ fi
 # Limpieza del enfoque de template precargado (cargado desde db/schema.sql, sin
 # columnas nuevas): ya no aplica.
 if psql "$DB_ADMIN_URL" -tAc "SELECT 1 FROM pg_database WHERE datname = '$LEGACY_TEMPLATE_DB'" | grep -q 1; then
-  echo "→ borrando template obsoleto $LEGACY_TEMPLATE_DB (enfoque FASE 0)…"
+  echo "→ borrando template obsoleto $LEGACY_TEMPLATE_DB (enfoque anterior con template)…"
   psql "$DB_ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $LEGACY_TEMPLATE_DB"
 fi
 
