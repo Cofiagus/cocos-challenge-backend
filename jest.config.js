@@ -3,8 +3,8 @@
  * (tsconfig.test.json), aunque la app misma es ESM (package.json type=module).
  * El typecheck real lo hace `npm run typecheck` (tsc --noEmit con module=nodenext).
  *
- * Tests que necesiten la DB: `npm run test:db:reset` antes (reset de
- * cocos_challenge_test desde el template, sin docker).
+ * Tests que necesiten la DB: `npm run test:db:reset` antes (recrea
+ * cocos_challenge_test desde la migración versionada + seed, sin docker).
  */
 
 /** @type {import('jest').Config} */

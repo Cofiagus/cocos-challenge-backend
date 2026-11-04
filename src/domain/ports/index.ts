@@ -115,6 +115,16 @@ export interface InstrumentRepository {
     instrumentId: number,
     tx?: TransactionContext,
   ) => Promise<InstrumentRecord | null>;
+  /**
+   * Instrumentos con esos ids en UNA sola consulta (IN). SIN orden
+   * garantizado: el caller que necesite orden lo impone. Los ids
+   * desconocidos se ignoran, los duplicados de la entrada no duplican
+   * resultados y una entrada vacía devuelve [].
+   */
+  readonly findByIds: (
+    instrumentIds: readonly number[],
+    tx?: TransactionContext,
+  ) => Promise<readonly InstrumentRecord[]>;
   /** Ticker exacto (comparación case-insensitive). */
   readonly findByTicker: (
     ticker: string,

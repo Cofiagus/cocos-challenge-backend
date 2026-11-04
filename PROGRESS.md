@@ -6,8 +6,26 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 ## Estado actual
 
 - **FASE 0** (Célula 0 — entorno): **DONE — merge `b590dfb`, GATE 0 verificado por el orquestador** (typecheck/lint/test verde, `test:db:reset` idempotente, Prisma CLI 7.10.1 = client 7.10.1).
-- **FASE 1** (Célula 0 — contratos): reporte DONE (branch `fase-1-contratos`, 5 commits, GATE 1 verde re-corrido por el orquestador: validate + typecheck + lint + test 4/4 + reset con columnas nuevas). **Revisión de contratos del orquestador: 1 gap → corrección delegada** (en curso): faltaba canal de transacción en los ports para expresar DECISIONS.md (tx única + lock por usuario + auditoría en la misma tx). Mecanismo decidido: `TransactionContext` opaco + `withUserTransaction` en `OrderRepository` + `tx?` en `PortfolioReadRepository`. Merge pendiente de esa corrección.
-- FASE 2–5: pendientes (FASE 2 se lanza tras el merge de FASE 1 corregida).
+- **FASE 1** (Célula 0 — contratos): **DONE — merge `86bc9c3`** (5 commits + corrección tx `bf4b992`). GATE 1 re-corrido por el orquestador: `prisma validate` + typecheck + lint + tests 4/4 + `test:db:reset` idempotente con columnas nuevas. `DECISIONS.md` verificado byte-exacto contra el reference.
+- **FASE 2** (paralelo): **DONE — GATE 2 cerrado.** A merge `1f4bdba` (44 tests), B merge `54cdd40` (34 tests), C merge `1e27c94` (15 tests, golden values verificados por la célula contra la DB: 627500/125500/764256), D merge `18b16bd` (matriz roja — su DONE = typecheck+lint verde + 25 reds por 404-asserts). Todos los gates re-corridos por el orquestador. Post-B: `npm install` en main por `@prisma/adapter-pg` (TS2307). Composition root `server.ts` montando lectura (C) @ `9d2f6b8` + fix de imports `98a25fb` (commiteé con typecheck rojo — `&&` no frenó la cadena; lección: gate explícito antes de commit). Suite main: 12 suites → 89 passed + 25 reds (matriz D, esperados hasta FASE 3). Sanity vivo: portfolio 200/cash 627500/3 posiciones; search "pam"→PAMP; POST orders→404.
+- **FASE 3** (Célula E — UC-3): **EN CURSO** (wt-e, branch `fase-3-e` @ 98a25fb): submitOrder + router orders con tx+lock+idempotencia+eventos. Su aceptación = la matriz de D en verde sin editarla (GATE 3: el orquestador cablea server.ts al merge y la corre).
+- FASE 4–5: pendientes (F+G tras GATE 3; H puede arrancar junto a FASE 4).
+
+### Lecciones de FASE 2 (para merges de FASE 3+)
+
+- Un merge que agrega dependencias (`@prisma/adapter-pg`) requiere `npm install` en main post-merge: el typecheck de main dio TS2307 hasta sincronizar node_modules (ya corregido, main en verde 10 suites / 74 tests).
+- Worktrees nuevos (`npm ci`) necesitan `npx prisma generate` antes de que compile cualquier import de `@prisma/client` (factories lo usan). Correrlo con `DATABASE_URL=<placeholder válido> npx prisma generate` (no toca DB).
+- DBs aisladas por suite (script `TEST_DB_NAME`): B→`cocos_challenge_test`, C→`cocos_challenge_read`, D→`cocos_challenge_ftest`. Cada suite se auto-resetea; ninguna pisa la de otra.
+
+### Scaffolding del orquestador para FASE 2 (`5fbfbbc`)
+
+- `jest.config.js`: `moduleNameMapper` `.js`→`.ts` (jest-resolve no mapea extensiones ESM).
+- `src/http/app.ts`: `buildApp(routers)` — composición por inyección: cada slice exporta su Router factory con deps (ports) inyectadas; los tests componen localmente y nadie compite por un archivo compartido.
+- `src/http/server.ts`: `serverApp = buildApp([])` — stub que responde 404 en todo, para que los tests rojos de D fallen por 404 y no por setup. La composición real la monta la célula integradora de cada fase.
+
+### Interpretación firmada por el orquestador (derivada de DECISIONS.md, valida el modelo de reservas)
+
+- Validación de fondos de BUY (MARKET y LIMIT) contra **cash disponible** (`cashSettled − cashReserved`), y de SELL contra **acciones vendibles** (`posición − reservadas`): las reservas son compromisos reales ("cash = cashSettled − cashReserved"; CASH_OUT valida contra lo disponible). El test de "dos órdenes simultáneas que juntas exceden el cash ⇒ una FILLED y una REJECTED" se escribe contra esta lectura.
 
 ### Interpretaciones DECISIONS fijadas en contrato por la Célula 0 (aceptadas por el orquestador)
 

@@ -37,7 +37,9 @@ set -euo pipefail
 
 # Conexión al servidor (BD administrativa); overridable para otros entornos.
 DB_ADMIN_URL="${DB_ADMIN_URL:-postgresql://postgres:postgres@localhost:5433/postgres}"
-TEST_DB="cocos_challenge_test"
+# Nombre de la test DB overridable (p. ej. TEST_DB_NAME=cocos_challenge_ftest
+# para aislar suites que corren en paralelo contra el mismo cluster).
+TEST_DB="${TEST_DB_NAME:-cocos_challenge_test}"
 LEGACY_TEMPLATE_DB="cocos_challenge_template"
 # URLs por BD: el path de una URL postgresql:// SE REEMPLAZA, no se concatena.
 DB_SERVER_URL="${DB_ADMIN_URL%/*}"
@@ -109,4 +111,8 @@ if ! psql "$TEST_URL" -tAc "SELECT to_regclass('public.order_events')" | grep -q
   exit 1
 fi
 echo "✓ columnas nuevas presentes (timeInForce, filledPrice, filledAt, idempotencyKey) + order_events"
-echo "✓ listo — .env.test ya apunta acá: DATABASE_URL=$TEST_URL"
+if [ "$TEST_DB" = "cocos_challenge_test" ]; then
+  echo "✓ listo — .env.test ya apunta acá: DATABASE_URL=$TEST_URL"
+else
+  echo "✓ listo (TEST_DB_NAME=$TEST_DB; .env.test NO apunta acá — pasar la URL explícita a la suite)"
+fi
