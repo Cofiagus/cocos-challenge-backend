@@ -32,6 +32,14 @@ export const API_ERROR_CODES = {
   IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
   /** 422 — cancelar una orden que no está NEW. */
   ORDER_NOT_CANCELLABLE: "ORDER_NOT_CANCELLABLE",
+  /** 404 — ruta o método inexistente (sin handler). */
+  NOT_FOUND: "NOT_FOUND",
+  /** 400 — body JSON malformado (no parsea). */
+  INVALID_JSON: "INVALID_JSON",
+  /** 413 — body por encima del límite de `express.json()`. */
+  PAYLOAD_TOO_LARGE: "PAYLOAD_TOO_LARGE",
+  /** 500 — error inesperado; el detalle no viaja al cliente. */
+  INTERNAL_ERROR: "INTERNAL_ERROR",
 } as const;
 export type ApiErrorCode =
   (typeof API_ERROR_CODES)[keyof typeof API_ERROR_CODES];
