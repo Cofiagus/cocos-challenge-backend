@@ -1,16 +1,18 @@
 // ============================================================================
-// prisma/schema.prisma — FASE 1 (Célula 0 — contratos)
+// prisma/schema.prisma — ÚNICA fuente de los índices y del DDL (DECISIONS.md:
+// "Índices: una sola fuente (prisma/schema.prisma)").
 //
-// ÚNICA fuente de los índices y del DDL (DECISIONS.md: "Índices: una sola
-// fuente (prisma/schema.prisma)"). Las tablas del snapshot (users,
-// instruments, marketdata, orders) reproducen de db/schema.sql nombres,
-// nullabilidad y tamaños vía @map/@db.*, con DOS desviaciones documentadas:
+// Las tablas del snapshot (users, instruments, marketdata, orders) reproducen
+// de db/schema.sql nombres, nullabilidad y tamaños vía @map/@db.*, con DOS
+// desviaciones documentadas:
 // (1) orders.type/side/status son enums PG NATIVOS acá (varchar(10)/(10)/(20)
-// en el snapshot) — superconjunto de esos varchar, que el seed ya carga porque
-// su COPY castea texto → enum; (2) orders AÑADE columnas de FASE 1
-// (timeInForce/filledPrice/filledAt/idempotencyKey — ver abajo). Por eso el
-// seed (db/seed.sql) carga SIN ediciones sobre este schema. db/schema.sql y
-// db/seed.sql son GENERADOS y no se tocan.
+//     en el snapshot) — superconjunto de esos varchar, que el seed ya carga
+//     porque su COPY castea texto → enum;
+// (2) orders AÑADE las columnas nuevas del ciclo de vida de órdenes
+//     (timeInForce/filledPrice/filledAt/idempotencyKey — ver abajo), que
+//     db/schema.sql no tiene por ser un snapshot previo a las migraciones.
+// Por eso el seed (db/seed.sql) carga SIN ediciones sobre este schema.
+// db/schema.sql y db/seed.sql son GENERADOS y no se tocan.
 // ============================================================================
 
 generator client {
@@ -20,7 +22,7 @@ generator client {
 
 // Prisma 7: la URL NO vive acá (P1012) — se resuelve en prisma.config.ts
 // (`datasource.url`). En el runtime, el PrismaClient recibe un driver
-// adapter (ver nota de FASE 2 en el reporte).
+// adapter.
 datasource db {
   provider = "postgresql"
 }
@@ -127,11 +129,11 @@ model Order {
   status        OrderStatus?
   datetime      DateTime?    @db.Timestamp(6)
 
-  // --- Nuevas de FASE 1 (no están en el seed; el seed las deja en default/null) ---
+  // --- Columnas nuevas (no están en el seed; el seed las deja en default/null) ---
   // timeInForce NOT NULL + DEFAULT 'GTC': toda orden conoce su TIF; las filas
-  // del seed (COPY sin la columna) quedan en GTC. Decisión documentada en el
-  // reporte de FASE 1: GTC es el comportamiento resting de una LIMIT y el TIF
-  // se ignora para MARKET (spec Rev. 3 UC-3).
+  // del seed (COPY sin la columna) quedan en GTC. Decisión documentada:
+  // GTC es el comportamiento resting de una LIMIT y el TIF se ignora para
+  // MARKET (spec Rev. 3 UC-3).
   timeInForce   TimeInForce  @default(GTC)
   // filledPrice = precio de ejecución (DECISIONS.md: price = límite enviado).
   // NULL en las FILLED del seed: en el dataset el price YA es el de ejecución.
@@ -154,7 +156,7 @@ model Order {
 }
 
 // ---------------------------------------------------------------------------
-// Nueva de FASE 1: auditoría append-only del ciclo de vida de la orden.
+// Tabla nueva: auditoría append-only del ciclo de vida de la orden.
 // ---------------------------------------------------------------------------
 
 model OrderEvent {
