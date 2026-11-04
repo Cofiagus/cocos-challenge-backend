@@ -34,3 +34,13 @@ export const getPrismaClient = (): PrismaClient => {
   }
   return singleton;
 };
+
+/**
+ * Suelta el pool de conexiones si el cliente llegó a crearse. No-op cuando el
+ * proceso nunca tocó la base: instanciar un cliente solo para cerrarlo
+ * abriría una conexión al pedo.
+ */
+export const disconnectPrismaClient = async (): Promise<void> => {
+  if (!singleton) return;
+  await singleton.$disconnect();
+};
