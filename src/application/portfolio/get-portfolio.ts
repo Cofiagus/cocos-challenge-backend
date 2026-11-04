@@ -24,6 +24,7 @@ import {
   deriveCash,
   derivePositions,
   deriveReservations,
+  deriveTotalAccountValue,
 } from "../../domain/index.js";
 import type {
   InstrumentRepository,
@@ -57,7 +58,7 @@ export interface PortfolioState {
   readonly cashArs: Decimal;
   /** Σ limit × size de las BUY NEW. */
   readonly reservedCashArs: Decimal;
-  /** cash disponible + Σ marketValue de las posiciones CON precio. */
+  /** cashSettled (disponible + reservado) + Σ marketValue de las posiciones CON precio. */
   readonly totalAccountValueArs: Decimal;
   readonly positions: readonly PortfolioPositionView[];
 }
@@ -119,22 +120,6 @@ const toPositionView = (
 };
 
 /**
- * totalAccountValue = cash disponible + Σ marketValue de las posiciones CON
- * precio (las null NO suman; las negativas SÍ restan — BMA del seed).
- */
-const totalAccountValue = (
-  cashArs: Decimal,
-  positions: readonly PositionPnl[],
-): Decimal =>
-  positions.reduce<Decimal>(
-    (total, position) =>
-      position.marketValueArs === null
-        ? total
-        : total.plus(position.marketValueArs),
-    cashArs,
-  );
-
-/**
  * Deriva el portfolio de un usuario. Devuelve valores de dominio; el borde
  * decide el status HTTP (404 USER_NOT_FOUND / 200 FOUND).
  */
@@ -182,7 +167,8 @@ export const getPortfolio = async (
     portfolio: {
       cashArs,
       reservedCashArs: reservations.cashReservedArs,
-      totalAccountValueArs: totalAccountValue(cashArs, positions),
+      // Patrimonio: cash liquidado + Σ marketValue (incluye lo reservado).
+      totalAccountValueArs: deriveTotalAccountValue(cashSettled, positions),
       positions: positions.map((position) =>
         toPositionView(position, instrumentsById),
       ),

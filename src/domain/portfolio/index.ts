@@ -243,3 +243,24 @@ export const derivePositions = (
       ),
     );
 };
+
+/**
+ * Patrimonio total de la cuenta: cash liquidado + Σ marketValue de las
+ * posiciones CON precio. Equivale a cash disponible + cash reservado + Σ
+ * marketValue, así que abrir o cancelar una orden NEW no lo mueve (reservar
+ * cash no saca patrimonio). Las posiciones sin precio no suman; las
+ * negativas restan.
+ *
+ * PURA: no mira reservas — recibe el cash liquidado, no el disponible.
+ */
+export const deriveTotalAccountValue = (
+  cashSettledArs: Decimal,
+  positions: readonly PositionPnl[],
+): Decimal =>
+  positions.reduce<Decimal>(
+    (total, position) =>
+      position.marketValueArs === null
+        ? total
+        : total.plus(position.marketValueArs),
+    cashSettledArs,
+  );

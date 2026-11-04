@@ -40,6 +40,22 @@ const movement = (seed: MovementSeed): SettledOrderMovement => ({
   priceArs: new Decimal(seed.priceArs),
 });
 
+interface RestingOrderSeed {
+  readonly id?: number;
+  readonly instrumentId?: number;
+  readonly side?: RestingOrder["side"];
+  readonly sizeShares: number;
+  readonly limitPriceArs: string;
+}
+
+const restingOrder = (seed: RestingOrderSeed): RestingOrder => ({
+  id: seed.id ?? 1,
+  instrumentId: seed.instrumentId ?? 1,
+  side: seed.side ?? "BUY",
+  sizeShares: seed.sizeShares,
+  limitPriceArs: new Decimal(seed.limitPriceArs),
+});
+
 interface SnapshotSeed {
   readonly instrumentId: number;
   readonly closeArs: string;
@@ -360,6 +376,63 @@ describe("getPortfolio — caso de uso de GET /portfolio", () => {
     ).rejects.toThrow(
       "Instrumento 99 de la posición no existe (orden huérfana).",
     );
+  });
+
+  it("abrir una orden (reservar cash) no cambia totalAccountValue", async () => {
+    const instruments = buildInstrumentCatalog([
+      instrument(1, "PAMP", "Pampa Holding S.A."),
+    ]);
+    const movements = [
+      movement({
+        instrumentId: 66,
+        side: "CASH_IN",
+        sizeShares: 100_000,
+        priceArs: "1.00",
+      }),
+      movement({
+        instrumentId: 1,
+        side: "BUY",
+        sizeShares: 10,
+        priceArs: "900.00",
+      }),
+    ];
+    const marketdata = buildMarketdata([
+      snapshot({ instrumentId: 1, closeArs: "1000.00" }),
+    ]);
+
+    const withoutOrder = foundPortfolio(
+      await getPortfolio(
+        {
+          portfolioRead: buildPortfolioRead({ movements }),
+          marketdata,
+          instruments: instruments.repository,
+        },
+        1,
+      ),
+    );
+    const withOrder = foundPortfolio(
+      await getPortfolio(
+        {
+          portfolioRead: buildPortfolioRead({
+            movements,
+            restingOrders: [
+              restingOrder({ sizeShares: 5, limitPriceArs: "500.00" }),
+            ],
+          }),
+          marketdata,
+          instruments: instruments.repository,
+        },
+        1,
+      ),
+    );
+
+    // cash 91000 → 88500 y reservado 0 → 2500: el patrimonio no se mueve.
+    expect(withoutOrder.cashArs.toFixed(2)).toBe("91000.00");
+    expect(withoutOrder.reservedCashArs.toFixed(2)).toBe("0.00");
+    expect(withoutOrder.totalAccountValueArs.toFixed(2)).toBe("101000.00");
+    expect(withOrder.cashArs.toFixed(2)).toBe("88500.00");
+    expect(withOrder.reservedCashArs.toFixed(2)).toBe("2500.00");
+    expect(withOrder.totalAccountValueArs.toFixed(2)).toBe("101000.00");
   });
 
   it("resuelve el catálogo con UN findByIds y ningún findById", async () => {
