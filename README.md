@@ -2,7 +2,34 @@
 
 API REST para consultar el portfolio de un usuario, buscar instrumentos, enviar órdenes al mercado (`MARKET` / `LIMIT`), cancelar órdenes en estado `NEW` y registrar transferencias de cash (`CASH_IN` / `CASH_OUT`).
 
-> Resolución del challenge técnico. **No hay tabla de cash ni de posiciones: ambas son proyecciones de `orders`** (ver [docs/database.md](docs/database.md)). Todo lo documentado acá fue ejecutado contra una base real: los comandos del quickstart y los ejemplos de los endpoints salen de corridas contra PostgreSQL 18 con el seed cargado.
+> Resolución del challenge técnico. **No hay tabla de cash ni de posiciones: ambas son proyecciones de `orders`** (ver [docs/database.md](docs/database.md)). Los comandos del quickstart y los ejemplos de los endpoints salen de corridas contra PostgreSQL 18 con el seed cargado.
+
+## Quickstart
+
+```bash
+cp .env.example .env
+docker compose up -d db
+npm install
+npx prisma migrate deploy && psql postgresql://postgres:postgres@localhost:5433/cocos_challenge -v ON_ERROR_STOP=1 -q -f db/seed.sql
+npm run dev
+```
+
+Verificación: `curl http://localhost:3000/api/users/1/portfolio` → `200` con `"totalAccountValue": 889756`.
+
+- `.env.example` ya trae `PORT=3000` y `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/cocos_challenge`; `prisma.config.ts` (CLI) y `src/index.ts` (servidor) cargan ese `.env`, así que la secuencia de arriba no necesita variables extra.
+- `docker compose up -d db` levanta el Postgres 16 de `docker-compose.yml` en el puerto **5433** (para no chocar con un Postgres instalado), user `postgres`, DB `cocos_challenge`.
+- `npx prisma migrate deploy` aplica `prisma/migrations/**` (el esquema vigente) y `db/seed.sql` carga el dataset del challenge.
+
+**Sin docker** (un Postgres ya instalado; sólo depende de `DATABASE_URL`):
+
+```bash
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5433/cocos_challenge
+npx prisma migrate deploy && psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/seed.sql
+```
+
+> El camino con docker no se pudo ejecutar en la máquina donde se verificó esta entrega (no hay docker): la secuencia se verificó contra un PostgreSQL 18 local con los mismos comandos, sustituyendo sólo el nombre de la base.
+
+**Requisitos:** Node.js ≥ 22 (`engines` del `package.json`; verificado con v26.12.1) y npm ≥ 10 (verificado con 12.0.2) · un PostgreSQL ≥ 15 accesible (verificado con 18.6) con el cliente `psql` · `npm install` instala las dependencias; si el cliente de Prisma no quedó generado, `npx prisma generate` (script `prisma:generate`).
 
 ## Stack
 
@@ -13,148 +40,14 @@ API REST para consultar el portfolio de un usuario, buscar instrumentos, enviar 
 | Acceso a datos | Prisma 7 (`@prisma/client` 7.10.1 + `@prisma/adapter-pg` driver adapter) |
 | Validación | Zod 4 (borde HTTP estricto) |
 | Dinero | `decimal.js` — **nunca float** (ver [Supuestos](#supuestos-y-decisiones)) |
-| Base de datos | PostgreSQL 18 (verificado en un cluster userspace local; `docker-compose.yml` con Postgres 16 para otros entornos) |
-| Testing | Jest 30 + ts-jest + supertest (15 suites / 159 tests verdes) |
-
-## Quickstart
-
-Secuencia **corrida y verificada** en una base scratch (`cocos_challenge_readme`) sobre el Postgres 18 local (`localhost:5433`, auth trust). Salidas reales de esa corrida en [Verificación del quickstart](#verificación-del-quickstart-corrida-real).
-
-> Los `id` de los ejemplos de órdenes y transferencias asumen requests previos del autor contra esa base (p. ej. el `"id":20` de la verificación de abajo); en una base recién migrada y seedada la primera sale `id` **12** — el seed trae 11 órdenes y deja la secuencia en `setval('orders_id_seq', 11)`. [`collection/README.md`](collection/README.md) avisa lo mismo para la colección.
-
-### Requisitos previos
-
-- Node.js ≥ 20 (verificado con v26.12.1) y npm ≥ 10 (verificado con 12.0.2).
-- Un PostgreSQL ≥ 15 accesible (verificado con 18.6) con el cliente `psql`.
-- `npm install` instala dependencias y genera el cliente de Prisma (`allowScripts` del `package.json` habilita los postinstall de `prisma` y `@prisma/engines`, necesarios para que el CLI 7.x baje binarios).
-
-### Base de datos — vía con docker (estándar del repo)
-
-`docker-compose.yml` define un Postgres 16 en el puerto **5433** (para no chocar con un Postgres instalado):
-
-```bash
-docker compose up -d db     # Postgres en localhost:5433, user postgres, DB cocos_challenge
-```
-
-> En la máquina donde se verificó esta entrega **no hay docker**: la vía verificada es la de abajo. `docker compose up -d db` queda como la vía estándar para entornos con docker.
-
-### Base de datos — vía sin docker (verificada en esta entrega)
-
-Acá corre un **cluster userspace de PostgreSQL 18** en `localhost:5433` con auth trust (sin password). Si tenés un Postgres instalado que escucha en otro puerto, vale igual: todo lo que sigue sólo depende de la `DATABASE_URL`.
-
-```bash
-# (sólo si el cluster userspace está apagado — no corre en la máquina de verificación)
-/usr/lib/postgresql/18/bin/pg_ctl -D ~/.pg/cocos -o '-p 5433 -k /tmp' -l ~/.pg/cocos.log start
-```
-
-### 1. Instalar
-
-```bash
-npm install
-```
-
-### 2. Crear la base vacía
-
-```bash
-psql postgresql://postgres@localhost:5433/postgres -c 'DROP DATABASE IF EXISTS cocos_challenge_readme'
-psql postgresql://postgres@localhost:5433/postgres -c 'CREATE DATABASE cocos_challenge_readme TEMPLATE template0'
-```
-
-> ⚠️ **No uses `make db-load` para cargar una base nueva**: aplica `db/schema.sql`, que es el **snapshot legacy SIN** las columnas nuevas (`"timeInForce"`, `filledPrice`, `filledAt`, `idempotencyKey`) ni la tabla `order_events` — la app no funciona contra ese esquema. El esquema vigente sale de las **migraciones de Prisma** (ver [docs/database.md](docs/database.md)).
-
-### 3. Aplicar la migración
-
-```bash
-DATABASE_URL=postgresql://postgres@localhost:5433/cocos_challenge_readme npx prisma migrate deploy
-```
-
-### 4. Cargar los datos del seed
-
-```bash
-psql postgresql://postgres@localhost:5433/cocos_challenge_readme -v ON_ERROR_STOP=1 -q -f db/seed.sql
-```
-
-Verificación de la carga (salida real de la corrida): 4 usuarios, 66 instrumentos, 11 órdenes, 126 filas de `marketdata`.
-
-### 5. Correr los tests
-
-Los tests de integración/DB corren contra `cocos_challenge_test`; las suites funcionales se auto-resetean contra sus propias bases (ver [Tests](#tests)). Flujo completo:
-
-```bash
-npm run test:db:reset   # (re)crea cocos_challenge_test desde la migración + seed, sin docker
-npm test                # 15 suites / 159 tests
-```
-
-### 6. Levantar el servidor y probarlo
-
-`npm run dev` lee `PORT` y `DATABASE_URL` de un `.env` en la raíz (no se versiona; tomá `.env.example` como referencia):
-
-```env
-PORT=3000
-DATABASE_URL=postgresql://postgres@localhost:5433/cocos_challenge_readme
-```
-
-```bash
-npm run dev
-# ✓ cocos-challenge-backend escuchando en http://localhost:3000
-```
-
-Request exitoso contra la base con seed (user 1):
-
-```bash
-curl http://localhost:3000/api/users/1/portfolio
-```
-
-```json
-{
-  "cash": 627500,
-  "reservedCash": 125500,
-  "totalAccountValue": 764256,
-  "positions": [
-    { "ticker": "BMA",  "name": "Banco Macro S.A.",   "quantity": -10, "marketValue": -15028,  "priceAvailable": true, "totalReturnPct": -2.42 },
-    { "ticker": "PAMP", "name": "Pampa Holding S.A.", "quantity": 40,  "marketValue": 37034,   "priceAvailable": true, "totalReturnPct": -0.45 },
-    { "ticker": "METR", "name": "MetroGAS S.A.",      "quantity": 500, "marketValue": 114750, "priceAvailable": true, "totalReturnPct": -8.2 }
-  ]
-}
-```
-
-`cash` = disponible (`cashSettled − cashReserved`), no el settled: 753000 − 125500 = 627500. `totalAccountValue` = cash + Σ `marketValue` de las posiciones con precio (la negativa BMA resta).
-
-### Verificación del quickstart (corrida real)
-
-Pasos 2–4 y 6 corridos por el autor de esta entrega contra `cocos_challenge_readme`:
-
-```
-$ psql ... -c 'DROP DATABASE IF EXISTS cocos_challenge_readme'
-DROP DATABASE
-$ psql ... -c 'CREATE DATABASE cocos_challenge_readme TEMPLATE template0'
-CREATE DATABASE
-
-$ DATABASE_URL=... npx prisma migrate deploy
-Datasource "db": PostgreSQL database "cocos_challenge_readme", schema "public" at "localhost:5433"
-Applying migration `20261103003419_init_trading_api`
-All migrations have been successfully applied.
-
-$ psql ... -v ON_ERROR_STOP=1 -q -f db/seed.sql
-seed OK   (4 users · 66 instruments · 11 orders · 126 marketdata)
-
-$ npm run dev
-✓ cocos-challenge-backend escuchando en http://localhost:3000
-
-$ curl http://localhost:3000/api/users/1/portfolio
-→ 200 {"cash":627500,"reservedCash":125500,"totalAccountValue":764256,...}
-
-$ curl -X POST http://localhost:3000/api/users/2/transfers \
-    -H 'Content-Type: application/json' -d '{"amountArs":123.45,"side":"CASH_IN"}'
-→ 201 {"id":20,"instrumentId":66,"side":"CASH_IN","type":"MARKET","timeInForce":"GTC",
-       "status":"FILLED","size":123,"price":1,"filledPrice":1,...,"reason":null}
-```
+| Base de datos | PostgreSQL 18 (verificado con 18.6); `docker-compose.yml` levanta Postgres 16 en el puerto 5433 |
+| Testing | Jest 30 + ts-jest + supertest |
 
 ## Endpoints
 
 Base URL: `http://localhost:3000/api`. Colección lista para disparar (VS Code REST Client): [`collection/`](collection/).
 
-Body de error uniforme (todos los 4xx):
+Body de error uniforme (todos los errores, 4xx y 5xx):
 
 ```json
 { "error": { "code": "USER_NOT_FOUND", "message": "No existe el usuario 999." } }
@@ -163,25 +56,46 @@ Body de error uniforme (todos los 4xx):
 | Código | Status | Cuándo |
 | ------ | -----: | ------ |
 | `VALIDATION_ERROR` | 400 | Body/params/query/header inválidos (Zod) — **sin crear nada** |
+| `INVALID_JSON` | 400 | El body no parsea como JSON |
 | `INSTRUMENT_NOT_OPERABLE` | 400 | El instrumento es `MONEDA` (ej. ARS) |
 | `USER_NOT_FOUND` | 404 | `userId` inexistente |
 | `ORDER_NOT_FOUND` | 404 | `orderId` inexistente (DELETE) |
 | `INSTRUMENT_NOT_FOUND` | 404 | `instrumentId`/`ticker` inexistente en POST /orders |
+| `NOT_FOUND` | 404 | Ruta o método inexistente |
 | `IDEMPOTENCY_CONFLICT` | 409 | Misma `Idempotency-Key` con payload distinto |
+| `PAYLOAD_TOO_LARGE` | 413 | Body por encima del límite de 100 KB |
 | `ORDER_NOT_CANCELLABLE` | 422 | Cancelar una orden que no está `NEW` |
+| `INTERNAL_ERROR` | 500 | Error inesperado: mensaje genérico, sin stack |
 
-> `INSTRUMENT_NOT_FOUND` es el único código fuera de `API_ERROR_CODES` (los estables del contrato): `DECISIONS.md` no fija status para instrumento inexistente; se resolvió 404 y se documenta acá.
+> Los 11 códigos son `API_ERROR_CODES` en [`src/contracts/errors.ts`](src/contracts/errors.ts). El 500 responde `Error interno del servidor.` y el detalle (stack en una línea) queda en stderr.
 
 ### 1. Portfolio — `GET /api/users/:userId/portfolio`
 
-**Response 200** (ejemplo real arriba):
+**Response 200** (base recién migrada y seedeada, user 1):
+
+```json
+{
+  "cash": 627500,
+  "reservedCash": 125500,
+  "totalAccountValue": 889756,
+  "positions": [
+    { "ticker": "BMA",  "name": "Banco Macro S.A.",   "quantity": -10, "marketValue": -15028,  "priceAvailable": true, "totalReturnPct": -2.42 },
+    { "ticker": "PAMP", "name": "Pampa Holding S.A.", "quantity": 40,  "marketValue": 37034,   "priceAvailable": true, "totalReturnPct": -0.45 },
+    { "ticker": "METR", "name": "MetroGAS S.A.",      "quantity": 500, "marketValue": 114750, "priceAvailable": true, "totalReturnPct": -8.2 }
+  ]
+}
+```
 
 | Campo | Significado |
 | ----- | ----------- |
 | `cash` | Disponible para operar = `cashSettled − cashReserved` |
 | `reservedCash` | Reservado por órdenes `NEW` BUY (`limit × size`) |
-| `totalAccountValue` | `cash + Σ marketValue` de las posiciones **con** precio |
+| `totalAccountValue` | `cash + reservedCash + Σ marketValue` de las posiciones **con** precio |
 | `positions[]` | `{ticker, name, quantity, marketValue, priceAvailable, totalReturnPct}` |
+
+`cash` = disponible, no el settled: 753000 − 125500 = 627500. `totalAccountValue` = 627500 + 125500 + 37034 + 114750 − 15028 = **889756** (la negativa BMA resta).
+
+**Abrir o cancelar una orden no mueve el total**, sólo lo reparte: tras comprar 1 PAMP a mercado el `cash` baja a 626574.15 y la posición sube a 41 acciones (`marketValue` 37959.85), con el total todavía en 889756; al cancelar la orden 5 el `reservedCash` baja de 125500 a 90000 y el `cash` sube los mismos 35500, otra vez con el total en 889756.
 
 - Sin precio de referencia: `marketValue: null`, `priceAvailable: false`, `totalReturnPct: null`, y **no suma** al total.
 - `MONEDA` (ARS) nunca aparece; posición con cantidad 0 no se lista; la negativa del seed (BMA −10) se lista tal cual.
@@ -219,19 +133,25 @@ Errores: `400 VALIDATION_ERROR` — `query` vacía o ausente (`?query=` → 400)
 | Campo | Regla |
 | ----- | ----- |
 | `instrumentId` \| `ticker` | exactamente **uno** de los dos |
-| `size` \| `amountArs` | exactamente **uno**: acciones enteras > 0, o monto en ARS > 0 (número o string) del que se deriva `size = floor(amountArs / precio)` |
+| `size` \| `amountArs` | exactamente **uno**: acciones enteras 1..2147483647, o monto en ARS > 0 (número o string) del que se deriva `size = floor(amountArs / precio)` |
 | `side` | `BUY` \| `SELL` |
 | `type` | `MARKET` \| `LIMIT` |
-| `price` | > 0 **obligatorio si `LIMIT`** · **prohibido si `MARKET`** (se ejecuta al precio de referencia) |
+| `price` | > 0 **obligatorio si `LIMIT`** · **en `MARKET` se omite o va `null`** (un número ⇒ 400: se ejecuta al precio de referencia) |
 | `timeInForce` | opcional: `GTC` (default) \| `IOC` \| `FOK` |
 
 **Header opcional:** `Idempotency-Key` (string de 1–64; ausente ⇒ sin idempotencia, inválido ⇒ 400).
 
 **Response 201** — `OrderResponse`, **siempre que la orden se persistió** (`FILLED`, `NEW`, `REJECTED` o `CANCELLED`):
 
+```bash
+curl -X POST http://localhost:3000/api/users/1/orders \
+  -H 'Content-Type: application/json' \
+  -d '{"ticker":"PAMP","side":"BUY","type":"MARKET","size":1}'
+```
+
 ```json
 {
-  "id": 13,
+  "id": 12,
   "instrumentId": 47,
   "side": "BUY",
   "type": "MARKET",
@@ -240,8 +160,8 @@ Errores: `400 VALIDATION_ERROR` — `query` vacía o ausente (`?query=` → 400)
   "size": 1,
   "price": null,
   "filledPrice": 925.85,
-  "filledAt": "2026-11-02T23:29:32",
-  "datetime": "2026-11-02T23:29:32",
+  "filledAt": "2026-11-04T09:54:58",
+  "datetime": "2026-11-04T09:54:58",
   "reason": null
 }
 ```
@@ -256,10 +176,10 @@ Errores: `400 VALIDATION_ERROR` — `query` vacía o ausente (`?query=` → 400)
 Comportamiento por tipo (precios de referencia del seed: PAMP 925.85, METR 229.50, BMA 1502.80 — última `marketdata` por `date`):
 
 - `MARKET` → `FILLED` al precio de referencia en la misma transacción.
-- `LIMIT GTC` → siempre `NEW` (reserva `limit × size` de cash en BUY; `size` acciones en SELL).
+- `LIMIT GTC` → queda `NEW` (reserva `limit × size` de cash en BUY; `size` acciones en SELL), o `REJECTED` si no alcanza el cash/tenencia.
 - `LIMIT IOC/FOK` → una evaluación contra la referencia: cruza → `FILLED` **con mejora** (BUY a `min(límite, ref)`; SELL a `max`); no cruza → `CANCELLED` con `reason NO_IMMEDIATE_MATCH` (201).
 
-Errores: `400 VALIDATION_ERROR` (XORs, `LIMIT` sin `price`, `MARKET` con `price`, header inválido) · `400 INSTRUMENT_NOT_OPERABLE` (MONEDA) · `404 USER_NOT_FOUND` · `404 INSTRUMENT_NOT_FOUND` · `409 IDEMPOTENCY_CONFLICT`. El rechazo del negocio **se persiste** (`201 REJECTED` con `reason`), no es error HTTP: fondos/tenencia insuficientes, `ZERO_SIZE`, `NO_PRICE`.
+Errores: `400 VALIDATION_ERROR` (XORs, `LIMIT` sin `price`, `MARKET` con `price`, `size` fuera de 1..2147483647, header inválido) · `400 INSTRUMENT_NOT_OPERABLE` (MONEDA) · `404 USER_NOT_FOUND` · `404 INSTRUMENT_NOT_FOUND` · `409 IDEMPOTENCY_CONFLICT`. El rechazo del negocio **se persiste** (`201 REJECTED` con `reason`), no es error HTTP: fondos/tenencia insuficientes, `ZERO_SIZE`, `NO_PRICE`.
 
 **Idempotencia** (ejemplos verificados, user 2 del seed):
 
@@ -268,29 +188,32 @@ Errores: `400 VALIDATION_ERROR` (XORs, `LIMIT` sin `price`, `MARKET` con `price`
 curl -X POST http://localhost:3000/api/users/2/orders \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-key-1' \
   -d '{"ticker":"PAMP","side":"BUY","type":"LIMIT","size":1,"price":100}'
-→ 201 {"id":14,...,"status":"REJECTED","reason":"INSUFFICIENT_FUNDS"}
+→ 201 {"id":13,...,"status":"REJECTED","reason":"INSUFFICIENT_FUNDS"}
 
-# Misma key + MISMO payload → la orden ORIGINAL (201, id 14, sin nuevo evento)
-→ 201 {"id":14,...,"reason":null}     # reason null en el replay: la razón vive en order_events
+# Misma key + MISMO payload → la orden ORIGINAL (201, id 13, sin nuevo evento)
+→ 201 {"id":13,...,"reason":null}     # reason null en el replay: la razón vive en order_events
 
 # Misma key + OTRO payload → 409
 curl -X POST http://localhost:3000/api/users/2/orders \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-key-1' \
   -d '{"ticker":"PAMP","side":"BUY","type":"LIMIT","size":2,"price":100}'
-→ 409 {"error":{"code":"IDEMPOTENCY_CONFLICT","message":"Idempotency-Key ya usada con otro payload (orden existente 14)."}}
+→ 409 {"error":{"code":"IDEMPOTENCY_CONFLICT","message":"Idempotency-Key ya usada con otro payload (orden existente 13)."}}
 ```
+
+> El replay y el 409 intentan el `INSERT ... ON CONFLICT DO NOTHING` y consumen dos valores de la secuencia: por eso la transferencia siguiente del ejemplo es `id` 16 y no 14.
 
 ### 4. Cancelar orden — `DELETE /api/orders/:orderId`
 
-Sólo órdenes `NEW`. **Response 200** con la `OrderResponse` cancelada (201 es para creaciones; el status de cancelación no estaba fijado y se firmó 200):
+Sólo órdenes `NEW`. **Response 200** con la `OrderResponse` cancelada (201 es para creaciones; el status de cancelación no estaba fijado y se resolvió 200):
 
 ```bash
 curl -X DELETE http://localhost:3000/api/orders/5   # orden NEW del seed (LOMA BUY LIMIT 50 @ 710)
 → 200 {"id":5,"instrumentId":45,"side":"BUY","type":"LIMIT","timeInForce":"GTC",
-       "status":"CANCELLED","size":50,"price":710,...,"reason":null}
+       "status":"CANCELLED","size":50,"price":710,"filledPrice":null,"filledAt":null,
+       "datetime":"2023-07-12T12:14:20","reason":null}
 ```
 
-Al cancelar una `NEW` **se libera su reserva** (visible en `reservedCash` del portfolio). Errores: `400 VALIDATION_ERROR` (orderId no entero > 0) · `404 ORDER_NOT_FOUND` · `422 ORDER_NOT_CANCELLABLE` (ej. `DELETE /api/orders/6`, la orden `REJECTED` del seed).
+Al cancelar una `NEW` **se libera su reserva** (visible en `reservedCash` del portfolio: 125500 → 90000 al cancelar la orden 5). Errores: `400 VALIDATION_ERROR` (orderId no entero > 0) · `404 ORDER_NOT_FOUND` · `422 ORDER_NOT_CANCELLABLE` (ej. `DELETE /api/orders/6`, la orden `REJECTED` del seed).
 
 ### 5. Transferencias — `POST /api/users/:userId/transfers`
 
@@ -301,19 +224,23 @@ Transferencia = **orden** del instrumento MONEDA del cash (ticker `ARS`, id 66) 
 ```bash
 curl -X POST http://localhost:3000/api/users/2/transfers \
   -H 'Content-Type: application/json' -d '{"amountArs":123.45,"side":"CASH_IN"}'
-→ 201 {"id":20,"instrumentId":66,"side":"CASH_IN","type":"MARKET","timeInForce":"GTC",
+→ 201 {"id":16,"instrumentId":66,"side":"CASH_IN","type":"MARKET","timeInForce":"GTC",
        "status":"FILLED","size":123,"price":1,"filledPrice":1,...,"reason":null}
 
 curl -X POST http://localhost:3000/api/users/2/transfers \
   -H 'Content-Type: application/json' -d '{"amountArs":1000000,"side":"CASH_OUT"}'
-→ 201 {"id":21,...,"status":"REJECTED","size":1000000,...,"reason":"INSUFFICIENT_FUNDS"}
+→ 201 {"id":17,...,"status":"REJECTED","size":1000000,...,"reason":"INSUFFICIENT_FUNDS"}
+
+curl -X POST http://localhost:3000/api/users/2/transfers \
+  -H 'Content-Type: application/json' -d '{"amountArs":0.5,"side":"CASH_IN"}'
+→ 201 {"id":18,...,"status":"REJECTED","size":0,...,"reason":"ZERO_SIZE"}
 ```
 
 Errores: `400 VALIDATION_ERROR` (monto ≤ 0 o basura, side inválido) · `404 USER_NOT_FOUND` · `409 IDEMPOTENCY_CONFLICT`. `size` es entero en pesos: `CASH_IN 123.45` acredita **123** (el residual `0.45` queda en la metadata del evento — ver [Límites](#límites-conocidos)). `0 < amountArs < 1` → `REJECTED ZERO_SIZE` (201).
 
 ## Supuestos y decisiones
 
-Decisiones de diseño con su porqué. La lista inmutable de decisiones del build vive en `DECISIONS.md`; acá se explica cada una y se agregan las firmadas por el orquestador durante la integración.
+Decisiones de diseño con su porqué. La lista inmutable de decisiones del build vive en `DECISIONS.md`; acá se explica cada una y se agregan las decisiones de integración (22–27).
 
 ### Precios y ejecución
 
@@ -326,7 +253,7 @@ Decisiones de diseño con su porqué. La lista inmutable de decisiones del build
 ### Cash, reservas y posiciones
 
 6. **No hay tabla de cash ni de posiciones: se derivan de `orders`.** Cash = Σ movimientos `FILLED` (`CASH_IN`/`SELL` suman `size × price`; `CASH_OUT`/`BUY` restan). Derivar de la única fuente de verdad evita saldos desincronizados entre una tabla y las órdenes.
-7. **Reservas derivadas de las órdenes `NEW`, sin tabla.** BUY `NEW` reserva `limit × size` de cash; SELL `NEW` reserva `size` acciones. **`cash disponible = cashSettled − cashReserved`** (el portfolio reporta `cash` disponible y `reservedCash` por separado). **`CASH_OUT` valida contra el disponible**, no contra el settled: las `NEW` son compromisos reales de plata ya prometida.
+7. **Reservas derivadas de las órdenes `NEW`, sin tabla.** BUY `NEW` reserva `limit × size` de cash; SELL `NEW` reserva `size` acciones. **`cash disponible = cashSettled − cashReserved`** (el portfolio reporta `cash` disponible y `reservedCash` por separado). **`totalAccountValue = cash disponible + cashReserved + Σ marketValue`** de las posiciones con precio: abrir o cancelar una orden no lo mueve, sólo mueve plata entre disponible, reservado y posición. **`CASH_OUT` valida contra el disponible**, no contra el settled: las `NEW` son compromisos reales de plata ya prometida.
 8. **BUY valida fondos contra el cash disponible; SELL contra las acciones vendibles** (posición `FILLED` del instrumento − acciones reservadas por `NEW` del mismo instrumento). Es la misma lectura que el punto anterior aplicada a ambos lados: dos submits que juntos exceden el cash dejan una `FILLED` y una `REJECTED` (testeado).
 9. **P&L no realizado sobre costo promedio ponderado; las ventas no tocan el promedio.** El costo de la posición es el de las compras que la forman; vender cambia la cantidad, no el costo unitario de lo que queda. **Posición con cantidad 0 no se lista** (dejar de existir no es tenerla en 0). **Posición negativa heredada del seed (BMA −10) se lista tal cual** — ver [Posición negativa del seed](#posición-negativa-del-seed-bma--10).
 10. **`amountArs`: `size = floor(amount / precio)`; `size 0` → `REJECTED ZERO_SIZE`.** El challenge pide "la cantidad de acciones máximas que puede enviar, sin fracciones": el `floor` garantiza que nunca se compromete más que el monto (el residuo queda como cash). Con `LIMIT` el precio de sizing es el **límite** (el peor precio aceptable para un BUY: nunca se compromete más que el monto a ese precio); con `MARKET`, la referencia.
@@ -351,7 +278,7 @@ Decisiones de diseño con su porqué. La lista inmutable de decisiones del build
 
 21. **Las 5 rutas** (`GET /api/users/:userId/portfolio`, `GET /api/instruments?query=`, `POST /api/users/:userId/orders`, `DELETE /api/orders/:orderId`, `POST /api/users/:userId/transfers`) siguen la convención REST de recursos: `userId` en el path de sus órdenes/transferencias, `orderId` en el path del DELETE, `query` como parámetro de búsqueda.
 
-### Decisiones firmadas por el orquestador en integración
+### Decisiones de integración
 
 22. **DELETE exitoso → `200`** (no 201): el 201 quedó reservado para creación; la cancelación devuelve la orden `CANCELLED` con 200.
 23. **Evento `CANCELLED` por usuario con `reason: null` y metadata `{origin: "USER"}`**: las razones del contrato son de rechazo/no-cruce, no de una cancelación pedida; el origen viaja en metadata.
@@ -365,7 +292,7 @@ Decisiones de diseño con su porqué. La lista inmutable de decisiones del build
 El dataset trae una **inconsistencia documentada, no corregida**: el usuario 1 vendió 30 BMA (orden 11, `FILLED`) con sólo 20 compradas `FILLED` (orden 9); la compra de 60 (orden 7) quedó en `NEW`. La posición resultante es **−10**.
 
 - La API **la lista tal cual** (`quantity: -10`, `marketValue: -15028`) y **resta** del `totalAccountValue`. Corregirla en la lectura sería falsificar el dataset.
-- La validación de venta (`SELL` contra posición `FILLED` − reservadas) **la habría rechazado** de entrar hoy: con la posición en −10 y 60 acciones reservadas, cualquier `SELL` de BMA sale `REJECTED INSUFFICIENT_POSITION`. El seed no es oráculo de negocio, es un dataset de ejemplo (más inconsistencias en [docs/database.md §4](docs/database.md)).
+- La validación de venta (`SELL` contra posición `FILLED` − reservadas) **la habría rechazado** de entrar hoy: con la posición en −10 y 60 acciones reservadas, cualquier `SELL` de BMA sale `REJECTED INSUFFICIENT_POSITION`. El seed no es oráculo de negocio, es un dataset de ejemplo (más inconsistencias en [docs/database.md](docs/database.md)).
 
 ## Límites conocidos
 
@@ -373,10 +300,9 @@ El dataset trae una **inconsistencia documentada, no corregida**: el usuario 1 v
 - **Fills parciales no modelados:** una `IOC` que cruza se llena completa o se cancela (todo-o-nada), sin ejecución parcial del tamaño.
 - **Matching sin disparador:** `matchRestingOrders` existe (función pura testeada) pero **nada la llama en producción** — las `NEW` no se llenan cuando cambia el precio de referencia. Punto de enchufe documentado.
 - **Sin autenticación:** `userId` viene del path y se confía (el challenge lo explicita). Cualquier `userId` del seed opera su cuenta.
-- **Warning preexistente de Jest:** al correr `npm test`, Jest 30 + ts-jest emite un warning de "worker process" heredado de la config (`jest.config.js` con `projects`); no afecta los 159 tests ni sus resultados.
-- **`make db-load` / `db/schema.sql` cargan el snapshot legacy** (sin `"timeInForce"`/`filledPrice`/`filledAt`/`idempotencyKey` ni `order_events`): usar `prisma migrate deploy` + `db/seed.sql` (como en el quickstart). El target queda para recargar el dataset original de referencia.
-- **`npm run build` compila también `tests/`** (no hay `tsconfig.build.json` con rootDir): el build de producción no está en el alcance de esta entrega.
-- **Docker no verificado en esta máquina** (no hay docker): la vía de base de datos verificada es el cluster userspace PG 18; `docker-compose.yml` queda como referencia para otros entornos.
+- **`make db-load` / `make db-reset` cargan el snapshot legacy** (sin `"timeInForce"`/`filledPrice`/`filledAt`/`idempotencyKey` ni `order_events`) y por eso **exigen `LEGACY=1`**: sin esa variable abortan sin tocar la base. El flujo vigente es `npx prisma migrate deploy` + `db/seed.sql` (como en el quickstart); los targets quedan para recargar el dataset original de referencia.
+- **`npm run build` compila sólo `src/`** a `dist/` (`tsconfig.build.json` con `rootDir: ./src`); `node dist/index.js` levanta el servidor compilado.
+- **Docker no verificado en la máquina donde se verificó esta entrega** (no hay docker): la vía de base de datos verificada es un PostgreSQL 18 local; `docker-compose.yml` queda como referencia para otros entornos.
 
 ## Evolución propuesta
 
@@ -394,28 +320,29 @@ Fuera del alcance firmado (`DECISIONS.md`); cada ítem con su vía de enchufe:
 
 ```bash
 npm run test:db:reset   # (re)crea cocos_challenge_test desde la migración versionada + seed (sin docker)
-npm test                # 15 suites / 159 tests — verificado verde en esta entrega
+npm test
 ```
 
-- **Unit** (`tests/unit/domain`): funciones puras (derivación de cash/posiciones/reservas, `evaluateCross`, `matchRestingOrders`, sizing).
-- **Integration** (`tests/integration/infra` + smoke): repos Prisma contra Postgres real, con `cocos_challenge_test` (la crea `npm run test:db:reset`).
+- **Unit** (`tests/unit/**`): funciones puras (derivación de cash/posiciones/reservas, `evaluateCross`, `matchRestingOrders`, sizing), casos de uso con fakes, contratos Zod, borde HTTP y contrato de errores.
+- **Integration** (`tests/integration/infra`): repos Prisma contra Postgres real, con `cocos_challenge_test` (la crea `npm run test:db:reset`).
 - **Functional** (`tests/functional/**`): los 5 endpoints vía supertest; cada suite **se auto-resetea** su propia base (`TEST_DB_NAME`) en `beforeAll` — correr `npm test` dos veces seguidas da verde.
-- `npm run typecheck` (`tsc --noEmit`, nodenext) y `npm run lint` (eslint 9 flat config) completan el gate local.
+- `npm run typecheck` (`tsc --noEmit`, nodenext) y `npm run lint` (eslint 9 flat config) completan el chequeo local.
 
 ## Estructura del proyecto
 
 ```
 src/
   contracts/     # shapes de request/response + enums + dinero (Zod) — única fuente de los payloads
-  domain/        # funciones puras (deriveCash, derivePositions, evaluateCross, matchRestingOrders)
+  domain/        # funciones puras: portfolio (cash/posiciones/reservas), sizing, matching
   domain/ports/  # interfaces de los repos (DI: nunca concreciones)
   infra/prisma/  # repos Prisma (mappers fila ↔ record) + tx con pg_advisory_xact_lock
-  application/   # casos de uso: orders/submit, cancel, transfers/submit
-  http/          # routers Express por slice (finos: Zod → use case → status) + server.ts (composición)
-  index.ts       # entry: dotenv + listen
+  application/   # casos de uso: orders (submit/decide/persist), cancel, transfers, portfolio
+  http/          # routers por slice + shared/edge.ts (borde Zod) + error-handler.ts + server.ts
+  lib/           # cliente Prisma singleton
+  index.ts       # entry: carga .env y levanta el servidor
 prisma/          # schema.prisma (fuente única de índices) + migrations/
 db/              # snapshot legacy (schema.sql), seed.sql (datos del challenge), queries/, indexes.sql
-collection/      # ejemplos REST Client (.http) — ver arriba
+collection/      # ejemplos REST Client (.http)
 tests/           # unit / integration / functional (auto-reset por suite)
 docs/            # database.md (esquema legacy vs migrado, semántica de orders)
 ```
