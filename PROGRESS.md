@@ -6,8 +6,23 @@ estado por célula, QUESTIONs abiertas y limitaciones acumuladas para el README.
 ## Estado actual
 
 - **FASE 0** (Célula 0 — entorno): **DONE — merge `b590dfb`, GATE 0 verificado por el orquestador** (typecheck/lint/test verde, `test:db:reset` idempotente, Prisma CLI 7.10.1 = client 7.10.1).
-- **FASE 1** (Célula 0 — contratos): EN CURSO (branch `fase-1-contratos`).
-- FASE 2–5: pendientes.
+- **FASE 1** (Célula 0 — contratos): reporte DONE (branch `fase-1-contratos`, 5 commits, GATE 1 verde re-corrido por el orquestador: validate + typecheck + lint + test 4/4 + reset con columnas nuevas). **Revisión de contratos del orquestador: 1 gap → corrección delegada** (en curso): faltaba canal de transacción en los ports para expresar DECISIONS.md (tx única + lock por usuario + auditoría en la misma tx). Mecanismo decidido: `TransactionContext` opaco + `withUserTransaction` en `OrderRepository` + `tx?` en `PortfolioReadRepository`. Merge pendiente de esa corrección.
+- FASE 2–5: pendientes (FASE 2 se lanza tras el merge de FASE 1 corregida).
+
+### Interpretaciones DECISIONS fijadas en contrato por la Célula 0 (aceptadas por el orquestador)
+
+- MARKET con `price` en el body => 400 (no crea orden).
+- IOC/FOK sin precio de referencia => REJECTED persistida con `NO_PRICE`; GTC LIMIT sin precio => NEW (resting no necesita ref para nada); MARKET sin precio => REJECTED `NO_PRICE`.
+- Búsqueda responde array plano (sin wrapper). Query vacía o ausente => 400.
+- `timeInForce` NOT NULL DEFAULT 'GTC' en DB (toda orden conoce su TIF; seed queda en GTC; TIF se ignora para MARKET).
+- `datetime`/`filledAt` serializan ISO 8601 **sin offset** (timestamp sin tz, hora local del mercado).
+- Nombres estables de error codes: VALIDATION_ERROR, INSTRUMENT_NOT_OPERABLE, USER_NOT_FOUND, ORDER_NOT_FOUND, IDEMPOTENCY_CONFLICT, ORDER_NOT_CANCELLABLE.
+
+### Notas de FASE 1 para las células de FASE 2
+
+- `@prisma/adapter-pg` (driver adapter, EXIGIDO por Prisma 7 para instanciar el cliente): **aprobado por el orquestador** para la Célula B — es parte del stack Prisma ya elegido por el repo, no una decisión nueva de diseño.
+- jest-resolve NO mapea `.js`→`.ts`: ANTES de lanzar FASE 2 el orquestador agrega `moduleNameMapper: { "^(\\.{1,2}/.*)\\.js$": "$1" }` a `jest.config.js` (ruta del orquestador — las células no pueden tocar jest.config.js).
+- Generador Prisma: `prisma-client-js` (emite `.js`+`.d.ts` a `node_modules/.prisma/client` — compatible con tsc nodenext + jest CJS + eslint sin tocar configs). El nuevo `prisma-client` solo emite `.ts` y rompería el lint.
 
 ### Decisiones aceptadas por el orquestador en FASE 0 (reportadas por la célula)
 

@@ -14,4 +14,9 @@ export default {
   transform: {
     "^.+\\.tsx?$": ["ts-jest", { tsconfig: "tsconfig.test.json" }],
   },
+  // tsc (nodenext) exige extensión .js en los imports relativos; jest-resolve
+  // NO mapea .js → .ts por sí solo, así que se la damos acá.
+  moduleNameMapper: {
+    "^(\\.{1,2}/.*)\\.js$": "$1",
+  },
 };
