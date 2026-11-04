@@ -19,6 +19,7 @@ Verificación: `curl http://localhost:3000/api/users/1/portfolio` → `200` con 
 - `.env.example` ya trae `PORT=3000` y `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/cocos_challenge`; `prisma.config.ts` (CLI) y `src/index.ts` (servidor) cargan ese `.env`, así que la secuencia de arriba no necesita variables extra.
 - `docker compose up -d db` levanta el Postgres 16 de `docker-compose.yml` en el puerto **5433** (para no chocar con un Postgres instalado), user `postgres`, DB `cocos_challenge`.
 - `npx prisma migrate deploy` aplica `prisma/migrations/**` (el esquema vigente) y `db/seed.sql` carga el dataset del challenge.
+- **Ejecución compilada y cierre:** `npm run build && npm start` compila `src/` a `dist/` y corre `node dist/index.js`. Ante `SIGINT`/`SIGTERM` el servidor deja de aceptar conexiones, espera las requests en vuelo, cierra el pool de Prisma y sale con código `0` (a los 10 s fuerza la salida con `1`). En `npm run dev`, Ctrl-C alcanza al proceso; si lo lanzás con un wrapper (`npx`), la señal tiene que llegarle al proceso `node`.
 
 **Sin docker** (un Postgres ya instalado; sólo depende de `DATABASE_URL`):
 
@@ -29,7 +30,7 @@ npx prisma migrate deploy && psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/se
 
 > El camino con docker no se pudo ejecutar en la máquina donde se verificó esta entrega (no hay docker): la secuencia se verificó contra un PostgreSQL 18 local con los mismos comandos, sustituyendo sólo el nombre de la base.
 
-**Requisitos:** Node.js ≥ 22 (`engines` del `package.json`; verificado con v26.12.1) y npm ≥ 10 (verificado con 12.0.2) · un PostgreSQL ≥ 15 accesible (verificado con 18.6) con el cliente `psql` · `npm install` instala las dependencias; si el cliente de Prisma no quedó generado, `npx prisma generate` (script `prisma:generate`).
+**Requisitos:** Node.js ≥ 22 (`engines` del `package.json`; verificado con v26.12.1) y npm ≥ 10 (verificado con 12.0.2) · un PostgreSQL accesible (verificado con 18.6) con el cliente `psql` · `npm install` instala las dependencias; si el cliente de Prisma no quedó generado, `npx prisma generate` (script `prisma:generate`).
 
 ## Stack
 
@@ -301,8 +302,7 @@ El dataset trae una **inconsistencia documentada, no corregida**: el usuario 1 v
 - **Matching sin disparador:** `matchRestingOrders` existe (función pura testeada) pero **nada la llama en producción** — las `NEW` no se llenan cuando cambia el precio de referencia. Punto de enchufe documentado.
 - **Sin autenticación:** `userId` viene del path y se confía (el challenge lo explicita). Cualquier `userId` del seed opera su cuenta.
 - **`make db-load` / `make db-reset` cargan el snapshot legacy** (sin `"timeInForce"`/`filledPrice`/`filledAt`/`idempotencyKey` ni `order_events`) y por eso **exigen `LEGACY=1`**: sin esa variable abortan sin tocar la base. El flujo vigente es `npx prisma migrate deploy` + `db/seed.sql` (como en el quickstart); los targets quedan para recargar el dataset original de referencia.
-- **`npm run build` compila sólo `src/`** a `dist/` (`tsconfig.build.json` con `rootDir: ./src`); `node dist/index.js` levanta el servidor compilado.
-- **Docker no verificado en la máquina donde se verificó esta entrega** (no hay docker): la vía de base de datos verificada es un PostgreSQL 18 local; `docker-compose.yml` queda como referencia para otros entornos.
+- **Docker sin verificar:** la secuencia del quickstart se corrió contra un PostgreSQL 18 local, no contra el contenedor de `docker-compose.yml` (Postgres 16). Es la vía estándar del repo, pero no se ejecutó en esta entrega.
 
 ## Evolución propuesta
 
@@ -325,7 +325,7 @@ npm test
 
 - **Unit** (`tests/unit/**`): funciones puras (derivación de cash/posiciones/reservas, `evaluateCross`, `matchRestingOrders`, sizing), casos de uso con fakes, contratos Zod, borde HTTP y contrato de errores.
 - **Integration** (`tests/integration/infra`): repos Prisma contra Postgres real, con `cocos_challenge_test` (la crea `npm run test:db:reset`).
-- **Functional** (`tests/functional/**`): los 5 endpoints vía supertest; cada suite **se auto-resetea** su propia base (`TEST_DB_NAME`) en `beforeAll` — correr `npm test` dos veces seguidas da verde.
+- **Functional** (`tests/functional/**`): los 5 endpoints vía supertest; cada suite **se auto-resetea** su propia base (`TEST_DB_NAME`) en `beforeAll`, así que no depende del estado previo de la base.
 - `npm run typecheck` (`tsc --noEmit`, nodenext) y `npm run lint` (eslint 9 flat config) completan el chequeo local.
 
 ## Estructura del proyecto
