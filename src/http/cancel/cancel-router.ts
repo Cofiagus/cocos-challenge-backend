@@ -17,60 +17,20 @@
 
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { z } from "zod";
 import {
   API_ERROR_CODES,
   CancelOrderParamsSchema,
-  type OrderResponse,
   apiErrorBody,
-  serializeLocalTimestamp,
-  serializeMoneyArs,
 } from "../../contracts/index.js";
 import {
   CancelOrderError,
   cancelOrder,
   type CancelOrderDeps,
-  type CancelOrderResult,
 } from "../../application/cancel/cancel-order.js";
+import { toOrderResponse, validationMessage } from "../shared/edge.js";
 
 /** Deps del slice de cancelación: el PUERTO, orquestado por cancelOrder. */
 export type CancelRouterDeps = CancelOrderDeps;
-
-/** Mensaje de validación: "campo: mensaje; ..." (ZodError → texto). */
-const validationMessage = (error: z.ZodError): string =>
-  error.issues
-    .map((issue) => `${issue.path.map(String).join(".")}: ${issue.message}`)
-    .join("; ");
-
-/** Fila CANCELLED (CancelOrderResult) → OrderResponse del contrato. */
-const toOrderResponse = (result: CancelOrderResult): OrderResponse => {
-  const { order } = result;
-  // El mapper de infra (célula B) ya falla ruidosamente ante un NULL acá:
-  // este estrechamiento es sólo de tipos (inalcanzable en runtime).
-  if (order.instrumentId === null) {
-    throw new Error("Orden persistida sin instrumentId (inalcanzable).");
-  }
-  return {
-    id: order.id,
-    instrumentId: order.instrumentId,
-    side: order.side,
-    type: order.type,
-    timeInForce: order.timeInForce,
-    status: order.status,
-    size: order.sizeShares,
-    price: order.priceArs === null ? null : serializeMoneyArs(order.priceArs),
-    filledPrice:
-      order.filledPriceArs === null
-        ? null
-        : serializeMoneyArs(order.filledPriceArs),
-    filledAt:
-      order.filledAt === null ? null : serializeLocalTimestamp(order.filledAt),
-    datetime: serializeLocalTimestamp(order.datetime),
-    // Cancelación por usuario: sin razón (las razones del contrato son de
-    // rechazo/IOC-FOK; la fila NEW que se canceló nunca tuvo una).
-    reason: null,
-  };
-};
 
 export const buildCancelRouter = (deps: CancelRouterDeps): Router => {
   const router = Router();
@@ -95,7 +55,9 @@ export const buildCancelRouter = (deps: CancelRouterDeps): Router => {
           orderId: params.data.orderId,
         });
         // 200 con la orden cancelada (decisión firmada por el orquestador).
-        res.status(200).json(toOrderResponse(result));
+        // Cancelación por usuario: sin razón (las razones del contrato son
+        // de rechazo/IOC-FOK; la fila NEW que se canceló nunca tuvo una).
+        res.status(200).json(toOrderResponse(result.order, null));
       } catch (error) {
         if (error instanceof CancelOrderError) {
           // Errores de aplicación → status + body del contrato (404/422).
