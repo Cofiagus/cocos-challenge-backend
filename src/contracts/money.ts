@@ -159,12 +159,23 @@ export const serializeMoneyArs = (amount: FinancialDecimal): MoneyArs => {
 /**
  * Decimal (puntos porcentuales) → Pct: el contrato de porcentaje sigue siendo
  * `number` (D3) y sólo se convierte acá, con HALF_UP y finitud validada.
+ *
+ * Un Decimal finito puede exceder el rango de `number` (p. ej. `1e1000`): la
+ * conversión devolvería `Infinity` y contaminaría el contrato con un valor que
+ * `PctSchema` rechaza. Por eso se valida la finitud también DESPUÉS de
+ * convertir, no sólo la del Decimal de entrada.
  */
 export const serializePct = (pctX100: Decimal): Pct => {
   if (!pctX100.isFinite()) {
     throw new RangeError("No se serializa un porcentaje no finito (NaN o infinito).");
   }
-  return Number(
+  const pct = Number(
     pctX100.toDecimalPlaces(2, FinancialDecimal.ROUND_HALF_UP).toFixed(2),
-  ) as Pct;
+  );
+  if (!Number.isFinite(pct)) {
+    throw new RangeError(
+      "No se serializa un porcentaje fuera del rango de number (no finito al convertir).",
+    );
+  }
+  return pct as Pct;
 };

@@ -38,6 +38,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { Client } from "pg";
 import {
+  FinancialDecimal,
   InstrumentSearchResponseSchema,
   PortfolioResponseSchema,
 } from "../../../src/contracts/index.js";
@@ -295,9 +296,15 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
         .expect(200);
       const afterBody = PortfolioResponseSchema.parse(after.body);
 
-      // Reservar cash lo saca del disponible pero NO del patrimonio.
-      expect(afterBody.cash).toBe(beforeBody.cash - 5_000);
-      expect(afterBody.reservedCash).toBe(beforeBody.reservedCash + 5_000);
+      // Reservar cash lo saca del disponible pero NO del patrimonio. `cash` y
+      // `reservedCash` son MoneyArs (string): la aritmética va por
+      // FinancialDecimal y se compara el string cuantizado, nunca un number.
+      expect(afterBody.cash).toBe(
+        new FinancialDecimal(beforeBody.cash).minus("5000").toFixed(2),
+      );
+      expect(afterBody.reservedCash).toBe(
+        new FinancialDecimal(beforeBody.reservedCash).plus("5000").toFixed(2),
+      );
       expect(afterBody.totalAccountValue).toBe(beforeBody.totalAccountValue);
 
     });

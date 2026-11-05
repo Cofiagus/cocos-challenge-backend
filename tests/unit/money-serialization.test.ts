@@ -166,4 +166,12 @@ describe("serializePct — sigue number, HALF_UP y finitud validada", () => {
     expect(() => serializePct(new Decimal(Infinity))).toThrow(/finito/);
     expect(() => serializePct(new Decimal(NaN))).toThrow(/finito/);
   });
+
+  it("rechaza un Decimal finito que desborda number (1e1000) en vez de emitir Infinity", () => {
+    const huge = new Decimal("1e1000");
+    expect(huge.isFinite()).toBe(true); // finito en Decimal...
+    expect(Number(huge.toFixed(2))).toBe(Infinity); // ...pero no representable en number
+    expect(() => serializePct(huge)).toThrow(RangeError);
+    expect(() => serializePct(huge)).toThrow(/rango de number/);
+  });
 });
