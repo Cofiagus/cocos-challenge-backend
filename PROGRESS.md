@@ -40,6 +40,13 @@
 - LM-E-functional (después de código estable): tests/functional/**, con inventario y cortes de máximo 2 archivos por adaptación. Nuevas suites de aceptación con DB propia; sin colisión con integración.
 - Ninguna célula cambia specs, DECISIONS, deps, migraciones aplicadas, DB app o main. Nuevos archivos de src sólo para extraer funciones financieras por umbral de lint, sin ampliar diseño; CODEMAP en el mismo commit. Los cambios compartidos se integran secuencialmente.
 
+### Auditoría de integración (GLM, revisada por el orquestador)
+
+- Verificado: main 60b3764 es ancestro de feature; las 26 rutas del snapshot b8006af coinciden byte a byte con el árbol original, sin drift. La rama de instrumentos NO es ancestro. Esto habilita un fast-forward de commits, no garantiza ausencia de obstáculos en un worktree sucio.
+- Preservar el índice original: `.env.test` tiene eliminación staged en main pero sigue rastreado en el snapshot/feature. El cierre debe excluirlo del árbol versionado sin perder su copia local; no leer ni imprimir contenido ni credenciales. La historia local ya existente no se reescribe sin permiso y no hay push autorizado.
+- Se acepta respaldo recuperable antes del fast-forward; se rechaza asumir que `stash -u` preserva por sí solo el archivo local en todos los estados, o que eliminar `.env.test` del índice deja un diff vacío contra una feature que aún lo rastrea. Revalidar rutas, archivos ignorados y tip final antes de integrar. No aplicar stash automáticamente si sus cambios ya están incorporados.
+- La migración de la DB de la app sigue FUERA de alcance. Los gates usan exclusivamente el cluster efímero de test; no equivalen a despliegue sobre el esquema viejo de la app.
+
 ### QUESTIONs activas
 
 Ninguna. Si una decisión de diseño no está expresada en la spec firmada, detener esa parte y preguntar; no ampliar alcance.
