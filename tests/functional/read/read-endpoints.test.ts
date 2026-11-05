@@ -6,6 +6,14 @@
 // la DB propia de la célula: cocos_challenge_read (self-reset en beforeAll,
 // ver ./support.ts).
 //
+// UC-2 (contrato Rev. 2, spec instruments-current-quotes): los PRECIOS
+// ACTUALES vienen de la fuente fake LOCAL de ./support.ts — sin Internet y
+// sin marketdata (sus valores son explícitamente distintos de los closes del
+// seed para acreditar que no hay fallback). El catálogo (filtro/orden/
+// exclusión de MONEDA y offset interno) sigue siendo el repo real contra la
+// DB seedeada; la app del caso 503 se compone con la fuente indisponible del
+// mismo support.
+//
 // GOLDEN VALUES VERIFICADOS contra la DB (schema migrado + db/seed.sql) el
 // 2026-11-02 corriendo db/queries/portfolio.sql + las queries de closes del
 // 2023-07-14 (última vela del seed). Formas JSON según D3 (spec
@@ -31,6 +39,7 @@
 // El import de support fija DATABASE_URL=cocos_challenge_read ANTES de que
 // nada construya el PrismaClient (singleton lazy) — ver ./support.ts.
 import {
+  buildUnavailableInstrumentQuoteSource,
   READ_DB_URL,
   buildReadTestApp,
   insertOrder,
@@ -41,8 +50,10 @@ import request from "supertest";
 import type { Express } from "express";
 import { Client } from "pg";
 import {
+  API_ERROR_CODES,
   FinancialDecimal,
   InstrumentSearchResponseSchema,
+  MarketDataServiceUnavailableError,
   PortfolioResponseSchema,
 } from "../../../src/contracts/index.js";
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
@@ -313,76 +324,107 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
     });
   });
 
-  describe("UC-2 — GET /api/instruments?query=", () => {
-    it("búsqueda por ticker parcial case-insensitive ('pam') ⇒ PAMP con precio/variación golden", async () => {
+  describe("UC-2 — GET /api/instruments?query= (contrato Rev. 2)", () => {
+    // Cotizaciones de la fuente fake LOCAL de ./support.ts (sin Internet y
+    // sin marketdata — valores EXPLÍCITAMENTE distintos de los closes del
+    // seed 925.85/921.80 · 229.50/232.00 · 1502.80/1520.25):
+    //   PAMP 1111.11/1100.00 · METR 250.50/245.00 · BMA 1600.00/1550.00
+    //   resto de tickers constante 123.45/100.00 · AGRO/PGR/IRCP `null`
+    //   (se omiten y el cupo se completa con los siguientes candidatos,
+    //   offset REAL del repo Prisma). La variación es
+    //   (price − previousClose) / previousClose × 100, calculada en
+    //   FinancialDecimal y cuantizada a 2 decimales por serializePct.
+    // Dinero de SALIDA (D3): price/previousClose STRING monetario de 2
+    // decimales; dailyVariationPct number.
+
+    /** Resultado de la constante por defecto del fake (123.45/100.00). */
+    const fakeDefaultResult = (ticker: string, name: string) => ({
+      ticker,
+      name,
+      type: "ACCIONES",
+      price: "123.45",
+      previousClose: "100.00",
+      dailyVariationPct: 23.45,
+    });
+
+    /**
+     * Listado inicial con default 10 (orden ticker asc del repo real): los
+     * primeros 10 tickers del catálogo sin MONEDA son AGRO..CADO, pero AGRO
+     * tiene quote `null` en el fake ⇒ se OMITE y el cupo (offset interno
+     * REAL contra la DB) se completa con el siguiente candidato (CAPX).
+     */
+    const INITIAL_LISTING_TEN = [
+      fakeDefaultResult("ALUA", "Aluar Aluminio Argentino S.A.I.C."),
+      fakeDefaultResult("AUSO", "Autopistas del Sol"),
+      fakeDefaultResult("BBAR", "Banco Frances"),
+      fakeDefaultResult("BHIP", "Banco Hipotecario S.A."),
+      {
+        ticker: "BMA",
+        name: "Banco Macro S.A.",
+        type: "ACCIONES",
+        price: "1600.00",
+        previousClose: "1550.00",
+        dailyVariationPct: 3.23,
+      },
+      fakeDefaultResult("BOLT", "Boldt S.A."),
+      fakeDefaultResult("BPAT", "Banco Patagonia"),
+      fakeDefaultResult("BYMA", "Bolsas y Mercados Argentinos S.A."),
+      fakeDefaultResult("CADO", "Carlos Casado"),
+      fakeDefaultResult("CAPX", "Capex S.A."),
+    ];
+
+    it("ticker parcial case-insensitive ('pam') ⇒ PAMP con la cotización del fake local, NO la del marketdata del seed", async () => {
       const res = await request(app).get("/api/instruments?query=pam").expect(200);
 
-      // El body respeta el contrato de la respuesta.
+      // El body respeta el contrato de la respuesta (money string 2dp,
+      // pct number; sin cotización computable el instrumento se OMITE).
       expect(() => InstrumentSearchResponseSchema.parse(res.body)).not.toThrow();
 
-      // Único match de '%pam%' (verificado contra la DB), close/previousClose
-      // del 2023-07-14: (925.85 − 921.80) / 921.80 × 100 = 0.44.
+      // (1111.11 − 1100.00) / 1100.00 × 100 = 1.01.
       expect(res.body).toEqual([
         {
           ticker: "PAMP",
           name: "Pampa Holding S.A.",
           type: "ACCIONES",
-          price: "925.85",
-          previousClose: "921.80",
-          dailyVariationPct: 0.44,
+          price: "1111.11",
+          previousClose: "1100.00",
+          dailyVariationPct: 1.01,
         },
       ]);
     });
 
-    it("búsqueda por NAME parcial ('Holding') ⇒ los 3 verificados, orden por ticker", async () => {
+    it("name parcial ('Holding') ⇒ CVH, HAVA y PAMP ordenados por ticker; los sin seed usan la constante del fake", async () => {
       const res = await request(app)
         .get("/api/instruments?query=Holding")
         .expect(200);
 
       // Tipado via contrato (sin any) + '%Holding%' sobre name (verificado):
-      // CVH, HAVA y PAMP.
+      // CVH, HAVA y PAMP. CVH/HAVA no tienen seed en el fake ⇒ constante
+      // 123.45/100.00 (variación 23.45 %); PAMP conserva su valor del fake.
       const results = InstrumentSearchResponseSchema.parse(res.body);
-      expect(results.map((instrument) => instrument.ticker)).toEqual([
-        "CVH",
-        "HAVA",
-        "PAMP",
+      expect(results).toEqual([
+        fakeDefaultResult("CVH", "Cablevision Holding"),
+        fakeDefaultResult("HAVA", "Havanna Holding"),
+        {
+          ticker: "PAMP",
+          name: "Pampa Holding S.A.",
+          type: "ACCIONES",
+          price: "1111.11",
+          previousClose: "1100.00",
+          dailyVariationPct: 1.01,
+        },
       ]);
     });
 
-    it("dailyVariationPct exacto del último snapshot (METR y BMA del 14-jul)", async () => {
-      // METR: (229.50 − 232.00) / 232.00 × 100 = −1.08.
-      const metr = await request(app).get("/api/instruments?query=metr").expect(200);
-      expect(metr.body[0]).toEqual({
-        ticker: "METR",
-        name: "MetroGAS S.A.",
-        type: "ACCIONES",
-        price: "229.50",
-        previousClose: "232.00",
-        dailyVariationPct: -1.08,
-      });
+    it("query ausente ⇒ listado inicial con default 10, ticker ASC, AGRO omitido (quote null) y cupo completado vía offset REAL del repo", async () => {
+      const res = await request(app).get("/api/instruments").expect(200);
 
-      // BMA: (1502.80 − 1520.25) / 1520.25 × 100 = −1.15.
-      const bma = await request(app).get("/api/instruments?query=bma").expect(200);
-      expect(bma.body[0]).toEqual({
-        ticker: "BMA",
-        name: "Banco Macro S.A.",
-        type: "ACCIONES",
-        price: "1502.80",
-        previousClose: "1520.25",
-        dailyVariationPct: -1.15,
-      });
-    });
-
-    it("límite por defecto: query con 59 matches ⇒ 20 resultados ordenados por ticker", async () => {
-      const res = await request(app).get("/api/instruments?query=a").expect(200);
-
-      // Tipado via contrato (sin any). '%a%' (ticker O name, sin MONEDA) ⇒
-      // 59 matches (verificado); el default del contrato recorta a 20,
-      // ORDER BY ticker.
+      // Tipado via contrato (sin any): price/previousClose son STRING y
+      // dailyVariationPct number OBLIGATORIOS — un null ya no parsea.
       const results = InstrumentSearchResponseSchema.parse(res.body);
-      expect(results).toHaveLength(20);
+
+      expect(results).toHaveLength(10);
       expect(results.map((instrument) => instrument.ticker)).toEqual([
-        "AGRO",
         "ALUA",
         "AUSO",
         "BBAR",
@@ -393,16 +435,57 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
         "BYMA",
         "CADO",
         "CAPX",
-        "CARC",
-        "CECO2",
-        "CELU",
-        "CEPU",
-        "CGPA2",
-        "COME",
-        "CRES",
-        "CTIO",
-        "CVH",
       ]);
+      // El body completo respeta el orden y los valores del fake (BMA lleva
+      // su seed del fake, NO el close del marketdata del seed).
+      expect(res.body).toEqual(INITIAL_LISTING_TEN);
+    });
+
+    it.each([
+      ["query vacía", "/api/instruments?query="],
+      ["query sólo espacios", "/api/instruments?query=%20%20"],
+    ])("%s ⇒ 200 listado inicial (NO 400): '' tras trim = listado inicial", async (_case, url) => {
+      const res = await request(app).get(url).expect(200);
+
+      const results = InstrumentSearchResponseSchema.parse(res.body);
+      expect(results).toHaveLength(10);
+      expect(res.body).toEqual(INITIAL_LISTING_TEN);
+    });
+
+    it("query 'a' con limit 10 ⇒ 10 resultados ordenados sin AGRO: el cupo se completa con los siguientes candidatos (offset REAL)", async () => {
+      // '%a%' (ticker O name) matchea 59 instrumentos sin MONEDA (verificado
+      // contra la DB); los primeros 10 por ticker son AGRO..CADO. AGRO tiene
+      // quote `null` ⇒ se omite y la página siguiente (offset interno real
+      // del repo Prisma) aporta CAPX para completar el cupo.
+      const res = await request(app)
+        .get("/api/instruments?query=a&limit=10")
+        .expect(200);
+
+      const results = InstrumentSearchResponseSchema.parse(res.body);
+      expect(results).toHaveLength(10);
+      expect(results.map((instrument) => instrument.ticker)).toEqual([
+        "ALUA",
+        "AUSO",
+        "BBAR",
+        "BHIP",
+        "BMA",
+        "BOLT",
+        "BPAT",
+        "BYMA",
+        "CADO",
+        "CAPX",
+      ]);
+    });
+
+    it("limit máximo (100) aceptado ⇒ los 56 con cotización del fake (59 matches de '%a%' menos AGRO/PGR/IRCP null)", async () => {
+      const res = await request(app)
+        .get("/api/instruments?query=a&limit=100")
+        .expect(200);
+
+      const results = InstrumentSearchResponseSchema.parse(res.body);
+      expect(results).toHaveLength(56);
+      expect(results.at(0)?.ticker).toBe("ALUA");
+      expect(results.at(-1)?.ticker).toBe("YPFD");
     });
 
     it("limit explícito ('?query=banco&limit=2') ⇒ los 2 primeros por ticker", async () => {
@@ -411,11 +494,12 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
         .expect(200);
 
       // Tipado via contrato (sin any). '%banco%' ⇒ BBAR, BHIP, BMA, BPAT
-      // (verificado); LIMIT 2 ⇒ los 2 primeros por ticker.
+      // (verificado); LIMIT 2 ⇒ los 2 primeros por ticker, con la constante
+      // del fake.
       const results = InstrumentSearchResponseSchema.parse(res.body);
-      expect(results.map((instrument) => instrument.ticker)).toEqual([
-        "BBAR",
-        "BHIP",
+      expect(results).toEqual([
+        fakeDefaultResult("BBAR", "Banco Frances"),
+        fakeDefaultResult("BHIP", "Banco Hipotecario S.A."),
       ]);
     });
 
@@ -429,52 +513,86 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
       expect(ars.body).toEqual([]);
     });
 
-    it("instrumento sin marketdata (PGR/IRCP) ⇒ price null, previousClose null, variación null", async () => {
+    it("query sin matches ('zzzz') ⇒ [] (sin error)", async () => {
+      const res = await request(app)
+        .get("/api/instruments?query=zzzz")
+        .expect(200);
+      expect(res.body).toEqual([]);
+    });
+
+    it("ticker sin cotización computable (PGR/IRCP: quote null) ⇒ se OMITE del listado y la query exacta da []", async () => {
+      // Política aprobada de la spec Rev. 2: sin cotización se omite el
+      // instrumento (sin fallback al seed ni precios null en la respuesta).
       const pgr = await request(app).get("/api/instruments?query=pgr").expect(200);
-      expect(pgr.body).toEqual([
-        {
-          ticker: "PGR",
-          name: "Phoenix Global Resources",
-          type: "ACCIONES",
-          price: null,
-          previousClose: null,
-          dailyVariationPct: null,
-        },
-      ]);
+      expect(pgr.body).toEqual([]);
 
       const ircp = await request(app).get("/api/instruments?query=ircp").expect(200);
-      expect(ircp.body).toEqual([
-        {
-          ticker: "IRCP",
-          name: "IRSA Propiedades Comerciales S.A.",
-          type: "ACCIONES",
-          price: null,
-          previousClose: null,
-          dailyVariationPct: null,
-        },
-      ]);
+      expect(ircp.body).toEqual([]);
     });
 
-    it("query vacía '?query=' ⇒ 400 VALIDATION_ERROR", async () => {
-      const res = await request(app).get("/api/instruments?query=").expect(400);
+    it("sin nulls ni fallback al marketdata del seed: price/previousClose SIEMPRE string 2dp, pct number, y los closes del seed no aparecen", async () => {
+      const res = await request(app)
+        .get("/api/instruments?query=a&limit=100")
+        .expect(200);
+      const results = InstrumentSearchResponseSchema.parse(res.body);
+
+      for (const result of results) {
+        // Dinero de salida SIEMPRE string monetario de 2 decimales (D3):
+        // nunca number ni null; la variación sí es number (2 decimales).
+        expect(result.price).toMatch(/^\d+\.\d{2}$/u);
+        expect(result.previousClose).toMatch(/^\d+\.\d{2}$/u);
+        expect(typeof result.dailyVariationPct).toBe("number");
+        expect(new FinancialDecimal(result.price).gt("0")).toBe(true);
+        expect(new FinancialDecimal(result.previousClose).gt("0")).toBe(true);
+      }
+
+      // Los valores del marketdata del seed (closes del 2023-07-14) NO
+      // aparecen en la búsqueda: la respuesta sale de la fuente fake local.
+      const seedCloses = ["925.85", "921.80", "229.50", "232.00", "1502.80", "1520.25"];
+      const listedPrices = new Set(results.flatMap((r) => [r.price, r.previousClose]));
+      for (const seedClose of seedCloses) {
+        expect(listedPrices.has(seedClose)).toBe(false);
+      }
+    });
+
+    it.each([
+      ["limit 0 (mínimo 1)", "/api/instruments?query=a&limit=0"],
+      ["limit 101 (máximo 100)", "/api/instruments?query=a&limit=101"],
+      ["limit no entero", "/api/instruments?query=a&limit=1.5"],
+      ["limit no numérico", "/api/instruments?query=a&limit=abc"],
+      ["parámetro desconocido (strict)", "/api/instruments?query=a&foo=1"],
+      ["query duplicada", "/api/instruments?query=a&query=b"],
+    ])("query inválida: %s ⇒ 400 VALIDATION_ERROR", async (_case, url) => {
+      const res = await request(app).get(url).expect(400);
 
       expect(res.body).toEqual({
         error: {
-          code: "VALIDATION_ERROR",
+          code: API_ERROR_CODES.VALIDATION_ERROR,
           message: expect.any(String),
         },
       });
     });
 
-    it("query ausente '/api/instruments' ⇒ 400 VALIDATION_ERROR", async () => {
-      const res = await request(app).get("/api/instruments").expect(400);
+    it("indisponibilidad del proveedor (fake que lanza MarketDataServiceUnavailableError) ⇒ 503 exacto, NUNCA listado vacío/parcial como éxito", async () => {
+      // Override de la fuente: la app del caso 503 se compone aparte (la
+      // default usa la fake local). query=pam SÍ matchea PAMP: si el borde
+      // disfrazara la falla, devolvería [] o un parcial 200 — prohibido.
+      const unavailableApp = buildReadTestApp(
+        buildUnavailableInstrumentQuoteSource(),
+      );
+      const res = await request(unavailableApp)
+        .get("/api/instruments?query=pam")
+        .expect(503);
 
+      // Body EXACTO del contrato (código + mensaje literal de la spec Rev. 2).
       expect(res.body).toEqual({
         error: {
-          code: "VALIDATION_ERROR",
-          message: expect.any(String),
+          code: API_ERROR_CODES.MARKET_DATA_SERVICE_UNAVAILABLE,
+          message: new MarketDataServiceUnavailableError().message,
         },
       });
+      // Sin listado disfrazado de éxito: la respuesta no es un array.
+      expect(Array.isArray(res.body)).toBe(false);
     });
   });
 });
