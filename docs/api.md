@@ -44,9 +44,22 @@ Proyección de `orders`, no una tabla de saldos. `cash` es **disponible** (`sett
 
 ## 2. `GET /instruments?query=<texto>&limit=<1..100>`
 
-Búsqueda **parcial y case-insensitive** sobre `ticker` y `name`. `MONEDA` queda excluida.
-`query` vacía o ausente → 400 (no es una búsqueda "de todo"). Respuesta: **array plano**.
-Sin `marketdata` para el instrumento: `price`, `previousClose` y `dailyVariationPct` en `null`.
+Búsqueda **parcial y case-insensitive** sobre `ticker` y `name` (con texto, se recorta).
+`query` **ausente, vacía o sólo espacios** NO es un error: es el **listado inicial** (`""` tras
+trim). `limit` es entero 1..100 con default **10**; fuera de rango o parámetro desconocido → 400
+(la `query` nunca es inválida). `MONEDA` queda excluida. Respuesta: **array plano** ordenado por
+ticker.
+
+- `price` es el **último precio de sesión vigente** (Yahoo) y `previousClose` el **cierre de la
+  sesión anterior**: string monetario de 2 decimales; `dailyVariationPct` es number redondeado a
+  2 decimales. Nunca salen del seed ni de un precio viejo.
+- Campos **no-nullable**: el instrumento sin cotización computable **se omite** (no viene en
+  `null`) y el cupo se completa con los siguientes candidatos, hasta agotar el catálogo.
+- Proveedor indisponible (timeout / rate-limit) → **503 `MARKET_DATA_SERVICE_UNAVAILABLE`**:
+  sin listado parcial como éxito y sin array vacío que disimule la falla. Un 503 del proveedor
+  no equivale a "búsqueda sin resultados".
+- Sin captura real de cotizaciones en vivo todavía (queda para la verificación HTTP del
+  despliegue local): este doc no ejemplifica ningún precio ni fecha de fuente.
 
 ## 3. `POST /users/:userId/orders`
 
@@ -118,12 +131,15 @@ Una transferencia es una **orden** del instrumento `ARS` (`price` = `"1.00"`, el
 | `NOT_FOUND` | 404 | ruta inexistente o método no soportado en una ruta existente (Express 5 no distingue 404 de ruta de un 405 de método: ambos son "no hay handler", el servidor responde 404) |
 | `IDEMPOTENCY_CONFLICT` | 409 | misma key, otro payload |
 | `ORDER_NOT_CANCELLABLE` | 422 | cancelar una orden que no está `NEW` |
+| `MARKET_DATA_SERVICE_UNAVAILABLE` | 503 | el proveedor de cotizaciones (Yahoo) no responde, timeout o rate-limit — sólo `GET /instruments` |
 | `PAYLOAD_TOO_LARGE` | 413 | el body supera el límite de 100 KB de `express.json` |
 | `INTERNAL_ERROR` | 500 | error inesperado; mensaje genérico, el detalle queda en stderr |
 
-Los 11 códigos de la tabla integran `API_ERROR_CODES` (el contrato del error
-`{error:{code,message}}`). Los 7 de negocio los emiten los routers; los 4 transversales
+Los 12 códigos de la tabla integran `API_ERROR_CODES` (el contrato del error
+`{error:{code,message}}`). Los 8 de negocio los emiten los routers; los 4 transversales
 (`NOT_FOUND`, `INVALID_JSON`, `PAYLOAD_TOO_LARGE`, `INTERNAL_ERROR`) los responde el manejador
 central de `src/http/error-handler.ts`, registrado después de los routers en `src/http/app.ts`.
 `INSTRUMENT_NOT_FOUND` entró al contrato con status 404 en `POST /orders` (`instrumentId`|`ticker`
-inexistente, sin orden).
+inexistente, sin orden). `MARKET_DATA_SERVICE_UNAVAILABLE` (UC-2 Rev. 2) lo emite el router de
+instruments traduciendo `MarketDataServiceUnavailableError`; su mensaje es el del error de
+dominio, que también viaja validado en el ejemplo 503 del contrato.
