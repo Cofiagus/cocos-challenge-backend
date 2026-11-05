@@ -69,12 +69,10 @@ const snapshot = (
   previousCloseArs: new Decimal(closeArs),
 });
 
-/** CASH_IN de 1.00 por unidad: sizeShares = pesos liquidados. */
-const cashIn = (sizeShares: number): SettledOrderMovement => ({
-  instrumentId: 66,
+/** CASH_IN de un monto exacto en ARS (el cash no lleva acciones). */
+const cashIn = (amountArs: string): SettledOrderMovement => ({
   side: "CASH_IN",
-  sizeShares,
-  priceArs: new Decimal("1.00"),
+  amountArs: new Decimal(amountArs),
 });
 
 const trade = (
@@ -242,7 +240,10 @@ const expectDraft = (
   if (draft === undefined) {
     throw new Error("createOrder no recibió ningún draft.");
   }
-  expect(draft).toEqual({
+  // El constructor del precio de fill depende de la rama (referencia del
+  // fixture vs evaluateCross); la aserción es sobre el valor monetario exacto.
+  const { filledPriceArs, ...draftRest } = draft;
+  expect(draftRest).toEqual({
     userId: 1,
     instrumentId: expected.instrumentId,
     side: expected.side,
@@ -252,14 +253,13 @@ const expectDraft = (
     sizeShares: expected.sizeShares,
     priceArs:
       expected.priceArs === null ? null : new Decimal(expected.priceArs),
-    filledPriceArs:
-      expected.filledPriceArs === null
-        ? null
-        : new Decimal(expected.filledPriceArs),
     filledAt: expected.filledAt === null ? null : expect.any(Date),
     idempotencyKey: expected.idempotencyKey,
     datetime: expect.any(Date),
   });
+  expect(filledPriceArs === null ? null : filledPriceArs.toFixed(2)).toBe(
+    expected.filledPriceArs,
+  );
 };
 
 const expectEvent = (
@@ -319,7 +319,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     expected: {
       status: "FILLED",
@@ -352,7 +352,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000), trade(1, "BUY", 10, "900.00")],
+      movements: [cashIn("100000.00"), trade(1, "BUY", 10, "900.00")],
     },
     expected: {
       status: "FILLED",
@@ -385,7 +385,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(1_000)],
+      movements: [cashIn("1000.00")],
     },
     expected: {
       status: "REJECTED",
@@ -426,7 +426,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "1000.00"),
-      movements: [cashIn(1_000)],
+      movements: [cashIn("1000.00")],
     },
     expected: {
       status: "FILLED",
@@ -469,7 +469,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000), trade(1, "BUY", 10, "900.00")],
+      movements: [cashIn("100000.00"), trade(1, "BUY", 10, "900.00")],
       restingOrders: [resting(1, "SELL", 4, "1000.00")],
     },
     expected: {
@@ -503,7 +503,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000), trade(1, "BUY", 10, "900.00")],
+      movements: [cashIn("100000.00"), trade(1, "BUY", 10, "900.00")],
       restingOrders: [resting(1, "SELL", 4, "1000.00")],
     },
     expected: {
@@ -526,9 +526,9 @@ const persistedCases: PersistedCase[] = [
         reason: "INSUFFICIENT_POSITION",
         metadata: {
           ...AUDIT_MARKET,
-          positionShares: 10,
-          reservedShares: 4,
-          sellableShares: 6,
+          positionShares: "10",
+          reservedShares: "4",
+          sellableShares: "6",
         },
       },
       calls: CALLS_MARKET,
@@ -546,7 +546,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: null,
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     expected: {
       status: "REJECTED",
@@ -583,7 +583,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: null,
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     expected: {
       status: "REJECTED",
@@ -620,7 +620,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     expected: {
       status: "FILLED",
@@ -663,7 +663,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     expected: {
       status: "REJECTED",
@@ -707,7 +707,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     expected: {
       status: "NEW",
@@ -741,7 +741,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000), trade(1, "BUY", 10, "900.00")],
+      movements: [cashIn("100000.00"), trade(1, "BUY", 10, "900.00")],
     },
     expected: {
       status: "NEW",
@@ -775,7 +775,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(1_000)],
+      movements: [cashIn("1000.00")],
     },
     expected: {
       status: "REJECTED",
@@ -817,7 +817,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     expected: {
       status: "FILLED",
@@ -855,7 +855,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     expected: {
       status: "CANCELLED",
@@ -893,7 +893,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000), trade(1, "BUY", 10, "900.00")],
+      movements: [cashIn("100000.00"), trade(1, "BUY", 10, "900.00")],
     },
     expected: {
       status: "FILLED",
@@ -931,7 +931,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000), trade(1, "BUY", 10, "900.00")],
+      movements: [cashIn("100000.00"), trade(1, "BUY", 10, "900.00")],
     },
     expected: {
       status: "CANCELLED",
@@ -969,7 +969,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     expected: {
       status: "FILLED",
@@ -1006,7 +1006,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
       restingOrders: [resting(1, "BUY", 10, "9000.00")],
     },
     expected: {
@@ -1049,7 +1049,7 @@ const persistedCases: PersistedCase[] = [
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
       movements: [
-        cashIn(100_000),
+        cashIn("100000.00"),
         trade(1, "BUY", 20, "900.00"),
         trade(1, "SELL", 30, "1100.00"),
       ],
@@ -1074,9 +1074,9 @@ const persistedCases: PersistedCase[] = [
         reason: "INSUFFICIENT_POSITION",
         metadata: {
           ...AUDIT_MARKET,
-          positionShares: -10,
-          reservedShares: 0,
-          sellableShares: -10,
+          positionShares: "-10",
+          reservedShares: "0",
+          sellableShares: "-10",
         },
       },
       calls: CALLS_MARKET,
@@ -1095,9 +1095,9 @@ const persistedCases: PersistedCase[] = [
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
       movements: [
-        cashIn(100_000),
+        cashIn("100000.00"),
         trade(1, "BUY", 10, "900.00"),
-        { instrumentId: 1, side: "CASH_OUT", sizeShares: 3, priceArs: new Decimal("1.00") },
+        { side: "CASH_OUT", amountArs: new Decimal("3.00") },
       ],
     },
     expected: {
@@ -1132,7 +1132,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
       createOutcome: "IDEMPOTENT_REPLAY",
     },
     idempotencyKey: "idem-replay",
@@ -1168,7 +1168,7 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(1_000)],
+      movements: [cashIn("1000.00")],
       createOutcome: "IDEMPOTENT_REPLAY",
       existingOrder: {
         id: 900,
@@ -1327,7 +1327,7 @@ const errorCases: ErrorCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
       createOutcome: "IDEMPOTENT_CONFLICT",
     },
     idempotencyKey: "idem-conflicto",
@@ -1344,6 +1344,35 @@ const errorCases: ErrorCase[] = [
         "portfolioRead.listSettledMovements(1)",
         "portfolioRead.listRestingOrders(1)",
         "orders.createOrder",
+      ],
+    },
+  },
+  {
+    name: "amountArs cuyo size derivado supera INT4 ⇒ 400 VALIDATION_ERROR sin escritura",
+    // El máximo D1 a un precio de 0.01 deriva ~1e24 acciones: fuera del
+    // contrato. Debe cortar ANTES de leer fondos y de cualquier INSERT.
+    request: {
+      instrumentId: 1,
+      side: "BUY",
+      type: "MARKET",
+      timeInForce: "GTC",
+      amountArs: new Decimal("9999999999999999999999.99"),
+    },
+    seed: {
+      instruments: CATALOG,
+      snapshot: snapshot(1, "0.01"),
+      movements: [cashIn("9999999999999999999999.99")],
+    },
+    expected: {
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message:
+        "El size derivado de amountArs no es un entero entre 0 y 2147483647.",
+      calls: [
+        "orders.withUserTransaction(1)",
+        "portfolioRead.userExists(1)",
+        "instruments.findById(1)",
+        "marketdata.getLatestSnapshot(1)",
       ],
     },
   },
@@ -1402,7 +1431,7 @@ const throwCases: ThrowCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     message: "Envío sin size ni amountArs (inalcanzable: XOR del borde).",
   },
@@ -1419,7 +1448,7 @@ const throwCases: ThrowCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     message:
       "Precio de sizing no resuelto (inalcanzable tras NO_PRICE/contrato).",
@@ -1437,7 +1466,7 @@ const throwCases: ThrowCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     message: "Precio de validación no resuelto (inalcanzable).",
   },
@@ -1459,7 +1488,7 @@ const throwCases: ThrowCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     message: "MARKET sin precio de referencia (inalcanzable: NO_PRICE salió).",
   },
@@ -1481,7 +1510,7 @@ const throwCases: ThrowCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     message: "IOC/FOK sin precio de referencia (inalcanzable: NO_PRICE salió).",
   },
@@ -1498,7 +1527,7 @@ const throwCases: ThrowCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000), trade(1, "BUY", 10, "900.00")],
+      movements: [cashIn("100000.00"), trade(1, "BUY", 10, "900.00")],
     },
     message: "LIMIT sin límite (inalcanzable: contrato del borde).",
   },
@@ -1520,7 +1549,7 @@ const throwCases: ThrowCase[] = [
     seed: {
       instruments: CATALOG,
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     },
     message: "Evaluación IOC/FOK sin decisión (inalcanzable).",
   },
