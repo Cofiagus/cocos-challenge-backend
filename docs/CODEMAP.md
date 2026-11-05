@@ -15,7 +15,7 @@ importadores directos · **test** = suite que lo ejerce.
 ## 1. Flujo en una línea
 
 ```
-index.ts ──► http/server.ts (composition root: los 4 repos Prisma + los 5 routers)
+index.ts ──► http/server.ts (composition root: los 4 repos Prisma + Yahoo UC-2 + los 5 routers)
                 │
                 ├─► http/<slice>/<slice>-router.ts ──► application/<uc>/*.ts ──► domain/* (puro)
                 │            │                                                     │
@@ -93,7 +93,7 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 | `src/http/instruments/instruments-router.ts` | borde UC-2: Zod query → `searchInstruments` → serialización (money string 2dp, pct number); `MarketDataServiceUnavailableError` ⇒ 503 `MARKET_DATA_SERVICE_UNAVAILABLE` exacto, cualquier otro error al error handler | `InstrumentsRouterDeps`, `buildInstrumentsRouter` | `http/server.ts` | `unit/http/instruments-search` · `functional/read` |
 | `src/http/orders/orders-router.ts` | borde UC-3: Zod params+body+header → `submitOrder` → 201 `OrderResponse` | `OrdersRouterDeps`, `buildOrdersRouter` | `http/server.ts` | `functional/orders` (ambas) |
 | `src/http/portfolio/portfolio-router.ts` | borde UC-1 como adaptador fino: Zod params → `getPortfolio` → serialización al contrato (la agregación vive en el caso de uso) | `PortfolioRouterDeps`, `buildPortfolioRouter` | `http/server.ts` | `functional/read` · `unit/http/error-contract` |
-| `src/http/server.ts` | composition root: instancia los 4 repos Prisma y arma `serverApp` con los 5 routers | `serverApp` | `src/index.ts` | — |
+| `src/http/server.ts` | composition root: instancia los 4 repos Prisma + la fuente Yahoo de UC-2 (sólo el router de instruments la usa; portfolio/orders siguen con `marketdata`) y arma `serverApp` con los 5 routers | `serverApp` | `src/index.ts` | — |
 | `src/http/transfers/transfers-router.ts` | borde UC-5: Zod params+body+header → `submitTransfer` → 201 `OrderResponse` | `TransfersRouterDeps`, `buildTransfersRouter` | `http/server.ts` | `functional/transfers` |
 | `src/index.ts` | entry: `dotenv/config` + `listen(PORT)` + cierre ordenado (SIGTERM/SIGINT) que desconecta el pool de Prisma | (entry) | — | — |
 
@@ -110,7 +110,7 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 | `src/infra/prisma/order-repository.ts` | escrituras de orders: tx + advisory lock, claim `ON CONFLICT`, eventos, guardas de estado y replay exacto (trading/cash; histórico vía `cash-idempotency.ts`) | `PrismaOrderRepository` | `http/server.ts` | `integration/infra` · funcionales |
 | `src/infra/prisma/portfolio-read-repository.ts` | lecturas del portfolio (`userExists`, movimientos FILLED, NEW) con `tx` opcional | `PrismaPortfolioReadRepository` | `http/server.ts` | `integration/infra` · funcionales |
 | `src/infra/prisma/transaction-context.ts` | brand/unbrand del `TransactionContext` + `resolveDbExecutor` (tx o cliente raíz) | `DbExecutor`, `brandTransactionContext`, `unbrandTransactionContext`, `resolveDbExecutor` | `order-repository.ts` · `portfolio-read-repository.ts` | `integration/infra` |
-| `src/infra/yahoo/yahoo-instrument-quote-source.ts` | adaptador Yahoo de UC-2: GET chart 1d/1m con `ticker + ".BA"` (encodeURIComponent), timeout default 5 s vía AbortController, respuesta validada con Zod — meta ARS + símbolo esperado + `regularMarketPrice`/`previousClose` finitos y positivos convertidos a `FinancialDecimal` desde string; 404/meta ausente/moneda o símbolo distintos/no positivos ⇒ `null` (faltante), 429/5xx/transporte/timeout/JSON inválido o forma inesperada ⇒ `MarketDataServiceUnavailableError`; sin caché, retries ni fallback histórico | `YahooInstrumentQuoteSource` | nadie aún (cableado a `http/server.ts` por la célula de wiring) | `unit/infra/yahoo-instrument-quote-source` |
+| `src/infra/yahoo/yahoo-instrument-quote-source.ts` | adaptador Yahoo de UC-2: GET chart 1d/1m con `ticker + ".BA"` (encodeURIComponent), timeout default 5 s vía AbortController, respuesta validada con Zod — meta ARS + símbolo esperado + `regularMarketPrice`/`previousClose` finitos y positivos convertidos a `FinancialDecimal` desde string; 404/meta ausente/moneda o símbolo distintos/no positivos ⇒ `null` (faltante), 429/5xx/transporte/timeout/JSON inválido o forma inesperada ⇒ `MarketDataServiceUnavailableError`; sin caché, retries ni fallback histórico | `YahooInstrumentQuoteSource` | `http/server.ts` (sólo UC-2: `buildInstrumentsRouter`) | `unit/infra/yahoo-instrument-quote-source` · funcionales de wiring |
 | `src/lib/prisma-client.ts` | singleton LAZY de `PrismaClient` con driver adapter (`DATABASE_URL` al primer uso) + `disconnectPrismaClient` para el cierre ordenado | `getPrismaClient`, `disconnectPrismaClient` | los 4 repos · `transaction-context.ts` · `src/index.ts` | `integration/infra` · funcionales |
 
 ## 9. Firmas del dominio (lo que no hace falta abrir)
