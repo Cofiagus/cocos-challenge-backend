@@ -39,10 +39,10 @@ Los PostgreSQL se observaron en loopback y se dejan sin modificar al cortar. Rev
 
 ## Diagrama: trabajo interrumpido y preservado
 
-- Célula `deleg_1c3ab612`, subagente `sa-0-02723e3e`: se solicitó detenerla por el corte. No esperar/polear. Su reporte parcial podría llegar después; archivarlo sin reanudar trabajo.
+- Célula `deleg_1c3ab612`, subagente `sa-0-02723e3e`: **interrupción confirmada por el gateway**. Su reporte tardío se archivó sin reanudar trabajo. No queda esta célula en ejecución; no relanzarla automáticamente.
 - Worktree: `/home/cofi/repos/coccb-wt-local-rollout-docs-narrative`.
 - Rama: `docs/db-schema-before-after`, base `bd60d65`.
-- Al inspeccionar durante el corte había **dos archivos untracked**, sin QA ni render verificado: `docs/references/db-schema-before-after.html` y `.md`. No están integrados en main. Reconfirmar estado/HEAD al retomar; la señal de detención era asíncrona.
+- Tras confirmar la interrupción permanecen **dos archivos untracked**, sin QA ni render verificado: `docs/references/db-schema-before-after.html` y `.md`. No están integrados en main. `cmp` confirmó que ambos coinciden byte a byte con el snapshot privado del corte; reconfirmar estado/HEAD al retomar.
 - Se preservó una copia de los bytes observados en `/home/cofi/.hermes/profiles/cocos-backend/backups/session-cut-20261105T234536Z/diagram/`, permisos privados. Puede ser un borrador: no se certifica su completitud.
   - HTML SHA256: `a047ed705c958f2f2fd0e388572927a3d8860c3ea7a9a7c87742c160d95f1e84`.
   - MD SHA256: `d13a7bde3a801ba2bd503164d43ba1b8b77ba97f3282a63f6111858df7f256c9`.
