@@ -542,8 +542,8 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
         expect(result.price).toMatch(/^\d+\.\d{2}$/u);
         expect(result.previousClose).toMatch(/^\d+\.\d{2}$/u);
         expect(typeof result.dailyVariationPct).toBe("number");
-        expect(Number(result.price)).toBeGreaterThan(0);
-        expect(Number(result.previousClose)).toBeGreaterThan(0);
+        expect(new FinancialDecimal(result.price).gt("0")).toBe(true);
+        expect(new FinancialDecimal(result.previousClose).gt("0")).toBe(true);
       }
 
       // Los valores del marketdata del seed (closes del 2023-07-14) NO
