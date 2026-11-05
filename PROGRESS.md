@@ -16,7 +16,7 @@
 | LM-C0 | Tipos discriminados y schemas quantity/size | INTEGRADA: 8d1930c/c665109 | 28 tests de contratos/docs re-corridos; consumidores aún pendientes |
 | LM-C1-pure | Dominio puro y ports; cell/large-money-pure-final | INTEGRADA: 3938ec0 | 64 unit/domain re-corridos; sizing RangeError antes de convertir; lint verde |
 | LM-C1-app | Casos de uso, HTTP y fakes unitarios; cell/large-money-app-final | EN EJECUCIÓN (DeepSeek), base 3477ff9 | unit/application + unit/http |
-| LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | REVISIÓN FINAL (DeepSeek), HEAD e43652d | bypass cerrado: 119 tests infra/docs re-corridos; falta coherencia origen ACCEPTED/FILLED o REJECTED/REJECTED antes de integrar |
+| LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | INTEGRADA desde 86dcbb4 en este merge | 117 tests infra verdes; origen coherente y evidencia obligatoria, sin truncar cash nuevo |
 | LM-E-docs | README/docs/colección del contrato aprobado | INTEGRADA: 4f9974f/e27f99a/ee5703f | correcciones revisadas; aún no afirma ejecución API final |
 | LM-E-wire-final | OpenAPI; cell/large-money-wire-final | INTEGRADA: 3477ff9 | 15 tests/docs re-corridos; schemas monetarios únicos; lint verde |
 | LM-E-functional | Compatibilidad de suites y nuevos casos e2e | PENDIENTE de código estable | HTTP + PostgreSQL real, sin desactivar escenarios |
@@ -56,6 +56,8 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 
 - Dominio y OpenAPI aceptados: 3938ec0/3477ff9. Gate conjunto re-corrido: 7 suites / 79 tests (domain + docs), lint y diff-check verdes. Checkpoint global explícitamente rojo: 40 diagnósticos TypeScript en app/HTTP/infra/tests aún pendientes; no es cierre de feature.
 - LM-D 8287dfa devuelve replay antes de leer evidencia cuando stored == requested. REJECT de revisión: histórico pedido 123.45, guardado 123, retry 123.00 debe ser conflicto; evidencia ausente o corrupta no se vuelve suficiente por igualdad de size. Se delegó TDD del caso y validación del evento origen para todo replay cash, reutilizando gramática de contracts (sin duplicación).
+- LM-D revisión cerrada en 86dcbb4: evidencia obligatoria aun si stored == retry, schema monetario único, primer evento coherente FILLED/ACCEPTED o REJECTED/REJECTED; NEW/CANCELLED no justifican replay cash. Se acepta exigir evento a fixtures de repo porque la app lo escribe atómicamente. Errores app no generan ticket ajeno: pertenecen a la célula activa.
+- Gate integrado dominio + infra + docs re-corrido: 15 suites / 196 tests verdes con PostgreSQL test real, lint/diff-check verdes. Checkpoint global aún rojo: 24 diagnósticos TypeScript, todos en app/HTTP y sus fakes/tests asignados a LM-C1-app. Main permanece sin tocar.
 - Aceptadas las decisiones del dominio: builders cash/trading separados; cantidades acumuladas bigint probadas con órdenes INT4 válidas; matching conserva reglas y sigue sin disparador. No hay ampliación de diseño.
 
 ### Revisión intermedia del orquestador

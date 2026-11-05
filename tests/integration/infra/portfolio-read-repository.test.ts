@@ -63,15 +63,21 @@ describe("PrismaPortfolioReadRepository — lecturas de portfolio (DB real)", ()
     );
     expect(cashMovements).toHaveLength(2);
 
-    // cash = Σ CASH_IN/SELL size×price − Σ CASH_OUT/BUY size×price
+    // cash = Σ CASH_IN/SELL monto − Σ CASH_OUT/BUY monto
     // (docs/database.md §3 — cálculo de test, el de producción es del dominio).
-    const cashSettled = movements.reduce(
-      (acc, movement) =>
-        movement.side === "BUY" || movement.side === "CASH_OUT"
-          ? acc.sub(movement.priceArs.mul(movement.sizeShares))
-          : acc.add(movement.priceArs.mul(movement.sizeShares)),
-      new Decimal(0),
-    );
+    // D2/D3: cash aporta amountArs; trading aporta priceArs × sizeShares.
+    const cashSettled = movements.reduce((acc, movement) => {
+      switch (movement.side) {
+        case "CASH_IN":
+          return acc.add(movement.amountArs);
+        case "CASH_OUT":
+          return acc.sub(movement.amountArs);
+        case "SELL":
+          return acc.add(movement.priceArs.mul(movement.sizeShares));
+        case "BUY":
+          return acc.sub(movement.priceArs.mul(movement.sizeShares));
+      }
+    }, new Decimal(0));
     expect(cashSettled.toFixed(2)).toBe(SEED_USER_1_PORTFOLIO.cashSettledArs);
   });
 

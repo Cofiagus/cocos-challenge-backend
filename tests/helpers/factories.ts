@@ -62,7 +62,8 @@ export interface TestOrderOverrides {
   readonly type?: OrderType;
   readonly status?: OrderStatus;
   readonly timeInForce?: TimeInForce;
-  readonly size?: number;
+  /** Unidad física de size: acciones (number) o monto cash ARS (string exacto). */
+  readonly size?: number | string;
   /** Dinero como STRING (nunca float); null en MARKET sin límite. */
   readonly priceArs?: string | null;
   readonly filledPriceArs?: string | null;
