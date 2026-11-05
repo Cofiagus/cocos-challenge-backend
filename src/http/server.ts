@@ -14,15 +14,17 @@ import { PrismaInstrumentRepository } from "../infra/prisma/instrument-repositor
 import { PrismaMarketdataRepository } from "../infra/prisma/marketdata-repository.js";
 import { PrismaPortfolioReadRepository } from "../infra/prisma/portfolio-read-repository.js";
 import { PrismaOrderRepository } from "../infra/prisma/order-repository.js";
+import { YahooInstrumentQuoteSource } from "../infra/yahoo/yahoo-instrument-quote-source.js";
 
 const portfolioRead = new PrismaPortfolioReadRepository();
 const instruments = new PrismaInstrumentRepository();
 const marketdata = new PrismaMarketdataRepository();
 const orders = new PrismaOrderRepository();
+const quotes = new YahooInstrumentQuoteSource();
 
 export const serverApp = buildApp([
   buildPortfolioRouter({ portfolioRead, marketdata, instruments }),
-  buildInstrumentsRouter({ instruments, marketdata }),
+  buildInstrumentsRouter({ instruments, quotes }),
   // SubmitOrderDeps: el precio de referencia sale de marketdata (repo);
   // MarketdataPriceSource queda para el matching de evolución, no del submit.
   buildOrdersRouter({ orders, portfolioRead, instruments, marketdata }),

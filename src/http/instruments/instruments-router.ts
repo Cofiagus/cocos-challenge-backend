@@ -1,62 +1,64 @@
 // UC-2 — GET /api/instruments?query=.
 //
-// Router factory con DI (patrón buildApp de src/http/app.ts): deps con las
-// INTERFACES de src/domain/ports. Handler sin lógica de negocio: Zod (borde)
-// → searchByQuery (infra: ILIKE ticker O name, EXCLUYE MONEDA, ORDER BY
-// ticker, LIMIT) → UN batch de snapshots de los resultados (getLatestSnapshots,
-// sin N+1) → serialización del contrato.
+// Router factory con DI (patrón buildApp de src/http/app.ts): deps = los
+// ports que consume el caso de uso searchInstruments. Handler sin lógica de
+// negocio: Zod (borde) → searchInstruments (filtro, cupo y cotización
+// actual) → serialización del contrato.
 //
-// DECISIONS.md: query vacía o ausente ⇒ 400 VALIDATION_ERROR (es lectura:
-// no se crea nada). MONEDA no aparece (la filtra searchByQuery). Sin
-// marketdata (PGR/IRCP del seed): price/previousClose null y variación null.
+// Spec instruments-current-quotes Rev. 2: query ausente, vacía o sólo
+// espacios ⇒ listado inicial; limit default 10 (entero 1..100); ticker sin
+// cotización se omite y el cupo se completa con los siguientes candidatos;
+// MarketDataServiceUnavailableError ⇒ 503 MARKET_DATA_SERVICE_UNAVAILABLE
+// (ni seed fallback ni listado parcial como éxito); cualquier otro error se
+// propaga al error handler (500 INTERNAL_ERROR genérico).
+//
+// Dinero de salida (D3): price/previousClose son STRING monetario de 2
+// decimales (serializeMoneyArs desde FinancialDecimal, nunca number);
+// dailyVariationPct sigue siendo number (serializePct, 2 decimales).
 
 import { Router } from "express";
 import type { Request, Response } from "express";
 import {
   API_ERROR_CODES,
-  FinancialDecimal,
   InstrumentSearchQuerySchema,
+  MarketDataServiceUnavailableError,
   apiErrorBody,
   serializeMoneyArs,
   serializePct,
 } from "../../contracts/index.js";
 import type { InstrumentSearchResult } from "../../contracts/index.js";
-import type { MarketdataSnapshot } from "../../contracts/index.js";
+import { searchInstruments } from "../../application/instruments/search-instruments.js";
+import type { InstrumentSearchView } from "../../application/instruments/search-instruments.js";
 import { validationMessage } from "../shared/edge.js";
 import type {
+  InstrumentQuoteSource,
   InstrumentRepository,
-  MarketdataRepository,
 } from "../../domain/ports/index.js";
 
 /**
- * 100 para los puntos porcentuales, en el constructor financiero (64 cifras):
- * la variación se deriva de precios que pueden ser grandes.
+ * Deps del slice de instruments: los puertos que consume el caso de uso
+ * searchInstruments. Sin `quotes` no hay búsqueda que valga (los precios SON
+ * la respuesta desde Rev. 2), así que el tipo lo exige: el composition root
+ * que omita la fuente no compila.
  */
-const HUNDRED = new FinancialDecimal("100");
-
-/** Deps del slice de instruments: interfaces de src/domain/ports. */
 export interface InstrumentsRouterDeps {
   /** Catálogo: searchByQuery excluye MONEDA, ordena y limita. */
   readonly instruments: InstrumentRepository;
-  /** Precios de referencia: UN batch de snapshots de los resultados. */
-  readonly marketdata: MarketdataRepository;
+  /** Cotización ACTUAL por ticker (Yahoo en producción). */
+  readonly quotes: InstrumentQuoteSource;
 }
 
-/**
- * Variación diaria del snapshot (serialización del contrato, UC-2):
- * (close − previousClose) / previousClose × 100. Null si no computable
- * (previousClose 0 — no hay una función de dominio para esto: es la
- * proyección de UNA vela, no una agregación de datos de repos).
- */
-const dailyVariationPctX100 = (
-  snapshot: MarketdataSnapshot,
-): FinancialDecimal | null =>
-  snapshot.previousCloseArs.isZero()
-    ? null
-    : snapshot.closeArs
-        .minus(snapshot.previousCloseArs)
-        .div(snapshot.previousCloseArs)
-        .mul(HUNDRED);
+/** Vista del caso de uso → resultado del contrato (money string 2dp, pct number). */
+const toSearchResult = (
+  view: InstrumentSearchView,
+): InstrumentSearchResult => ({
+  ticker: view.ticker,
+  name: view.name,
+  type: view.type,
+  price: serializeMoneyArs(view.priceArs),
+  previousClose: serializeMoneyArs(view.previousCloseArs),
+  dailyVariationPct: serializePct(view.dailyVariationPctX100),
+});
 
 export const buildInstrumentsRouter = (
   deps: InstrumentsRouterDeps,
@@ -64,8 +66,8 @@ export const buildInstrumentsRouter = (
   const router = Router();
 
   router.get("/instruments", async (req: Request, res: Response) => {
-    // Borde: Zod estricto sobre la query string, sin cast. Vacía o
-    // ausente ⇒ 400 (NO crea nada: es una búsqueda de lectura).
+    // Borde: Zod estricto sobre la query string, sin cast. Es lectura: nada
+    // se escribe; limit fuera de 1..100 o campo desconocido ⇒ 400.
     const parsed = InstrumentSearchQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json(
@@ -76,46 +78,26 @@ export const buildInstrumentsRouter = (
       );
       return;
     }
-    const { query, limit } = parsed.data;
 
-    // UNA query: searchByQuery (infra) ya excluye MONEDA, ordena por
-    // ticker y aplica el LIMIT en SQL.
-    const found = await deps.instruments.searchByQuery(query, limit);
-
-    // UN batch de snapshots de los resultados (sin N+1).
-    const snapshots = await deps.marketdata.getLatestSnapshots(
-      found.map((instrument) => instrument.id),
-    );
-    const snapshotByInstrument = new Map(
-      snapshots.map(
-        (snapshot): [number, MarketdataSnapshot] => [
-          snapshot.instrumentId,
-          snapshot,
-        ],
-      ),
-    );
-
-    const body: InstrumentSearchResult[] = found.map((instrument) => {
-      const snapshot = snapshotByInstrument.get(instrument.id);
-      const variation =
-        snapshot === undefined ? null : dailyVariationPctX100(snapshot);
-      return {
-        ticker: instrument.ticker,
-        name: instrument.name,
-        type: instrument.type,
-        // Sin marketdata ⇒ price/previousClose null (PGR/IRCP del seed).
-        price:
-          snapshot === undefined ? null : serializeMoneyArs(snapshot.closeArs),
-        previousClose:
-          snapshot === undefined
-            ? null
-            : serializeMoneyArs(snapshot.previousCloseArs),
-        dailyVariationPct:
-          variation === null ? null : serializePct(variation),
-      };
-    });
-
-    res.status(200).json(body);
+    try {
+      const views = await searchInstruments(
+        { instruments: deps.instruments, quotes: deps.quotes },
+        parsed.data,
+      );
+      res.status(200).json(views.map(toSearchResult));
+    } catch (error) {
+      if (!(error instanceof MarketDataServiceUnavailableError)) throw error;
+      // Proveedor indisponible: 503 explícito, sin precios viejos ni un
+      // vacío que disimule la falla (spec Rev. 2, decisión aprobada 2).
+      res
+        .status(503)
+        .json(
+          apiErrorBody(
+            API_ERROR_CODES.MARKET_DATA_SERVICE_UNAVAILABLE,
+            error.message,
+          ),
+        );
+    }
   });
 
   return router;

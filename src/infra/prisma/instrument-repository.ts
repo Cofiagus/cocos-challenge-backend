@@ -65,9 +65,11 @@ export class PrismaInstrumentRepository implements InstrumentRepository {
   readonly searchByQuery = async (
     query: string,
     limit: number,
+    offset = 0,
   ): Promise<readonly InstrumentRecord[]> => {
     // ILIKE %query% sobre ticker O name, case-insensitive; EXCLUYE
-    // MONEDA (DECISIONS.md); ORDER BY ticker determinístico; LIMIT n.
+    // MONEDA (DECISIONS.md); ORDER BY ticker determinístico; LIMIT n y
+    // OFFSET m (iteración interna del catálogo, no paginación HTTP).
     // (Filas con type/ticker/name NULL —imposibles en el seed— quedan
     // fuera por semántica SQL de NULL: no matchean ILIKE ni el NOT.)
     const rows = await this.client.instrument.findMany({
@@ -80,6 +82,7 @@ export class PrismaInstrumentRepository implements InstrumentRepository {
       },
       orderBy: { ticker: "asc" },
       take: limit,
+      skip: offset,
     });
     return rows.map(mapInstrumentRow);
   };

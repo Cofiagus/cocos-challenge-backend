@@ -1,12 +1,16 @@
 # Spec — API de trading (portfolio, búsqueda, órdenes, transferencias, matching)
 
 > Estado: **fuente de verdad del dominio** (UC-1..UC-5 y sus reglas), implementada **con alcance
-> reducido**: los casos de uso y sus invariantes se construyeron; las fuentes de precio y el matching
-> continuo que describe este documento quedaron cerrados por `DECISIONS.md`. Para el estado del
+> reducido**: los casos de uso y sus invariantes se construyeron; la fuente de precio del
+> matching y el matching continuo que describe este documento quedaron cerrados por
+> `DECISIONS.md` — la cotización actual de UC-2 es la única reapertura (ver Rev. 5). Para el estado del
 > código y sus archivos, `docs/CODEMAP.md`.
-> Fuera de alcance por decisión (`DECISIONS.md`): Yahoo Finance, `price_ticks`, ingesta,
-> scheduling, `DAY`/`EXPIRED`, sweep y matching continuo. `matchRestingOrders` existe como
-> punto de enchufe, sin disparador.
+> Fuera de alcance por decisión (`DECISIONS.md`): `price_ticks`, ingesta, scheduling,
+> `DAY`/`EXPIRED`, sweep y matching continuo. `matchRestingOrders` existe como
+> punto de enchufe, sin disparador. Yahoo Finance está REABIERTO EXCLUSIVAMENTE
+> para UC-2 por decisión del usuario (`specs/instruments-current-quotes.md` Rev. 2,
+> con plan de despliegue local Rev. 3); UC-1/3/4/5 no dependen de Yahoo y las
+> demás exclusiones siguen vigentes. No hay decisión firmada nueva en esta rev.
 >
 > Rev. 2 — incorpora fuente real de precios (Yahoo Finance vía `yahoo-finance2`)
 > y arquitectura de matching estilo exchange real.
@@ -14,6 +18,11 @@
 > ticker (`ticker + ".BA"`); ticker expirado o renombrado = sin precio, no es error.
 > Rev. 4 — decisión del usuario: capacidad/precisión y contrato financiero según
 > `specs/datos-financieros-grandes-montos.md` Rev. 2 aprobada. No amplía matching ni identidad.
+> Rev. 5 — sincroniza SOLO UC-2 con la implementación aprobada (contrato de búsqueda y
+> error de indisponibilidad según `specs/instruments-current-quotes.md` Rev. 2, decisión
+> humana ya existente): default 10, listado inicial con query ausente/vacía/espacios,
+> cotización actual de Yahoo (`ticker + ".BA"`), omisión de faltantes y 503
+> `MARKET_DATA_SERVICE_UNAVAILABLE`. No reabre matching, ingesta ni los otros UC.
 
 ## Why
 
@@ -170,10 +179,26 @@ con `ticker`, `name`, `quantity`, `marketValue` ($), `totalReturnPct` (%).
 
 ### UC-2 — Buscar activos (`GET /api/instruments?query=...`)
 
-- Match parcial case-insensitive sobre `ticker` **y/o** `name` (también prefijo
-  de ticker, p. ej. `"APPL"`).
-- Excluye `MONEDA`. Devuelve `ticker`, `name`, `type`, último precio y variación
-  diaria (`close` vs `previousClose`).
+- `query` ausente, vacía o sólo espacios ⇒ listado inicial; con texto, match
+  parcial case-insensitive sobre `ticker` **y/o** `name`.
+- `limit` opcional, entero 1..100, default **10**. Excluye `MONEDA`;
+  resultados en orden ascendente por `ticker`; respuesta array plano.
+- Cotización **actual de Yahoo Finance** con símbolo directo `ticker + ".BA"`
+  (sin mapping): `price` = último precio de sesión disponible (`regularMarketPrice`),
+  `previousClose` = cierre de la **sesión anterior** — no el cierre inicial de un
+  rango histórico arbitrario ni un precio instantáneo fabricado con el mercado cerrado.
+- `dailyVariationPct` = `(price − previousClose) / previousClose × 100`, calculado
+  con el Decimal financiero (64 cifras) y serializado a 2 decimales (`number`);
+  `price`/`previousClose` salen como string monetario de 2 decimales.
+- **Faltantes:** ticker sin cotización válida (sin precio/cierre anterior computable,
+  moneda distinta de ARS) ⇒ se **omite** y el cupo se completa con los siguientes
+  candidatos del catálogo, sin reemplazo por el precio del seed; pueden devolverse
+  menos resultados que `limit`.
+- **Indisponibilidad** (timeout, rate-limit, red): `503 MARKET_DATA_SERVICE_UNAVAILABLE`
+  con mensaje al usuario exacto — ni precios históricos presentados como actuales,
+  ni array vacío que disimule la falla.
+- Fuente de la decisión: `specs/instruments-current-quotes.md` Rev. 2 (aprobada por
+  el usuario). Este cambio no reabre el matching ni los demás casos de uso.
 
 ### UC-3 — Enviar orden (`POST /api/users/:userId/orders`)
 
@@ -240,9 +265,13 @@ para LIMIT.
 - Auditable: `orders` (salvo status/ejecución) y `order_events`/`price_ticks`
   append-only.
 - Validación estricta con Zod en el borde HTTP; sin `any`; TS strict.
-- La API no depende de Yahoo en caliente: si la fuente cae, portfolio/cancel/
-  transferencias siguen operando con la última caché; solo el matching con
-  cotizaciones nuevas se detiene.
+- La API no depende de Yahoo en caliente para UC-1/3/4/5: usan `marketdata`
+  local y no consultan Yahoo por request; el matching continuo sigue fuera de
+  alcance (`DECISIONS.md`). En el diseño objetivo que describe este documento, de
+  caer la fuente sólo se detendría el matching con cotizaciones nuevas — se
+  mantiene como historia objetivo, no como comportamiento vigente. UC-2 sí
+  consulta Yahoo en el request y ante indisponibilidad responde
+  `503 MARKET_DATA_SERVICE_UNAVAILABLE`.
 - Test funcional obligatorio sobre el caso de uso de envío de orden (UC-3):
   MARKET BUY/SELL con fondos suficientes e insuficientes, orden por monto (floor),
   REJECTED persistido, y además: LIMIT marketable que llena al envío, IOC/FOK que

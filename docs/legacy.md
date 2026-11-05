@@ -12,7 +12,7 @@
 | `specs/trading-api-domain.md` | **fuente del dominio, no del código** | Define UC-1..UC-5 y sus invariantes; describe también fuentes de precio y matching que el build cerró. | `docs/CODEMAP.md` (estado) · `docs/api.md` (cable) · `DECISIONS.md` (decisiones) |
 | `specs/plan-mejoras-db.md` | **parcialmente implementado** | Plan de M1–M3: M3 se hizo, M1 se resolvió con `Decimal`, M2 no se aplicó. | `docs/CODEMAP.md` §Deuda |
 | `specs/agentificacion-docs.md` | **spec vigente de la documentación** | — (se lee como plan, no como descripción del código) | — |
-| `docs/arquitectura-componentes.html` | **estado objetivo, no implementado** | Dibuja Yahoo, cron de rueda, `price_ticks`, sweep de `DAY` y matching continuo: nada de eso existe. | `docs/arquitectura-implementada.html` |
+| `docs/arquitectura-componentes.html` | **estado objetivo, no implementado** | Dibuja cron de rueda, `price_ticks`, sweep de `DAY` y matching continuo: nada de eso existe. De Yahoo sólo existe el adaptador de cotizaciones de UC-2 (reapertura exclusiva, spec `specs/instruments-current-quotes.md` Rev. 2), con tests y ya compuesto en el server (`http/server.ts`); la ejecución en vivo (arranque local, consulta real a Yahoo y su cobertura) sigue pendiente según PROGRESS. | `docs/arquitectura-implementada.html` |
 | `docs/references/**` | **evidencia externa** | Investigación y fuentes de mercado; cita estructuras de otros proyectos. | — |
 | `collection/*.http` | **ejemplos ejecutables** | Sirven para probar a mano; no son el contrato. | `openapi.json` (contrato) · `docs/api.md` (semántica) |
 | `README.md` §Supuestos | **explicación** | Explica el porqué de cada decisión; la lista normativa es otra. | `DECISIONS.md` |

@@ -71,9 +71,10 @@ Body de error uniforme (todos los errores, 4xx y 5xx):
 | `IDEMPOTENCY_CONFLICT` | 409 | Misma `Idempotency-Key` con payload distinto |
 | `PAYLOAD_TOO_LARGE` | 413 | Body por encima del límite de 100 KB |
 | `ORDER_NOT_CANCELLABLE` | 422 | Cancelar una orden que no está `NEW` |
+| `MARKET_DATA_SERVICE_UNAVAILABLE` | 503 | El proveedor de cotizaciones (Yahoo) no está disponible: timeout, rate-limit o error de red (sólo UC-2) |
 | `INTERNAL_ERROR` | 500 | Error inesperado: mensaje genérico, sin stack |
 
-> Los 11 códigos son `API_ERROR_CODES` en [`src/contracts/errors.ts`](src/contracts/errors.ts). El 500 responde `Error interno del servidor.` y el detalle (stack en una línea) queda en stderr.
+> Los 12 códigos son `API_ERROR_CODES` en [`src/contracts/errors.ts`](src/contracts/errors.ts). El 500 responde `Error interno del servidor.` y el detalle (stack en una línea) queda en stderr.
 
 **Formato del dinero y las cantidades** (spec aprobada, D3):
 
@@ -119,30 +120,24 @@ El máximo por fila es `9999999999999999999999.99` (NUMERIC(24,2)); los agregado
 - `MONEDA` (ARS) nunca aparece; posición con cantidad 0 no se lista; la negativa del seed (BMA −10) se lista tal cual.
 - Errores: `400 VALIDATION_ERROR` (userId no entero > 0) · `404 USER_NOT_FOUND`.
 
-### 2. Buscar instrumentos — `GET /api/instruments?query=<texto>&limit=20`
+### 2. Buscar instrumentos — `GET /api/instruments?query=<texto>&limit=10`
 
-Match parcial case-insensitive sobre `ticker` **y/o** `name`. `limit` opcional (1–100, default 20). **Respuesta: array plano** (sin wrapper). `MONEDA` no aparece.
+Match parcial case-insensitive sobre `ticker` **y/o** `name`. `query` ausente, vacía o sólo espacios ⇒ listado inicial. `limit` opcional (1–100, default **10**). Resultados en orden ascendente por `ticker`. **Respuesta: array plano** (sin wrapper). `MONEDA` no aparece.
 
 ```bash
 curl "http://localhost:3000/api/instruments?query=METR"
 ```
 
-```json
-[
-  {
-    "ticker": "METR",
-    "name": "MetroGAS S.A.",
-    "type": "ACCIONES",
-    "price": "229.50",
-    "previousClose": "232.00",
-    "dailyVariationPct": -1.08
-  }
-]
-```
+Las cotizaciones son **actuales de Yahoo Finance** (spec [`specs/instruments-current-quotes.md`](specs/instruments-current-quotes.md) Rev. 2, aprobada por el usuario — **reapertura exclusiva de UC-2**): `price` = último precio de sesión disponible informado por Yahoo, `previousClose` = cierre de la **sesión anterior** (no el cierre inicial de un rango histórico arbitrario ni un precio instantáneo fabricado), `dailyVariationPct` = `(price − previousClose) / previousClose × 100` (`number`). El símbolo se deriva directo (`ticker + ".BA"`, sin mapping). El precio **ya no sale de `marketdata`**: esa última fila sigue siendo la referencia de portfolio y órdenes (UC-1/3/4/5).
 
-`price` = `close` de la última fila de `marketdata` por `date` (string monetario con 2 decimales; `dailyVariationPct` sigue siendo `number`); sin marketdata (ej. `PGR`, `IRCP`) → `price`/`previousClose`/`dailyVariationPct` en `null`.
+Sin ejemplo con valores: el precio real lo informa Yahoo al momento de la consulta y acá no se inventan cotizaciones ni fechas — las formas del contrato (dinero string con 2 decimales, D3; porcentaje `number`) están en la tabla de formato de arriba, y el estado de la consulta en vivo está al final de esta sección.
 
-Errores: `400 VALIDATION_ERROR` — `query` vacía o ausente (`?query=` → 400), `limit` fuera de 1..100.
+- **Sin cotización válida** (falta precio o cierre anterior computable, moneda distinta de ARS): el instrumento **se omite** y el cupo se completa con los siguientes candidatos del catálogo — sin reemplazo por el precio del seed; pueden devolverse **menos** resultados que `limit`.
+- **Yahoo indisponible** (timeout, rate-limit, error de red): `503` con el body de error uniforme — **ni** precios históricos como si fueran actuales, **ni** un array vacío que disimule la falla: una falla de disponibilidad no se trata como "sin cotización".
+
+Errores: `400 VALIDATION_ERROR` (`limit` fuera de 1..100) · `503 MARKET_DATA_SERVICE_UNAVAILABLE`.
+
+> Estado: el contrato UC-2 está **implementado y cableado en código** (caso de uso `searchInstruments` + adaptador `YahooInstrumentQuoteSource`, verificados con fuente inyectada; composición en `http/server.ts`). La **ejecución en vivo** sigue pendiente según PROGRESS: arranque local con listener (A4) y consulta real a Yahoo con su cobertura (A5) no están verificados — no afirmar la verificación en vivo antes de esa evidencia.
 
 ### 3. Enviar orden — `POST /api/users/:userId/orders`
 
@@ -353,7 +348,7 @@ Límite honesto: `NUMERIC(24,2)` puede redondear una escritura SQL externa con m
 
 Fuera del alcance firmado (`DECISIONS.md`); cada ítem con su vía de enchufe:
 
-- **Fuente de precios real (Yahoo/PriceSource):** hoy la referencia sale de `marketdata` (dataset estático); un `PriceSource` como puerto alternativo inyectable devolvería cotizaciones vivas sin tocar los casos de uso.
+- **Yahoo para portfolio y órdenes (UC-1/3/4/5):** con la reapertura exclusiva de UC-2 ([`specs/instruments-current-quotes.md`](specs/instruments-current-quotes.md) Rev. 2), la búsqueda ya consume cotizaciones vivas vía el port `InstrumentQuoteSource` (adaptador `YahooInstrumentQuoteSource`, ya compuesto en `http/server.ts`; ejecución en vivo y verificación en red pendientes según PROGRESS). La referencia de portfolio y órdenes sigue saliendo de `marketdata` (dataset estático); un `PriceSource` inyectable para la ejecución devolvería cotizaciones vivas sin tocar esos casos de uso.
 - **`price_ticks` e ingesta:** una tabla de ticks + un ingesto periódico daría precio intra-diario (hoy la "última" vela es del 14-jul del seed); la resolución de la referencia ya está aislada en `getLatestSnapshot`.
 - **Disparador de `matchRestingOrders`:** el paso que falta del matching — un job (o el alta de cada vela) que llame a la función pura ya testeada y llene/cancele las `NEW` según cruce, con su evento `FILLED` en `order_events`.
 - **`DAY` / `EXPIRED`:** nuevo valor de `TimeInForce` + nuevo `OrderStatus`; las `DAY` no cruzadas al cierre expiran. Es literalmente el `EXPIRED` que `DECISIONS.md` dejó fuera.
@@ -370,7 +365,7 @@ npm run test:db:reset   # requiere PostgreSQL de test y permiso para crear/elimi
 npm test
 ```
 
-- **Unit** (`tests/unit/**`): funciones puras (derivación de cash/posiciones/reservas, `evaluateCross`, `matchRestingOrders`, sizing), casos de uso con fakes, contratos Zod, borde HTTP y contrato de errores.
+- **Unit** (`tests/unit/**`): funciones puras (derivación de cash/posiciones/reservas, `evaluateCross`, `matchRestingOrders`, sizing), casos de uso con fakes (incluye la búsqueda UC-2 con fuente de cotizaciones inyectada y el adaptador `YahooInstrumentQuoteSource`), contratos Zod, borde HTTP y contrato de errores.
 - **Integration** (`tests/integration/infra`): repos Prisma contra la base indicada por `TEST_DATABASE_URL`.
 - **Functional** (`tests/functional/**`): los 5 endpoints vía supertest; cada suite deriva y resetea su propia base desde `TEST_DATABASE_URL` antes de correr.
 - `npm run typecheck` (`tsc --noEmit`, nodenext) y `npm run lint` (eslint 9 flat config) completan el chequeo.
@@ -383,6 +378,7 @@ src/
   domain/        # funciones puras: portfolio (cash/posiciones/reservas), sizing, matching
   domain/ports/  # interfaces de los repos (DI: nunca concreciones)
   infra/prisma/  # repos Prisma (mappers fila ↔ record) + tx con pg_advisory_xact_lock
+  infra/yahoo/   # adaptador de cotizaciones actuales de Yahoo (UC-2, port InstrumentQuoteSource)
   application/   # casos de uso: orders (submit/decide/persist), cancel, transfers, portfolio
   http/          # routers por slice + shared/edge.ts (borde Zod) + error-handler.ts + server.ts
   lib/           # cliente Prisma singleton
