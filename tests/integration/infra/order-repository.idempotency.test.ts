@@ -12,7 +12,7 @@ config({ path: ".env.test" });
 
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { Decimal } from "decimal.js";
-import type { OrderDraft } from "../../../src/contracts/index.js";
+import type { OrderDraft, OrderEventType } from "../../../src/contracts/index.js";
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
 import { createTestUser } from "../../helpers/factories.js";
@@ -134,7 +134,7 @@ interface SeedCashOrderInput {
   readonly idempotencyKey: string;
   readonly price?: string;
   readonly events?: readonly {
-    readonly eventType: "ACCEPTED" | "REJECTED";
+    readonly eventType: OrderEventType;
     readonly metadata: unknown;
   }[];
 }
@@ -143,34 +143,36 @@ const seedCashOrder = async (
   client: PrismaClient,
   userId: number,
   input: SeedCashOrderInput,
-): Promise<number> => {
-  const row = await client.order.create({
-    data: {
-      userId,
-      instrumentId: SEED_INSTRUMENT_ARS_ID,
-      side: "CASH_IN",
-      type: "MARKET",
-      timeInForce: "GTC",
-      status: "FILLED",
-      size: input.size,
-      price: input.price ?? "1.00",
-      filledPrice: input.price ?? "1.00",
-      filledAt: new Date(),
-      datetime: new Date(),
-      idempotencyKey: input.idempotencyKey,
-    },
-  });
-  for (const event of input.events ?? []) {
-    await client.orderEvent.create({
+): Promise<number> =>
+  // Orden + eventos en la MISMA transacción, como los escribe la aplicación.
+  client.$transaction(async (tx) => {
+    const row = await tx.order.create({
       data: {
-        orderId: row.id,
-        eventType: event.eventType,
-        metadata: event.metadata as Prisma.InputJsonValue,
+        userId,
+        instrumentId: SEED_INSTRUMENT_ARS_ID,
+        side: "CASH_IN",
+        type: "MARKET",
+        timeInForce: "GTC",
+        status: "FILLED",
+        size: input.size,
+        price: input.price ?? "1.00",
+        filledPrice: input.price ?? "1.00",
+        filledAt: new Date(),
+        datetime: new Date(),
+        idempotencyKey: input.idempotencyKey,
       },
     });
-  }
-  return row.id;
-};
+    for (const event of input.events ?? []) {
+      await tx.orderEvent.create({
+        data: {
+          orderId: row.id,
+          eventType: event.eventType,
+          metadata: event.metadata as Prisma.InputJsonValue,
+        },
+      });
+    }
+    return row.id;
+  });
 
 describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
   const prisma = getPrismaClient();
@@ -180,10 +182,30 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
     await prisma.$disconnect();
   });
 
+  /**
+   * Envío completo como la aplicación: claim + evento en la MISMA tx.
+   * Sólo CREATED escribe evento; replay/conflicto no tocan auditoría.
+   */
   const submit = (draft: ReturnType<typeof buildCashDraft>) =>
-    orderRepo.withUserTransaction(draft.userId, (tx) =>
-      orderRepo.createOrder(draft, tx),
-    );
+    orderRepo.withUserTransaction(draft.userId, async (tx) => {
+      const result = await orderRepo.createOrder(draft, tx);
+      if (result.outcome === "CREATED") {
+        await orderRepo.appendOrderEvent(
+          {
+            orderId: result.order.id,
+            eventType: "ACCEPTED",
+            reason: null,
+            metadata: {
+              ticker: "ARS",
+              amountArs: draft.amountArs.toFixed(2),
+              residualArs: "0.00",
+            },
+          },
+          tx,
+        );
+      }
+      return result;
+    });
 
   it("nueva key 123.01 persiste 123.01 exacto; replay idéntico no duplica fila", async () => {
     const user = await createTestUser(prisma);
@@ -234,6 +256,92 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
     );
     expect(replayed.id).toBe(created.id);
     expect(expectCashRecord(replayed).amountArs.toFixed(2)).toBe("123.00");
+    // El replay no escribe auditoría nueva: sigue el evento de origen.
+    expect(await prisma.orderEvent.count({ where: { orderId: created.id } })).toBe(1);
+  });
+
+  it("histórico 123.45/123: retry 123.00 (coincide con el size truncado) ⇒ CONFLICT", async () => {
+    const user = await createTestUser(prisma);
+    const key = randomUUID();
+    const orderId = await seedCashOrder(prisma, user.id, {
+      size: "123",
+      idempotencyKey: key,
+      events: [{ eventType: "ACCEPTED", metadata: { amountArs: "123.45" } }],
+    });
+
+    // 123.00 == size almacenado, pero NO es el pedido original documentado.
+    const conflict = expectConflict(
+      await submit(
+        buildCashDraft(user.id, {
+          idempotencyKey: key,
+          amountArs: new Decimal("123.00"),
+        }),
+      ),
+    );
+    expect(conflict.id).toBe(orderId);
+    expect(expectCashRecord(conflict).amountArs.toFixed(2)).toBe("123.00");
+    // Sin reescritura de la fila ni evento nuevo.
+    expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(1);
+    const row = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(row.size?.toString()).toBe("123");
+  });
+
+  it.each([
+    ["sin evento de origen", []],
+    [
+      "evidencia corrupta (amountArs no canónico)",
+      [{ eventType: "ACCEPTED" as const, metadata: { amountArs: "123,45" } }],
+    ],
+  ])(
+    "stored == retry (123.00) pero %s ⇒ CONFLICT conservador (sin bypass)",
+    async (_label, events) => {
+      const user = await createTestUser(prisma);
+      const key = randomUUID();
+      const orderId = await seedCashOrder(prisma, user.id, {
+        size: "123",
+        idempotencyKey: key,
+        events,
+      });
+
+      const conflict = expectConflict(
+        await submit(
+          buildCashDraft(user.id, {
+            idempotencyKey: key,
+            amountArs: new Decimal("123.00"),
+          }),
+        ),
+      );
+      expect(conflict.id).toBe(orderId);
+      expect(expectCashRecord(conflict).amountArs.toFixed(2)).toBe("123.00");
+      expect(await prisma.order.count({ where: { userId: user.id } })).toBe(1);
+      expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(
+        events.length,
+      );
+    },
+  );
+
+  it("primer evento de tipo no-decisión y uno posterior válido ⇒ CONFLICT (manda el origen)", async () => {
+    const user = await createTestUser(prisma);
+    const key = randomUUID();
+    const orderId = await seedCashOrder(prisma, user.id, {
+      size: "123",
+      idempotencyKey: key,
+      events: [
+        { eventType: "FILLED", metadata: { amountArs: "123.00" } },
+        { eventType: "ACCEPTED", metadata: { amountArs: "123.00" } },
+      ],
+    });
+
+    const conflict = expectConflict(
+      await submit(
+        buildCashDraft(user.id, {
+          idempotencyKey: key,
+          amountArs: new Decimal("123.00"),
+        }),
+      ),
+    );
+    expect(conflict.id).toBe(orderId);
+    expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(2);
   });
 
   it("key histórica 123.45/123: retry 123.45 REPLAY fila 123.00 sin evento nuevo; 123.99 CONFLICT", async () => {

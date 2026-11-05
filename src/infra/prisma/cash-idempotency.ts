@@ -1,16 +1,21 @@
 // Idempotencia de CASH (D4, spec §5): decidir si un replay con la MISMA
 // idempotencyKey corresponde al movimiento original sin reejecutar centavos.
 //
-// Dos eras conviven:
-//  - filas nuevas: `size` guarda el monto exacto (con centavos). Igualdad
-//    Decimal exacta ⇒ REPLAY.
-//  - filas históricas: `size` guardó floor(amountArs / 1.00). El pedido
-//    original sólo consta en `metadata.amountArs` del evento de ORIGEN. Se
-//    exige evidencia estricta: primer evento (id asc), monto string canónico
-//    positivo, precio unitario 1.00 y `size == floor(amount)`; además el monto
-//    documentado debe ser EXACTAMENTE el pedido del retry. Sin evidencia
-//    suficiente ⇒ CONFLICT (conservador, 409): no se adivina ni se mueven
-//    fondos de nuevo.
+// Dos eras conviven y AMBAS exigen evidencia del evento de ORIGEN:
+//  - filas nuevas: `size` guarda el monto exacto (con centavos).
+//  - filas históricas: `size` guardó floor(amountArs / 1.00).
+//
+// El pedido original sólo consta en `metadata.amountArs` del PRIMER evento
+// (id asc), que debe ser una DECISIÓN de origen (ACCEPTED/REJECTED): un evento
+// posterior con monto no documenta el pedido original. El monto se valida con
+// `PositiveArsInputSchema` (única gramática/rango monetario del contrato) y
+// debe ser EXACTAMENTE el del retry. La fila debe representar ese monto —
+// exacto (nueva) o floor con precio unitario 1.00 (histórica)—, sin reescribir
+// size/precios ni agregar eventos.
+//
+// Sin evidencia suficiente ⇒ CONFLICT (conservador, 409) INCLUSO si `size`
+// coincide exactamente con el retry: un test que crea cash sin evento no
+// autoriza bypass; se falla antes de adivinar o volver a mover fondos.
 //
 // La lectura del evento ocurre en la MISMA transacción del claim
 // (`db.orderEvent` por orderId), sin un port nuevo.
@@ -18,17 +23,17 @@
 import { Prisma, type Order } from "@prisma/client";
 import {
   FinancialDecimal,
-  MAX_STORED_ARSS,
+  PositiveArsInputSchema,
 } from "../../contracts/index.js";
 import { CorruptRowError } from "./corrupt-row.error.js";
 import { decimalFromDb } from "./mappers.js";
 
 export type CashIdempotencyOutcome = "IDEMPOTENT_REPLAY" | "IDEMPOTENT_CONFLICT";
 
-/** Gramática estricta de la evidencia: decimal canónico positivo, ≤2 decimales. */
-const EVIDENCE_AMOUNT_GRAMMAR = /^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,2})?$/u;
+const CASH_UNIT_PRICE = new FinancialDecimal("1");
 
-const CASH_UNIT_PRICE = new FinancialDecimal(1);
+/** Eventos que documentan la DECISIÓN de origen de un movimiento cash. */
+const ORIGIN_EVENT_TYPES: ReadonlySet<string> = new Set(["ACCEPTED", "REJECTED"]);
 
 /** Monto almacenado de la fila cash; NULL donde el contrato exige valor = corrupción. */
 const storedCashAmount = (row: Order): FinancialDecimal => {
@@ -42,26 +47,19 @@ const storedCashAmount = (row: Order): FinancialDecimal => {
   return amount;
 };
 
-/** Evidencia del pedido original: string canónico; number/NaN/basura ⇒ null. */
+/**
+ * Evidencia del pedido original: string monetario canónico positivo y dentro
+ * del máximo, validado por el MISMO schema del borde. NaN, number JSON,
+ * exponente, tercer decimal o basura ⇒ null (nunca se normaliza).
+ */
 const documentedAmountOf = (
   metadata: Prisma.JsonValue | null,
 ): FinancialDecimal | null => {
   if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
     return null;
   }
-  const raw = metadata["amountArs"];
-  if (typeof raw !== "string" || !EVIDENCE_AMOUNT_GRAMMAR.test(raw)) {
-    return null;
-  }
-  const amount = new FinancialDecimal(raw);
-  if (
-    !amount.isFinite() ||
-    amount.lessThanOrEqualTo(0) ||
-    amount.greaterThan(MAX_STORED_ARSS)
-  ) {
-    return null;
-  }
-  return amount;
+  const parsed = PositiveArsInputSchema.safeParse(metadata["amountArs"]);
+  return parsed.success ? parsed.data : null;
 };
 
 /**
@@ -76,18 +74,11 @@ const originalDocumentedAmount = async (
     where: { orderId },
     orderBy: { id: "asc" },
   });
-  return origin === null ? null : documentedAmountOf(origin.metadata);
+  if (origin === null || !ORIGIN_EVENT_TYPES.has(origin.eventType)) {
+    return null;
+  }
+  return documentedAmountOf(origin.metadata);
 };
-
-/** La fila histórica debe representar floor(evidencia) a precio unitario 1.00. */
-const representsHistoricalFloor = (
-  row: Order,
-  documented: FinancialDecimal,
-  stored: FinancialDecimal,
-): boolean =>
-  row.price !== null &&
-  decimalFromDb(row.price).equals(CASH_UNIT_PRICE) &&
-  documented.floor().equals(stored);
 
 /**
  * Replay vs conflicto de un cash con la MISMA key ya reclamada.
@@ -99,15 +90,21 @@ export const cashIdempotencyOutcome = async (
   requestedAmount: FinancialDecimal,
 ): Promise<CashIdempotencyOutcome> => {
   const stored = storedCashAmount(row);
-  if (stored.equals(requestedAmount)) {
-    return "IDEMPOTENT_REPLAY";
-  }
 
+  // Primero la evidencia: en igualdad exacta también se exige que el ORIGEN
+  // documente el retry (un size truncado puede coincidir y NO ser el pedido).
   const documented = await originalDocumentedAmount(db, row.id);
   if (documented === null || !documented.equals(requestedAmount)) {
     return "IDEMPOTENT_CONFLICT";
   }
-  return representsHistoricalFloor(row, documented, stored)
+
+  const unitPrice = row.price === null ? null : decimalFromDb(row.price);
+  if (unitPrice === null || !unitPrice.equals(CASH_UNIT_PRICE)) {
+    return "IDEMPOTENT_CONFLICT";
+  }
+
+  // Nueva: size = monto exacto. Histórica: size = floor(monto documentado).
+  return stored.equals(documented) || documented.floor().equals(stored)
     ? "IDEMPOTENT_REPLAY"
     : "IDEMPOTENT_CONFLICT";
 };

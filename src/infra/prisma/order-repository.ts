@@ -13,9 +13,9 @@
 //    null si no estaba NEW.
 
 import { PrismaClient, type Order, type Prisma } from "@prisma/client";
-import { Decimal } from "decimal.js";
 import type {
   CreateOrderResult,
+  FinancialDecimal,
   OrderDraft,
   OrderEventDraft,
   OrderEventRecord,
@@ -86,7 +86,7 @@ const orderCreateData = (
 /** price de la fila vs price del draft (Decimal por string, nunca float). */
 const pricesEqual = (
   dbValue: Prisma.Decimal | null,
-  draftValue: Decimal | null,
+  draftValue: FinancialDecimal | null,
 ): boolean => {
   if (dbValue === null || draftValue === null) {
     return dbValue === null && draftValue === null;
@@ -267,7 +267,7 @@ export class PrismaOrderRepository implements OrderRepository {
 
   readonly markFilled = async (
     orderId: number,
-    filledPriceArs: Decimal,
+    filledPriceArs: FinancialDecimal,
     filledAt: Date,
     tx: TransactionContext,
   ): Promise<OrderRecord | null> => {
