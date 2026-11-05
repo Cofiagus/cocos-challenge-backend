@@ -1,10 +1,16 @@
-// Decisiones PURAS del envío de órdenes (UC-3): con el request ya resuelto y
-// los datos leídos dentro de la transacción, deciden estado, tamaño, precio de
-// fill, evento y metadata — sin ports, sin `await` y sin reloj (el instante de
-// decisión se recibe). Así el estado queda decidido antes de la primera
-// escritura y cada rama se prueba con valores borde sin DB.
+// Decisiones PURAS del envío de órdenes (UC-3) y de las transferencias de
+// cash (UC-5): con el request ya resuelto y los datos leídos dentro de la
+// transacción, deciden estado, tamaño, precio de fill, evento y metadata —
+// sin ports, sin `await` y sin reloj (el instante de decisión se recibe).
+// Así el estado queda decidido antes de la primera escritura y cada rama se
+// prueba con valores borde sin DB.
+//
+// D2/D4 (spec grandes montos): las cantidades de trading POR ORDEN son number
+// (≤ INT4) y la posición agregada es bigint; el cash mueve un monto exacto
+// (amountArs, sin floor). El tamaño de una SELL se compara con BigInt del
+// number ya validado, nunca restando unidades mezcladas.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../contracts/index.js";
 import type {
   CreateOrderRequest,
   InstrumentRecord,
@@ -21,11 +27,26 @@ import {
   sizeSharesFromAmountArs,
 } from "../../domain/index.js";
 
-/** Decisión de estado tomada dentro de la tx, antes de la primera escritura. */
+/** Decisión de una orden de TRADING (acciones), tomada antes de escribir. */
 export interface DecidedOrder {
   readonly status: OrderStatus;
   readonly sizeShares: number;
-  readonly filledPriceArs: Decimal | null;
+  readonly filledPriceArs: FinancialDecimal | null;
+  readonly filledAt: Date | null;
+  readonly eventType: OrderEventType;
+  readonly reason: OrderRejectionReason | null;
+  readonly metadata: OrderEventMetadata;
+}
+
+/**
+ * Decisión de una transferencia de CASH: mueve el monto exacto en ARS (D4),
+ * sin derivar acciones ni aplicar floor. El precio unitario histórico es
+ * 1.00 y no participa de ningún cálculo nuevo.
+ */
+export interface DecidedCashOrder {
+  readonly status: OrderStatus;
+  readonly amountArs: FinancialDecimal;
+  readonly filledPriceArs: FinancialDecimal | null;
   readonly filledAt: Date | null;
   readonly eventType: OrderEventType;
   readonly reason: OrderRejectionReason | null;
@@ -35,8 +56,8 @@ export interface DecidedOrder {
 /** Tamaño decidido: explícito o derivado de amountArs (el residuo queda cash). */
 export interface SizingDecision {
   readonly sizeShares: number;
-  readonly sizingPriceArs: Decimal | null;
-  readonly residualArs: Decimal | null;
+  readonly sizingPriceArs: FinancialDecimal | null;
+  readonly residualArs: FinancialDecimal | null;
 }
 
 /**
@@ -47,7 +68,9 @@ export const needsReferencePrice = (request: CreateOrderRequest): boolean =>
   request.type === "MARKET" || request.timeInForce !== "GTC";
 
 /** Precio límite de un LIMIT; null en MARKET (sin precio por contrato). */
-export const limitPriceOf = (request: CreateOrderRequest): Decimal | null =>
+export const limitPriceOf = (
+  request: CreateOrderRequest,
+): FinancialDecimal | null =>
   request.type === "LIMIT" ? request.price ?? null : null;
 
 /**
@@ -72,11 +95,13 @@ export const rejectForMissingPrice = (
  * floor(amount/precio), el residuo queda como cash). Precio de sizing:
  * MARKET ⇒ referencia (matriz caso 4); LIMIT ⇒ límite (el precio peor
  * aceptable para un BUY: nunca se compromete más que el monto a ese precio).
+ * Un size derivado fuera de INT4 lanza RangeError (el caso de uso lo mapea a
+ * 400 ANTES de cualquier escritura).
  */
 export const resolveSizing = (
   request: CreateOrderRequest,
-  referencePriceArs: Decimal | null,
-  limitPriceArs: Decimal | null,
+  referencePriceArs: FinancialDecimal | null,
+  limitPriceArs: FinancialDecimal | null,
 ): SizingDecision => {
   if (request.size !== undefined) {
     return { sizeShares: request.size, sizingPriceArs: null, residualArs: null };
@@ -97,7 +122,7 @@ export const resolveSizing = (
   }
   const sizeShares = sizeSharesFromAmountArs(amountArs, sizingPriceArs);
   const residualArs = amountArs.minus(
-    new Decimal(String(sizeShares)).mul(sizingPriceArs),
+    new FinancialDecimal(String(sizeShares)).mul(sizingPriceArs),
   );
   return { sizeShares, sizingPriceArs, residualArs };
 };
@@ -106,7 +131,7 @@ export const resolveSizing = (
 export const buildAuditBase = (
   instrument: InstrumentRecord,
   request: CreateOrderRequest,
-  referencePriceArs: Decimal | null,
+  referencePriceArs: FinancialDecimal | null,
   sizing: SizingDecision,
 ): OrderEventMetadata => ({
   ticker: instrument.ticker,
@@ -134,17 +159,20 @@ export const rejectForZeroSize = (
 
 /**
  * Posición FILLED de UN instrumento: BUY suma, SELL resta; los movimientos de
- * cash (CASH_IN/CASH_OUT) no son posiciones y no la alteran.
+ * cash (CASH_IN/CASH_OUT) no son posiciones y se ignoran ANTES de tocar un
+ * instrumentId que no tienen. bigint: la acumulación puede superar el entero
+ * seguro de JS (spec §4).
  */
 export const positionSharesFor = (
   movements: readonly SettledOrderMovement[],
   instrumentId: number,
-): number => {
-  let positionShares = 0;
+): bigint => {
+  let positionShares = 0n;
   for (const movement of movements) {
+    if (movement.side !== "BUY" && movement.side !== "SELL") continue;
     if (movement.instrumentId !== instrumentId) continue;
-    if (movement.side === "BUY") positionShares += movement.sizeShares;
-    else if (movement.side === "SELL") positionShares -= movement.sizeShares;
+    const sizeShares = BigInt(movement.sizeShares);
+    positionShares += movement.side === "BUY" ? sizeShares : -sizeShares;
   }
   return positionShares;
 };
@@ -154,8 +182,8 @@ export interface FundsAssessmentInput {
   readonly request: CreateOrderRequest;
   readonly instrumentId: number;
   readonly sizeShares: number;
-  readonly referencePriceArs: Decimal | null;
-  readonly limitPriceArs: Decimal | null;
+  readonly referencePriceArs: FinancialDecimal | null;
+  readonly limitPriceArs: FinancialDecimal | null;
   readonly movements: readonly SettledOrderMovement[];
   readonly reservations: Reservations;
   readonly auditBase: OrderEventMetadata;
@@ -175,7 +203,9 @@ const assessBuyFunds = (
   if (validationPriceArs === null) {
     throw new Error("Precio de validación no resuelto (inalcanzable).");
   }
-  const costArs = new Decimal(String(input.sizeShares)).mul(validationPriceArs);
+  const costArs = new FinancialDecimal(String(input.sizeShares)).mul(
+    validationPriceArs,
+  );
   const cashAvailableArs = deriveCash(input.movements).minus(
     input.reservations.cashReservedArs,
   );
@@ -197,7 +227,9 @@ const assessBuyFunds = (
 
 /**
  * SELL: vendible = posición FILLED del instrumento − sharesReserved del MISMO
- * instrumento (posición negativa del seed ⇒ vendible < 0).
+ * instrumento (posición negativa del seed ⇒ vendible < 0). La comparación es
+ * bigint contra el number ya validado por el contrato; la metadata JSON lleva
+ * las cantidades como STRING (un bigint no se serializa a JSON).
  */
 const assessSellPosition = (
   input: FundsAssessmentInput,
@@ -207,9 +239,9 @@ const assessSellPosition = (
     input.instrumentId,
   );
   const reservedShares =
-    input.reservations.sharesReservedByInstrument.get(input.instrumentId) ?? 0;
+    input.reservations.sharesReservedByInstrument.get(input.instrumentId) ?? 0n;
   const sellableShares = positionShares - reservedShares;
-  if (input.sizeShares <= sellableShares) return null;
+  if (BigInt(input.sizeShares) <= sellableShares) return null;
   return {
     status: "REJECTED",
     sizeShares: input.sizeShares,
@@ -219,9 +251,9 @@ const assessSellPosition = (
     reason: "INSUFFICIENT_POSITION",
     metadata: {
       ...input.auditBase,
-      positionShares,
-      reservedShares,
-      sellableShares,
+      positionShares: positionShares.toString(),
+      reservedShares: reservedShares.toString(),
+      sellableShares: sellableShares.toString(),
     },
   };
 };
@@ -238,8 +270,8 @@ export const assessFunds = (
 export interface AcceptedOrderInput {
   readonly request: CreateOrderRequest;
   readonly sizeShares: number;
-  readonly referencePriceArs: Decimal | null;
-  readonly limitPriceArs: Decimal | null;
+  readonly referencePriceArs: FinancialDecimal | null;
+  readonly limitPriceArs: FinancialDecimal | null;
   readonly auditBase: OrderEventMetadata;
   /** Instante de decisión (después de las lecturas de fondos). */
   readonly decidedAt: Date;
@@ -262,7 +294,7 @@ const decideGoodTillCancelled = (
 const decideCancelled = (
   input: AcceptedOrderInput,
   reason: OrderRejectionReason,
-  limitPriceArs: Decimal,
+  limitPriceArs: FinancialDecimal,
 ): DecidedOrder => ({
   status: "CANCELLED",
   sizeShares: input.sizeShares,
@@ -276,8 +308,8 @@ const decideCancelled = (
 /** Cruzó: FILLED con mejora (BUY a min(límite, ref), SELL a max). */
 const decideFilledCross = (
   input: AcceptedOrderInput,
-  filledPriceArs: Decimal,
-  limitPriceArs: Decimal,
+  filledPriceArs: FinancialDecimal,
+  limitPriceArs: FinancialDecimal,
 ): DecidedOrder => ({
   status: "FILLED",
   sizeShares: input.sizeShares,

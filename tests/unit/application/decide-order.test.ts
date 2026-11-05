@@ -4,6 +4,7 @@
 // sí; el residuo del monto y el cruce con límite == referencia se fijan acá.
 
 import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import {
   assessFunds,
   buildAuditBase,
@@ -80,12 +81,10 @@ const limitRequest = (fields: RequestFields = {}): CreateOrderRequest => ({
   ...(fields.price === undefined ? {} : { price: fields.price }),
 });
 
-/** CASH_IN de 1.00 por unidad: sizeShares = pesos liquidados. */
-const cashIn = (sizeShares: number): SettledOrderMovement => ({
-  instrumentId: 66,
+/** CASH_IN de un monto exacto en ARS: el cash no lleva acciones ni precio. */
+const cashIn = (amountArs: string): SettledOrderMovement => ({
   side: "CASH_IN",
-  sizeShares,
-  priceArs: new Decimal("1.00"),
+  amountArs: new Decimal(amountArs),
 });
 
 const trade = (
@@ -363,27 +362,42 @@ describe("rejectForZeroSize", () => {
 // ---------------------------------------------------------------------------
 
 describe("positionSharesFor", () => {
-  it("BUY suma y SELL resta en el instrumento pedido", () => {
+  it("BUY suma y SELL resta en el instrumento pedido, en bigint", () => {
     expect(
       positionSharesFor(
         [trade(1, "BUY", 10, "900.00"), trade(1, "SELL", 3, "1100.00")],
         1,
       ),
-    ).toBe(7);
+    ).toBe(7n);
   });
 
-  it("ignora otros instrumentos y los movimientos de cash", () => {
+  it("ignora otros instrumentos y los movimientos de cash (no tienen instrumentId)", () => {
     expect(
       positionSharesFor(
         [
-          cashIn(100_000),
+          cashIn("100000.00"),
           trade(1, "BUY", 10, "900.00"),
           trade(2, "BUY", 5, "100.00"),
-          { instrumentId: 1, side: "CASH_OUT", sizeShares: 4, priceArs: new Decimal("1.00") },
+          { side: "CASH_OUT", amountArs: new Decimal("4.00") },
         ],
         1,
       ),
-    ).toBe(10);
+    ).toBe(10n);
+  });
+
+  it("acumula en bigint el retorno (sin pasar la cantidad agregada por number)", () => {
+    // Cada orden está acotada a INT4; la ACUMULACIÓN puede superar 2^53.
+    expect(
+      positionSharesFor(
+        [
+          trade(1, "BUY", 2147483647, "1.00"),
+          trade(1, "BUY", 2147483647, "1.00"),
+          trade(1, "BUY", 2147483647, "1.00"),
+          trade(1, "BUY", 2147483647, "1.00"),
+        ],
+        1,
+      ),
+    ).toBe(8589934588n);
   });
 });
 
@@ -399,7 +413,7 @@ describe("assessFunds BUY", () => {
           request: marketRequest({ size: 1 }),
           sizeShares: 1,
           referencePriceArs: new Decimal("1000.00"),
-          movements: [cashIn(1_000)],
+          movements: [cashIn("1000.00")],
         }),
       ),
     ).toBeNull();
@@ -412,7 +426,7 @@ describe("assessFunds BUY", () => {
           request: marketRequest({ size: 1 }),
           sizeShares: 1,
           referencePriceArs: new Decimal("1000.01"),
-          movements: [cashIn(1_000)],
+          movements: [cashIn("1000.00")],
         }),
       ),
     ).toEqual({
@@ -437,7 +451,7 @@ describe("assessFunds BUY", () => {
           request: marketRequest({ size: 10 }),
           sizeShares: 10,
           referencePriceArs: new Decimal("100.00"),
-          movements: [cashIn(1_000)],
+          movements: [cashIn("1000.00")],
           reservations: {
             cashReservedArs: new Decimal("1.00"),
             sharesReservedByInstrument: new Map(),
@@ -467,7 +481,7 @@ describe("assessFunds BUY", () => {
           sizeShares: 5,
           referencePriceArs: new Decimal("925.85"),
           limitPriceArs: new Decimal("250.00"),
-          movements: [cashIn(1_250)],
+          movements: [cashIn("1250.00")],
         }),
       ),
     ).toBeNull();
@@ -508,14 +522,14 @@ describe("assessFunds SELL", () => {
     fundsInput({
       request: marketRequest({ side: "SELL", size: sizeShares }),
       sizeShares,
-      movements: [cashIn(100_000), trade(1, "BUY", 10, "900.00")],
+      movements: [cashIn("100000.00"), trade(1, "BUY", 10, "900.00")],
       reservations,
     });
 
   it("size EXACTAMENTE el vendible ⇒ no rechaza (límite inclusivo)", () => {
     const reservations: Reservations = {
       cashReservedArs: new Decimal(0),
-      sharesReservedByInstrument: new Map([[1, 4]]),
+      sharesReservedByInstrument: new Map([[1, 4n]]),
     };
     expect(assessFunds(sellInput(6, reservations))).toBeNull();
   });
@@ -523,7 +537,7 @@ describe("assessFunds SELL", () => {
   it("una acción más ⇒ REJECTED INSUFFICIENT_POSITION con posición/reserva/vendible", () => {
     const reservations: Reservations = {
       cashReservedArs: new Decimal(0),
-      sharesReservedByInstrument: new Map([[1, 4]]),
+      sharesReservedByInstrument: new Map([[1, 4n]]),
     };
     expect(assessFunds(sellInput(7, reservations))).toEqual({
       status: "REJECTED",
@@ -534,9 +548,9 @@ describe("assessFunds SELL", () => {
       reason: "INSUFFICIENT_POSITION",
       metadata: {
         ...auditBase(),
-        positionShares: 10,
-        reservedShares: 4,
-        sellableShares: 6,
+        positionShares: "10",
+        reservedShares: "4",
+        sellableShares: "6",
       },
     });
   });
@@ -546,7 +560,7 @@ describe("assessFunds SELL", () => {
       request: marketRequest({ side: "SELL", size: 1 }),
       sizeShares: 1,
       movements: [
-        cashIn(100_000),
+        cashIn("100000.00"),
         trade(1, "BUY", 20, "900.00"),
         trade(1, "SELL", 30, "1100.00"),
       ],
@@ -560,9 +574,30 @@ describe("assessFunds SELL", () => {
       reason: "INSUFFICIENT_POSITION",
       metadata: {
         ...auditBase(),
-        positionShares: -10,
-        reservedShares: 0,
-        sellableShares: -10,
+        positionShares: "-10",
+        reservedShares: "0",
+        sellableShares: "-10",
+      },
+    });
+  });
+
+  it("reservas mayores al entero seguro ⇒ comparación bigint y metadata string exacta", () => {
+    const reservations: Reservations = {
+      cashReservedArs: new Decimal(0),
+      sharesReservedByInstrument: new Map([[1, 9007199254740993n]]),
+    };
+    expect(assessFunds(sellInput(10, reservations))).toEqual({
+      status: "REJECTED",
+      sizeShares: 10,
+      filledPriceArs: null,
+      filledAt: null,
+      eventType: "REJECTED",
+      reason: "INSUFFICIENT_POSITION",
+      metadata: {
+        ...auditBase(),
+        positionShares: "10",
+        reservedShares: "9007199254740993",
+        sellableShares: "-9007199254740983",
       },
     });
   });
@@ -652,7 +687,8 @@ describe("decideAcceptedOrder — LIMIT", () => {
     ).toEqual({
       status: "FILLED",
       sizeShares: 2,
-      filledPriceArs: new Decimal("925.85"),
+      // evaluateCross (dominio) construye el precio con el constructor financiero.
+      filledPriceArs: new FinancialDecimal("925.85"),
       filledAt: decidedAt,
       eventType: "ACCEPTED",
       reason: null,
@@ -695,7 +731,7 @@ describe("decideAcceptedOrder — LIMIT", () => {
     ).toEqual({
       status: "FILLED",
       sizeShares: 2,
-      filledPriceArs: new Decimal("925.85"),
+      filledPriceArs: new FinancialDecimal("925.85"),
       filledAt: decidedAt,
       eventType: "ACCEPTED",
       reason: null,
