@@ -6,7 +6,7 @@
 // dominio: la semántica de tx única + lock por usuario es de DECISIONS.md y
 // viaja como tipo opaco que solo la infra concreta narrowcea.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../contracts/index.js";
 import type {
   CreateOrderResult,
   InstrumentRecord,
@@ -74,7 +74,7 @@ export interface OrderRepository {
    */
   readonly markFilled: (
     orderId: number,
-    filledPriceArs: Decimal,
+    filledPriceArs: FinancialDecimal,
     filledAt: Date,
     tx: TransactionContext,
   ) => Promise<OrderRecord | null>;
