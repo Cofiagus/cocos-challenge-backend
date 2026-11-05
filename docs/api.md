@@ -45,14 +45,15 @@ Proyección de `orders`, no una tabla de saldos. `cash` es **disponible** (`sett
 ## 2. `GET /instruments?query=<texto>&limit=<1..100>`
 
 Búsqueda **parcial y case-insensitive** sobre `ticker` y `name` (con texto, se recorta).
-`query` **ausente, vacía o sólo espacios** NO es un error: es el **listado inicial** (`""` tras
-trim). `limit` es entero 1..100 con default **10**; fuera de rango o parámetro desconocido → 400
-(la `query` nunca es inválida). `MONEDA` queda excluida. Respuesta: **array plano** ordenado por
-ticker.
+`query` **ausente, vacía o sólo espacios** es válida: es el **listado inicial** (`""` tras
+trim). `limit` es entero 1..100 con default **10**; `limit` fuera de rango, `query` repetida
+(`?query=a&query=b`) o de formato no-string, o parámetro desconocido → 400. `MONEDA` queda
+excluida. Respuesta: **array plano** ordenado por ticker.
 
-- `price` es el **último precio de sesión vigente** (Yahoo) y `previousClose` el **cierre de la
-  sesión anterior**: string monetario de 2 decimales; `dailyVariationPct` es number redondeado a
-  2 decimales. Nunca salen del seed ni de un precio viejo.
+- `price` es el **último precio de sesión disponible** (Yahoo, no del seed) y `previousClose` el
+  **cierre de la sesión anterior**: string monetario de 2 decimales; `dailyVariationPct` es number
+  redondeado a 2 decimales. Con el mercado cerrado puede ser el de la última sesión: sin promesa
+  de precio instantáneo ni de recencia máxima.
 - Campos **no-nullable**: el instrumento sin cotización computable **se omite** (no viene en
   `null`) y el cupo se completa con los siguientes candidatos, hasta agotar el catálogo.
 - Proveedor indisponible (timeout / rate-limit) → **503 `MARKET_DATA_SERVICE_UNAVAILABLE`**:
