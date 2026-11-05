@@ -130,8 +130,10 @@ export const buildOpenApiDocument = (): JsonObject => {
       title: "cocos-challenge-backend",
       version: "1.0.0",
       description:
-        "API REST de portfolio, instrumentos, órdenes y transferencias. Dinero: cálculo en Decimal, " +
-        "respuesta como número JSON con 2 decimales. Idempotencia por `Idempotency-Key` opcional.",
+        "API REST de portfolio, instrumentos, órdenes y transferencias. Dinero: cálculo en Decimal. " +
+        "Cambio incompatible (D3): la entrada monetaria es string decimal canónico (los números JSON " +
+        "se rechazan) y la salida monetaria es string con exactamente 2 decimales; los agregados " +
+        "pueden superar el máximo por fila. Idempotencia por `Idempotency-Key` opcional.",
     },
     servers: [{ url: "http://localhost:3000", description: "Local" }],
     paths,

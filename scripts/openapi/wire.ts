@@ -1,72 +1,29 @@
-// Espejos de wire para el contrato OpenAPI.
+// Wire de entrada para el contrato OpenAPI.
 //
-// Por qué existen: los schemas de entrada de dinero (`ArsInputSchema`,
-// `PositiveArsInputSchema`) usan `z.preprocess` + `z.instanceof(Decimal)`, y `z.toJSONSchema`
-// no puede representar tipos custom. Estos espejos describen LO MISMO que acepta el runtime en
-// el cable (número JSON o string decimal) pero de forma representable.
+// El espejo monetario independiente (unión número|string con su propio
+// máximo 99999999.99) ya NO existe: `src/contracts/money.ts` define los
+// schemas wire (`ArsWireSchema`, `PositiveArsWireSchema`) de forma
+// directamente representable por `z.toJSONSchema` (string + pattern, sin
+// `z.preprocess` ni `instanceof`), con el único máximo del sistema
+// (`MAX_STORED_ARSS`, NUMERIC(24,2) de D1). Acá sólo se REUTILIZAN y se
+// re-exportan — una sola definición de rango y gramática (spec §3.2);
+// `tests/docs/openapi.test.ts` D7 verifica la frontera contra el runtime.
 //
-// No son fuente de verdad: la fuente es `src/contracts`. `tests/docs/openapi.test.ts` verifica
-// que el espejo y el schema real acepten/rechacen EXACTAMENTE la misma muestra de valores.
+// No son fuente de verdad: la fuente es `src/contracts`.
 
-import { Decimal } from "decimal.js";
 import { z } from "zod";
 import {
+  ArsWireSchema,
   MAX_ORDER_SIZE_SHARES,
   OrderTypeSchema,
+  PositiveArsWireSchema,
   TimeInForceSchema,
   TradingSideSchema,
   TransferSideSchema,
 } from "../../src/contracts/index.js";
 
-/**
- * Cota de almacenamiento espejo de src/contracts/money.ts (MAX_STORED_ARSS):
- * numeric(10,2). El espejo debe rechazar lo mismo que el schema real en el
- * cable (tests/docs/openapi.test.ts D7), incluida la cota de 2 decimales y
- * de |monto| ≤ 99999999.99 que el borde de entrada aplica desde el fix del
- * análisis del PR #2.
- */
-const MAX_STORED_ARSS = new Decimal("99999999.99");
-
-/** Decimal desde el cable (número JSON o string), undefined si no parsea. */
-const moneyFromWire = (value: number | string): Decimal | undefined => {
-  try {
-    return new Decimal(typeof value === "number" ? String(value) : value.trim());
-  } catch {
-    return undefined;
-  }
-};
-
-/** Mismo dominio que ArsInputSchema: finito, ≤2 decimales, |monto| acotado. */
-const withinStorageDomain = (value: number | string): boolean => {
-  const amount = moneyFromWire(value);
-  return (
-    amount !== undefined &&
-    amount.isFinite() &&
-    amount.decimalPlaces() <= 2 &&
-    amount.abs().lessThanOrEqualTo(MAX_STORED_ARSS)
-  );
-};
-
-/** Monto ARS en el cable: número JSON o string decimal. */
-export const ArsWireSchema = z
-  .union([z.number(), z.string()])
-  .refine(withinStorageDomain, {
-    message:
-      "Se espera un número o string decimal finito, con a lo sumo 2 decimales y |monto| ≤ 99999999.99.",
-  })
-  .meta({ description: "Monto ARS: número JSON o string decimal (nunca float en cálculo)." });
-
-/** Monto ARS estrictamente positivo (amountArs, price). */
-export const PositiveArsWireSchema = z
-  .union([z.number(), z.string()])
-  .refine(
-    (value) => {
-      const amount = moneyFromWire(value);
-      return withinStorageDomain(value) && amount !== undefined && amount.greaterThan(0);
-    },
-    { message: "El monto debe ser mayor que 0 (≤2 decimales, ≤ 99999999.99)." },
-  )
-  .meta({ description: "Monto ARS > 0: número JSON o string decimal." });
+/** Superficie pública del wire monetario: la del contrato, sin duplicar. */
+export { ArsWireSchema, PositiveArsWireSchema };
 
 /**
  * Body de POST /orders. XOR instrumentId|ticker, XOR size|amountArs, `price` sólo en LIMIT
@@ -88,6 +45,7 @@ export const CreateOrderBodySchema = z
   .meta({
     description:
       "Exactamente uno de `instrumentId` | `ticker`; exactamente uno de `size` | `amountArs`; " +
+      "`amountArs` y `price` son strings decimales canónicos (los números JSON se rechazan); " +
       `\`size\` entero 1..${MAX_ORDER_SIZE_SHARES}; \`price\` > 0 obligatorio si \`type=LIMIT\`; en \`type=MARKET\` ` +
       "se omite o va `null` (un número es 400).",
   });
@@ -98,4 +56,4 @@ export const CreateTransferBodySchema = z
     amountArs: PositiveArsWireSchema,
     side: TransferSideSchema,
   })
-  .meta({ description: "Monto > 0 en ARS; `CASH_IN` acredita, `CASH_OUT` debita el disponible." });
+  .meta({ description: "Monto > 0 en ARS como string decimal canónico; `CASH_IN` acredita, `CASH_OUT` debita el disponible." });

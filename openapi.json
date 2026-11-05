@@ -3,7 +3,7 @@
   "info": {
     "title": "cocos-challenge-backend",
     "version": "1.0.0",
-    "description": "API REST de portfolio, instrumentos, órdenes y transferencias. Dinero: cálculo en Decimal, respuesta como número JSON con 2 decimales. Idempotencia por `Idempotency-Key` opcional."
+    "description": "API REST de portfolio, instrumentos, órdenes y transferencias. Dinero: cálculo en Decimal. Cambio incompatible (D3): la entrada monetaria es string decimal canónico (los números JSON se rechazan) y la salida monetaria es string con exactamente 2 decimales; los agregados pueden superar el máximo por fila. Idempotencia por `Idempotency-Key` opcional."
   },
   "servers": [
     {
@@ -15,7 +15,7 @@
     "/api/users/{userId}/portfolio": {
       "get": {
         "summary": "Portfolio de un usuario",
-        "description": "Proyección de `orders`: `cash` = settled − reservado por órdenes `NEW` de compra; `totalAccountValue` = `cash` + `reservedCash` + Σ `marketValue` de las posiciones con precio (abrir o cancelar una orden no lo mueve). Posiciones con cantidad 0 no se listan; sin precio de referencia `marketValue` es `null` y la posición no suma al total. `MONEDA` nunca aparece.",
+        "description": "Proyección de `orders`: `cash` = settled − reservado por órdenes `NEW` de compra; `totalAccountValue` = `cash` + `reservedCash` + Σ `marketValue` de las posiciones con precio (abrir o cancelar una orden no lo mueve). Posiciones con cantidad 0 no se listan; sin precio de referencia `marketValue` es `null` y la posición no suma al total. `MONEDA` nunca aparece. El dinero viaja como string con exactamente 2 decimales y `quantity` como string entero canónico (D3; los agregados pueden superar el máximo de una fila).",
         "operationId": "get-api-users--userId--portfolio",
         "tags": [
           "users"
@@ -41,15 +41,18 @@
                   "type": "object",
                   "properties": {
                     "cash": {
-                      "type": "number",
+                      "type": "string",
+                      "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
                       "description": "Disponible para operar: settled − reservado por órdenes NEW de compra."
                     },
                     "reservedCash": {
-                      "type": "number",
-                      "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
+                      "type": "string",
+                      "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                      "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
                     },
                     "totalAccountValue": {
-                      "type": "number",
+                      "type": "string",
+                      "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
                       "description": "cash + reservedCash + Σ marketValue de las posiciones con precio; abrir o cancelar una orden no lo mueve."
                     },
                     "positions": {
@@ -64,15 +67,16 @@
                             "type": "string"
                           },
                           "quantity": {
-                            "type": "integer",
-                            "minimum": -9007199254740991,
-                            "maximum": 9007199254740991
+                            "type": "string",
+                            "pattern": "^-?(?:0|[1-9][0-9]*)$",
+                            "description": "Cantidad de acciones como string entero canónico (signo - para la posición negativa heredada; sin ceros iniciales ni -0)."
                           },
                           "marketValue": {
                             "anyOf": [
                               {
-                                "type": "number",
-                                "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
+                                "type": "string",
+                                "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                                "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
                               },
                               {
                                 "type": "null"
@@ -115,31 +119,31 @@
                   "additionalProperties": false
                 },
                 "example": {
-                  "cash": 627500,
-                  "reservedCash": 125500,
-                  "totalAccountValue": 889756,
+                  "cash": "627500.00",
+                  "reservedCash": "125500.00",
+                  "totalAccountValue": "889756.00",
                   "positions": [
                     {
                       "ticker": "BMA",
                       "name": "Banco Macro S.A.",
-                      "quantity": -10,
-                      "marketValue": -15028,
+                      "quantity": "-10",
+                      "marketValue": "-15028.00",
                       "priceAvailable": true,
                       "totalReturnPct": -2.42
                     },
                     {
                       "ticker": "PAMP",
                       "name": "Pampa Holding S.A.",
-                      "quantity": 40,
-                      "marketValue": 37034,
+                      "quantity": "40",
+                      "marketValue": "37034.00",
                       "priceAvailable": true,
                       "totalReturnPct": -0.45
                     },
                     {
                       "ticker": "METR",
                       "name": "MetroGAS S.A.",
-                      "quantity": 500,
-                      "marketValue": 114750,
+                      "quantity": "500",
+                      "marketValue": "114750.00",
                       "priceAvailable": true,
                       "totalReturnPct": -8.2
                     }
@@ -324,8 +328,9 @@
                       "price": {
                         "anyOf": [
                           {
-                            "type": "number",
-                            "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
+                            "type": "string",
+                            "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                            "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
                           },
                           {
                             "type": "null"
@@ -335,8 +340,9 @@
                       "previousClose": {
                         "anyOf": [
                           {
-                            "type": "number",
-                            "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
+                            "type": "string",
+                            "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                            "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
                           },
                           {
                             "type": "null"
@@ -371,8 +377,8 @@
                     "ticker": "METR",
                     "name": "MetroGAS S.A.",
                     "type": "ACCIONES",
-                    "price": 229.5,
-                    "previousClose": 232,
+                    "price": "229.50",
+                    "previousClose": "232.00",
                     "dailyVariationPct": -1.08
                   }
                 ]
@@ -576,20 +582,16 @@
                     "maximum": 2147483647
                   },
                   "amountArs": {
-                    "description": "Monto ARS > 0: número JSON o string decimal.",
-                    "type": [
-                      "number",
-                      "string"
-                    ]
+                    "type": "string",
+                    "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,2})?$",
+                    "description": "ARS como string decimal canónico de base 10, mayor que 0 y hasta 9999999999999999999999.99."
                   },
                   "price": {
                     "anyOf": [
                       {
-                        "description": "Monto ARS > 0: número JSON o string decimal.",
-                        "type": [
-                          "number",
-                          "string"
-                        ]
+                        "type": "string",
+                        "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,2})?$",
+                        "description": "ARS como string decimal canónico de base 10, mayor que 0 y hasta 9999999999999999999999.99."
                       },
                       {
                         "type": "null"
@@ -602,7 +604,7 @@
                   "type"
                 ],
                 "additionalProperties": false,
-                "description": "Exactamente uno de `instrumentId` | `ticker`; exactamente uno de `size` | `amountArs`; `size` entero 1..2147483647; `price` > 0 obligatorio si `type=LIMIT`; en `type=MARKET` se omite o va `null` (un número es 400)."
+                "description": "Exactamente uno de `instrumentId` | `ticker`; exactamente uno de `size` | `amountArs`; `amountArs` y `price` son strings decimales canónicos (los números JSON se rechazan); `size` entero 1..2147483647; `price` > 0 obligatorio si `type=LIMIT`; en `type=MARKET` se omite o va `null` (un número es 400)."
               }
             }
           }
@@ -613,127 +615,248 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "instrumentId": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "side": {
-                      "type": "string",
-                      "enum": [
-                        "BUY",
-                        "SELL",
-                        "CASH_IN",
-                        "CASH_OUT"
-                      ]
-                    },
-                    "type": {
-                      "type": "string",
-                      "enum": [
-                        "MARKET",
-                        "LIMIT"
-                      ]
-                    },
-                    "timeInForce": {
-                      "type": "string",
-                      "enum": [
-                        "GTC",
-                        "IOC",
-                        "FOK"
-                      ]
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "NEW",
-                        "FILLED",
-                        "CANCELLED",
-                        "REJECTED"
-                      ]
-                    },
-                    "size": {
-                      "anyOf": [
-                        {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
                           "type": "integer",
                           "minimum": -9007199254740991,
                           "maximum": 9007199254740991
                         },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "price": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
+                        "instrumentId": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "filledPrice": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "filledAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "datetime": {
-                      "type": "string"
-                    },
-                    "reason": {
-                      "anyOf": [
-                        {
+                        "type": {
                           "type": "string",
                           "enum": [
-                            "INSUFFICIENT_FUNDS",
-                            "INSUFFICIENT_POSITION",
-                            "ZERO_SIZE",
-                            "NO_PRICE",
-                            "NO_IMMEDIATE_MATCH"
+                            "MARKET",
+                            "LIMIT"
                           ]
                         },
-                        {
-                          "type": "null"
+                        "timeInForce": {
+                          "type": "string",
+                          "enum": [
+                            "GTC",
+                            "IOC",
+                            "FOK"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "NEW",
+                            "FILLED",
+                            "CANCELLED",
+                            "REJECTED"
+                          ]
+                        },
+                        "price": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledPrice": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "datetime": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "INSUFFICIENT_FUNDS",
+                                "INSUFFICIENT_POSITION",
+                                "ZERO_SIZE",
+                                "NO_PRICE",
+                                "NO_IMMEDIATE_MATCH"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "side": {
+                          "type": "string",
+                          "enum": [
+                            "BUY",
+                            "SELL"
+                          ]
+                        },
+                        "size": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Acciones de la orden (BUY/SELL): entero o null; 0 en un REJECTED por ZERO_SIZE."
                         }
-                      ]
+                      },
+                      "required": [
+                        "id",
+                        "instrumentId",
+                        "type",
+                        "timeInForce",
+                        "status",
+                        "price",
+                        "filledPrice",
+                        "filledAt",
+                        "datetime",
+                        "reason",
+                        "side",
+                        "size"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "instrumentId": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "MARKET",
+                            "LIMIT"
+                          ]
+                        },
+                        "timeInForce": {
+                          "type": "string",
+                          "enum": [
+                            "GTC",
+                            "IOC",
+                            "FOK"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "NEW",
+                            "FILLED",
+                            "CANCELLED",
+                            "REJECTED"
+                          ]
+                        },
+                        "price": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledPrice": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "datetime": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "INSUFFICIENT_FUNDS",
+                                "INSUFFICIENT_POSITION",
+                                "ZERO_SIZE",
+                                "NO_PRICE",
+                                "NO_IMMEDIATE_MATCH"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "side": {
+                          "type": "string",
+                          "enum": [
+                            "CASH_IN",
+                            "CASH_OUT"
+                          ]
+                        },
+                        "size": {
+                          "type": "string",
+                          "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                          "description": "Monto en ARS de la transferencia como string con exactamente 2 decimales (columna física size con precio 1.00)."
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "instrumentId",
+                        "type",
+                        "timeInForce",
+                        "status",
+                        "price",
+                        "filledPrice",
+                        "filledAt",
+                        "datetime",
+                        "reason",
+                        "side",
+                        "size"
+                      ],
+                      "additionalProperties": false
                     }
-                  },
-                  "required": [
-                    "id",
-                    "instrumentId",
-                    "side",
-                    "type",
-                    "timeInForce",
-                    "status",
-                    "size",
-                    "price",
-                    "filledPrice",
-                    "filledAt",
-                    "datetime",
-                    "reason"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 "example": {
                   "id": 14,
@@ -743,7 +866,7 @@
                   "timeInForce": "GTC",
                   "status": "REJECTED",
                   "size": 1000000,
-                  "price": 100,
+                  "price": "100.00",
                   "filledPrice": null,
                   "filledAt": null,
                   "datetime": "2026-11-04T10:27:18",
@@ -976,127 +1099,248 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "instrumentId": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "side": {
-                      "type": "string",
-                      "enum": [
-                        "BUY",
-                        "SELL",
-                        "CASH_IN",
-                        "CASH_OUT"
-                      ]
-                    },
-                    "type": {
-                      "type": "string",
-                      "enum": [
-                        "MARKET",
-                        "LIMIT"
-                      ]
-                    },
-                    "timeInForce": {
-                      "type": "string",
-                      "enum": [
-                        "GTC",
-                        "IOC",
-                        "FOK"
-                      ]
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "NEW",
-                        "FILLED",
-                        "CANCELLED",
-                        "REJECTED"
-                      ]
-                    },
-                    "size": {
-                      "anyOf": [
-                        {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
                           "type": "integer",
                           "minimum": -9007199254740991,
                           "maximum": 9007199254740991
                         },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "price": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
+                        "instrumentId": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "filledPrice": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "filledAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "datetime": {
-                      "type": "string"
-                    },
-                    "reason": {
-                      "anyOf": [
-                        {
+                        "type": {
                           "type": "string",
                           "enum": [
-                            "INSUFFICIENT_FUNDS",
-                            "INSUFFICIENT_POSITION",
-                            "ZERO_SIZE",
-                            "NO_PRICE",
-                            "NO_IMMEDIATE_MATCH"
+                            "MARKET",
+                            "LIMIT"
                           ]
                         },
-                        {
-                          "type": "null"
+                        "timeInForce": {
+                          "type": "string",
+                          "enum": [
+                            "GTC",
+                            "IOC",
+                            "FOK"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "NEW",
+                            "FILLED",
+                            "CANCELLED",
+                            "REJECTED"
+                          ]
+                        },
+                        "price": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledPrice": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "datetime": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "INSUFFICIENT_FUNDS",
+                                "INSUFFICIENT_POSITION",
+                                "ZERO_SIZE",
+                                "NO_PRICE",
+                                "NO_IMMEDIATE_MATCH"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "side": {
+                          "type": "string",
+                          "enum": [
+                            "BUY",
+                            "SELL"
+                          ]
+                        },
+                        "size": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Acciones de la orden (BUY/SELL): entero o null; 0 en un REJECTED por ZERO_SIZE."
                         }
-                      ]
+                      },
+                      "required": [
+                        "id",
+                        "instrumentId",
+                        "type",
+                        "timeInForce",
+                        "status",
+                        "price",
+                        "filledPrice",
+                        "filledAt",
+                        "datetime",
+                        "reason",
+                        "side",
+                        "size"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "instrumentId": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "MARKET",
+                            "LIMIT"
+                          ]
+                        },
+                        "timeInForce": {
+                          "type": "string",
+                          "enum": [
+                            "GTC",
+                            "IOC",
+                            "FOK"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "NEW",
+                            "FILLED",
+                            "CANCELLED",
+                            "REJECTED"
+                          ]
+                        },
+                        "price": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledPrice": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "datetime": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "INSUFFICIENT_FUNDS",
+                                "INSUFFICIENT_POSITION",
+                                "ZERO_SIZE",
+                                "NO_PRICE",
+                                "NO_IMMEDIATE_MATCH"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "side": {
+                          "type": "string",
+                          "enum": [
+                            "CASH_IN",
+                            "CASH_OUT"
+                          ]
+                        },
+                        "size": {
+                          "type": "string",
+                          "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                          "description": "Monto en ARS de la transferencia como string con exactamente 2 decimales (columna física size con precio 1.00)."
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "instrumentId",
+                        "type",
+                        "timeInForce",
+                        "status",
+                        "price",
+                        "filledPrice",
+                        "filledAt",
+                        "datetime",
+                        "reason",
+                        "side",
+                        "size"
+                      ],
+                      "additionalProperties": false
                     }
-                  },
-                  "required": [
-                    "id",
-                    "instrumentId",
-                    "side",
-                    "type",
-                    "timeInForce",
-                    "status",
-                    "size",
-                    "price",
-                    "filledPrice",
-                    "filledAt",
-                    "datetime",
-                    "reason"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 "example": {
                   "id": 12,
@@ -1106,7 +1350,7 @@
                   "timeInForce": "GTC",
                   "status": "CANCELLED",
                   "size": 1,
-                  "price": 100,
+                  "price": "100.00",
                   "filledPrice": null,
                   "filledAt": null,
                   "datetime": "2026-11-04T10:27:08",
@@ -1277,7 +1521,7 @@
     "/api/users/{userId}/transfers": {
       "post": {
         "summary": "Transferir cash",
-        "description": "Transferencia = orden del instrumento `ARS` (`price` 1.00, `size` = pesos). `CASH_IN` → `FILLED` inmediata; `CASH_OUT` valida contra el disponible (`settled − reservas`) y si no alcanza persiste `REJECTED INSUFFICIENT_FUNDS` con 201. `size` es entero: 123.45 acredita 123.",
+        "description": "Transferencia = orden del instrumento `ARS` (`price` 1.00, `size` = pesos). `CASH_IN` → `FILLED` inmediata; `CASH_OUT` valida contra el disponible (`settled − reservas`) y si no alcanza persiste `REJECTED INSUFFICIENT_FUNDS` con 201. Cambio incompatible (D3/D4): el monto se mueve EXACTO con centavos (sin floor: 123.45 acredita 123.45); `amountArs` de entrada es string decimal canónico (los números JSON se rechazan) y `size` de la respuesta es el monto como string de 2 decimales (\"123.00\" para un cash histórico de 123).",
         "operationId": "post-api-users--userId--transfers",
         "tags": [
           "users"
@@ -1313,11 +1557,9 @@
                 "type": "object",
                 "properties": {
                   "amountArs": {
-                    "description": "Monto ARS > 0: número JSON o string decimal.",
-                    "type": [
-                      "number",
-                      "string"
-                    ]
+                    "type": "string",
+                    "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,2})?$",
+                    "description": "ARS como string decimal canónico de base 10, mayor que 0 y hasta 9999999999999999999999.99."
                   },
                   "side": {
                     "type": "string",
@@ -1332,7 +1574,7 @@
                   "side"
                 ],
                 "additionalProperties": false,
-                "description": "Monto > 0 en ARS; `CASH_IN` acredita, `CASH_OUT` debita el disponible."
+                "description": "Monto > 0 en ARS como string decimal canónico; `CASH_IN` acredita, `CASH_OUT` debita el disponible."
               }
             }
           }
@@ -1343,127 +1585,248 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "instrumentId": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "side": {
-                      "type": "string",
-                      "enum": [
-                        "BUY",
-                        "SELL",
-                        "CASH_IN",
-                        "CASH_OUT"
-                      ]
-                    },
-                    "type": {
-                      "type": "string",
-                      "enum": [
-                        "MARKET",
-                        "LIMIT"
-                      ]
-                    },
-                    "timeInForce": {
-                      "type": "string",
-                      "enum": [
-                        "GTC",
-                        "IOC",
-                        "FOK"
-                      ]
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "NEW",
-                        "FILLED",
-                        "CANCELLED",
-                        "REJECTED"
-                      ]
-                    },
-                    "size": {
-                      "anyOf": [
-                        {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
                           "type": "integer",
                           "minimum": -9007199254740991,
                           "maximum": 9007199254740991
                         },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "price": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
+                        "instrumentId": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "filledPrice": {
-                      "anyOf": [
-                        {
-                          "type": "number",
-                          "description": "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar)."
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "filledAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "datetime": {
-                      "type": "string"
-                    },
-                    "reason": {
-                      "anyOf": [
-                        {
+                        "type": {
                           "type": "string",
                           "enum": [
-                            "INSUFFICIENT_FUNDS",
-                            "INSUFFICIENT_POSITION",
-                            "ZERO_SIZE",
-                            "NO_PRICE",
-                            "NO_IMMEDIATE_MATCH"
+                            "MARKET",
+                            "LIMIT"
                           ]
                         },
-                        {
-                          "type": "null"
+                        "timeInForce": {
+                          "type": "string",
+                          "enum": [
+                            "GTC",
+                            "IOC",
+                            "FOK"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "NEW",
+                            "FILLED",
+                            "CANCELLED",
+                            "REJECTED"
+                          ]
+                        },
+                        "price": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledPrice": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "datetime": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "INSUFFICIENT_FUNDS",
+                                "INSUFFICIENT_POSITION",
+                                "ZERO_SIZE",
+                                "NO_PRICE",
+                                "NO_IMMEDIATE_MATCH"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "side": {
+                          "type": "string",
+                          "enum": [
+                            "BUY",
+                            "SELL"
+                          ]
+                        },
+                        "size": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Acciones de la orden (BUY/SELL): entero o null; 0 en un REJECTED por ZERO_SIZE."
                         }
-                      ]
+                      },
+                      "required": [
+                        "id",
+                        "instrumentId",
+                        "type",
+                        "timeInForce",
+                        "status",
+                        "price",
+                        "filledPrice",
+                        "filledAt",
+                        "datetime",
+                        "reason",
+                        "side",
+                        "size"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "instrumentId": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "MARKET",
+                            "LIMIT"
+                          ]
+                        },
+                        "timeInForce": {
+                          "type": "string",
+                          "enum": [
+                            "GTC",
+                            "IOC",
+                            "FOK"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "NEW",
+                            "FILLED",
+                            "CANCELLED",
+                            "REJECTED"
+                          ]
+                        },
+                        "price": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledPrice": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                              "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "filledAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "datetime": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "INSUFFICIENT_FUNDS",
+                                "INSUFFICIENT_POSITION",
+                                "ZERO_SIZE",
+                                "NO_PRICE",
+                                "NO_IMMEDIATE_MATCH"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "side": {
+                          "type": "string",
+                          "enum": [
+                            "CASH_IN",
+                            "CASH_OUT"
+                          ]
+                        },
+                        "size": {
+                          "type": "string",
+                          "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                          "description": "Monto en ARS de la transferencia como string con exactamente 2 decimales (columna física size con precio 1.00)."
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "instrumentId",
+                        "type",
+                        "timeInForce",
+                        "status",
+                        "price",
+                        "filledPrice",
+                        "filledAt",
+                        "datetime",
+                        "reason",
+                        "side",
+                        "size"
+                      ],
+                      "additionalProperties": false
                     }
-                  },
-                  "required": [
-                    "id",
-                    "instrumentId",
-                    "side",
-                    "type",
-                    "timeInForce",
-                    "status",
-                    "size",
-                    "price",
-                    "filledPrice",
-                    "filledAt",
-                    "datetime",
-                    "reason"
-                  ],
-                  "additionalProperties": false
+                  ]
                 },
                 "example": {
                   "id": 13,
@@ -1472,9 +1835,9 @@
                   "type": "MARKET",
                   "timeInForce": "GTC",
                   "status": "FILLED",
-                  "size": 123,
-                  "price": 1,
-                  "filledPrice": 1,
+                  "size": "123.00",
+                  "price": "1.00",
+                  "filledPrice": "1.00",
                   "filledAt": "2026-11-04T10:27:08",
                   "datetime": "2026-11-04T10:27:08",
                   "reason": null
