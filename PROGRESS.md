@@ -25,8 +25,8 @@
 | LM-QA | Revisión independiente de diff e invariantes del runtime b55a8db | ACCEPT runtime, 8.5/10 (DeepSeek); cierre global PENDIENTE | matriz invariante → implementación → test entregada; sin bug de fuente confirmado; falta e2e final |
 | LM-QA-polish | Precisión docs CHECK y tipos financieros de price-source/support | INTEGRADA desde 046442a en este merge | 96 tests infra/docs re-corridos + typecheck/lint verdes; sin cambio de lógica |
 | LM-env-hygiene | Exclusión del archivo real .env.test; cell/large-money-env-final | INTEGRADA desde 7a76046 en este merge | copia local preservada byte a byte y ahora ignorada; sólo ejemplo versionado; sin rewrite |
-| LM-docs-close | README/API/colección y evidencia única de ejecución; cell/large-money-docs-close | EN EJECUCIÓN (GLM), base 1bd02e4 | sólo docs; no afirmar corrida manual íntegra de colección ni despliegue app |
-| LM-QA-final | Revisión independiente del candidato completo 1bd02e4 | EN EJECUCIÓN (DeepSeek, sólo lectura) | cotejar 37/515 y nuevos E2E; recomendación ACCEPT/REJECT antes de main |
+| LM-docs-close | README/API/colección y evidencia única de ejecución; cell/large-money-docs-close | REVISIÓN FINAL (GLM), HEAD 105b623 | corregir sobreafirmaciones SQL/una escritura/estado main/DBapp; sólo docs |
+| LM-QA-final | Revisión independiente del candidato completo 1bd02e4 | ACCEPT, 9.0/10 (DeepSeek) | revisor re-corre19E2E +79domain/docs; coteja JSON37/515 yopenHandles=[]; sin blocker |
 
 ### Decisiones operativas
 
@@ -71,6 +71,8 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 - T14 y aceptación cerradas: órdenes47, lectura/cancel/transfers42 y nuevos E2E19 re-corridos por el orquestador. Se acepta fixture cash con price1.00/size monto exacto y cuantización de presentación del SUM SQL en FinancialDecimal (sin tocar valores económicos ni ocultar resultados numéricos viejos).
 - GATE COMPLETO de feature re-corrido con DBs recreadas: typecheck + lint + build + OpenAPI determinista verdes; npm test -- --runInBand --detectOpenHandles: **37 suites / 515 tests verdes**, openHandles=[] (despeja advertencia aislada anterior). Los2 logs de error HTTP corresponden a fallos de auditoría inyectados deliberadamente para probar rollback, no tests fallidos. Falta cierre documental y revisor del SHA final antes de integrar main.
 - Límites de evidencia: quantity agregada >MAX_SAFE_INTEGER se probó en unit con órdenes INT4 válidas, no mediante millones de filas E2E; la migración y locks se ensayaron en DBs de test chicas, no en producción. Ninguna DB de app migrada ni push remoto realizado.
+- QA final independiente acepta1bd02e4 con9.0/10, sin findings bloqueantes; re-ejecuta19E2E+79domain/docs y verifica515tests/openHandles[] del log. Se verificó que cambios posteriores propios sólo afectanPROGRESS (ya commiteado, árbol limpio), sin drift de runtime/tests/schema. Los2 gaps de cobertura E2E secundarios se aceptan como no bloqueantes por cobertura existente de eventoACCEPTED y guardas de evidencia/precio en integración; no ampliar diseño para perseguir10/10.
+- Cierre documental105b623 devuelto por precisión: CHECKs de precios de orden son positivos, marketdata permite0; concurrencia asegura un débito no una sola escritura; evidencia no debe quedar desactualizada diciendo main pendiente; DBapp no fue consultada ni migrada por esta tarea. Se delegó corrección sólo documental antes del merge.
 - Aceptadas las decisiones del dominio: builders cash/trading separados; cantidades acumuladas bigint probadas con órdenes INT4 válidas; matching conserva reglas y sigue sin disparador. No hay ampliación de diseño.
 
 ### Revisión intermedia del orquestador
