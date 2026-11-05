@@ -16,12 +16,12 @@
 | LM-C0 | Tipos discriminados y schemas quantity/size | INTEGRADA: 8d1930c/c665109 | 28 tests de contratos/docs re-corridos; consumidores aún pendientes |
 | LM-C1-pure | Dominio puro y ports; cell/large-money-pure-final | INTEGRADA: 3938ec0 | 64 unit/domain re-corridos; sizing RangeError antes de convertir; lint verde |
 | LM-C1-app | Casos de uso, HTTP y fakes unitarios; cell/large-money-app-final | EN EJECUCIÓN (DeepSeek), base 3477ff9 | unit/application + unit/http |
-| LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | DEVUELTA A REVISIÓN (DeepSeek), HEAD 8287dfa | bypass: igualdad con size truncado no puede omitir evidencia original; sin integrar hasta fix |
+| LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | REVISIÓN FINAL (DeepSeek), HEAD e43652d | bypass cerrado: 119 tests infra/docs re-corridos; falta coherencia origen ACCEPTED/FILLED o REJECTED/REJECTED antes de integrar |
 | LM-E-docs | README/docs/colección del contrato aprobado | INTEGRADA: 4f9974f/e27f99a/ee5703f | correcciones revisadas; aún no afirma ejecución API final |
 | LM-E-wire-final | OpenAPI; cell/large-money-wire-final | INTEGRADA: 3477ff9 | 15 tests/docs re-corridos; schemas monetarios únicos; lint verde |
 | LM-E-functional | Compatibilidad de suites y nuevos casos e2e | PENDIENTE de código estable | HTTP + PostgreSQL real, sin desactivar escenarios |
 | LM-QA | Revisión independiente de diff e invariantes | PENDIENTE | usuario autoriza integrar a main sólo tras pruebas y cierre de implementación |
-| LM-env-hygiene | Exclusión del archivo real .env.test; cell/large-money-env-final | EN EJECUCIÓN (GLM) | conserva copia local; sólo ejemplo queda versionado; no reescribir historia |
+| LM-env-hygiene | Exclusión del archivo real .env.test; cell/large-money-env-final | INTEGRADA desde 7a76046 en este merge | copia local preservada byte a byte y ahora ignorada; sólo ejemplo versionado; sin rewrite |
 
 ### Decisiones operativas
 
