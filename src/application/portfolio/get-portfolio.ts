@@ -14,11 +14,12 @@
 //  - posición con cantidad 0 no se lista (la oculta derivePositions);
 //  - MONEDA nunca llega: no es posición derivable de BUY/SELL.
 
-import type { Decimal } from "decimal.js";
 import type {
+  FinancialDecimal,
   InstrumentRecord,
   PositionPnl,
   SettledOrderMovement,
+  TradingSettledOrderMovement,
 } from "../../contracts/index.js";
 import {
   deriveCash,
@@ -46,20 +47,21 @@ export interface GetPortfolioDeps {
 export interface PortfolioPositionView {
   readonly ticker: string;
   readonly name: string;
-  readonly quantityShares: number;
-  readonly marketValueArs: Decimal | null;
+  /** Acciones agregadas (bigint): el borde las serializa como string. */
+  readonly quantityShares: bigint;
+  readonly marketValueArs: FinancialDecimal | null;
   readonly priceAvailable: boolean;
-  readonly totalReturnPctX100: Decimal | null;
+  readonly totalReturnPctX100: FinancialDecimal | null;
 }
 
 /** Portfolio en valores de dominio: el borde lo serializa al contrato. */
 export interface PortfolioState {
   /** cashSettled − cashReserved. */
-  readonly cashArs: Decimal;
+  readonly cashArs: FinancialDecimal;
   /** Σ limit × size de las BUY NEW. */
-  readonly reservedCashArs: Decimal;
+  readonly reservedCashArs: FinancialDecimal;
   /** cashSettled (disponible + reservado) + Σ marketValue de las posiciones CON precio. */
-  readonly totalAccountValueArs: Decimal;
+  readonly totalAccountValueArs: FinancialDecimal;
   readonly positions: readonly PortfolioPositionView[];
 }
 
@@ -68,8 +70,14 @@ export type GetPortfolioResult =
   | { readonly kind: "USER_NOT_FOUND" }
   | { readonly kind: "FOUND"; readonly portfolio: PortfolioState };
 
-/** ¿El side mueve acciones? (CASH_IN/CASH_OUT no son posiciones). */
-const isTradingMovement = (movement: SettledOrderMovement): boolean =>
+/**
+ * ¿El side mueve acciones? (CASH_IN/CASH_OUT no son posiciones). El type
+ * guard deja accesible `instrumentId` — que los movimientos de cash NO
+ * tienen — sólo después del narrowing.
+ */
+const isTradingMovement = (
+  movement: SettledOrderMovement,
+): movement is TradingSettledOrderMovement =>
   movement.side === "BUY" || movement.side === "SELL";
 
 /**

@@ -23,6 +23,7 @@ import {
   apiErrorBody,
   serializeMoneyArs,
   serializePct,
+  serializeQuantityShares,
 } from "../../contracts/index.js";
 import type { PortfolioResponse } from "../../contracts/index.js";
 import type {
@@ -52,7 +53,8 @@ const toPortfolioResponse = (
   positions: portfolio.positions.map((position) => ({
     ticker: position.ticker,
     name: position.name,
-    quantity: position.quantityShares,
+    // bigint interno → string entero canónico (JSON no representa bigint).
+    quantity: serializeQuantityShares(position.quantityShares),
     marketValue:
       position.marketValueArs === null
         ? null
