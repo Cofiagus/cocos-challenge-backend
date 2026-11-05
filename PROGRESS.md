@@ -16,7 +16,7 @@
 | LM-C0 | Tipos discriminados y schemas quantity/size (base LM-A 607c138) | EN EJECUCIÓN (ds_flash, cell/large-money-domain) | contratos aislados; consumidores pendientes |
 | LM-C1 | Dominio, casos de uso y HTTP; depende de seams LM-C0 | PENDIENTE | unit dominio/application/HTTP |
 | LM-D | Mappers, repos e idempotencia histórica; depende de seams LM-C y schema LM-B | PENDIENTE | integración PG real y concurrencia |
-| LM-E-docs | README/docs/colección del contrato aprobado; rama cell/large-money-docs | EN EJECUCIÓN (glm_flash) | docs/typecheck/lint; integración tras código |
+| LM-E-docs | README/docs/colección del contrato aprobado; rama cell/large-money-docs | REVISIÓN: 12 tests/docs y typecheck/lint re-corridos; corregir marcador patch y ejemplo cash numérico | No integrado aún |
 | LM-E-wire | OpenAPI y adaptación funcional; depende de código estable | PENDIENTE | docs/funcionales |
 | LM-QA | Revisión independiente de diff e invariantes | PENDIENTE | no merge a main sin firma adicional |
 
