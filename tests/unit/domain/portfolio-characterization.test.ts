@@ -15,7 +15,7 @@ import {
   SEED_INSTRUMENT_PAMP_ID,
 } from "../../helpers/fixtures.js";
 import {
-  buildMovement,
+  buildTradingMovement,
   buildSnapshot,
   positionOfInstrument,
 } from "./helpers.js";
@@ -23,7 +23,7 @@ import {
 describe("derivePositions — caracterización", () => {
   it("snapshot duplicado con la misma fecha: conserva el PRIMERO (date estricto)", () => {
     const movements = [
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_PAMP_ID,
         side: "BUY",
         sizeShares: 10,
@@ -53,13 +53,13 @@ describe("derivePositions — caracterización", () => {
 
   it("posición negativa SIN snapshot: se lista tal cual, sin precio ni retorno", () => {
     const movements = [
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_BMA_ID,
         side: "BUY",
         sizeShares: 20,
         priceArs: "150.00",
       }),
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_BMA_ID,
         side: "SELL",
         sizeShares: 30,
@@ -71,7 +71,7 @@ describe("derivePositions — caracterización", () => {
       derivePositions(movements, []),
       SEED_INSTRUMENT_BMA_ID,
     );
-    expect(position.quantityShares).toBe(-10);
+    expect(position.quantityShares).toBe(-10n);
     expect(position.weightedAverageCostArs.toFixed(2)).toBe("150.00");
     expect(position.marketValueArs).toBeNull();
     expect(position.priceAvailable).toBe(false);
@@ -80,19 +80,19 @@ describe("derivePositions — caracterización", () => {
 
   it("cantidad 0 se omite: no aparece la posición cerrada, sí la que queda abierta", () => {
     const movements = [
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_PAMP_ID,
         side: "BUY",
         sizeShares: 10,
         priceArs: "100.00",
       }),
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_PAMP_ID,
         side: "SELL",
         sizeShares: 10,
         priceArs: "101.00",
       }),
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_METR_ID,
         side: "BUY",
         sizeShares: 5,
@@ -108,10 +108,10 @@ describe("derivePositions — caracterización", () => {
 
   it("ordena ASCENDENTE por instrumentId aunque las filas vengan desordenadas", () => {
     const movements = [
-      buildMovement({ instrumentId: 54, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
-      buildMovement({ instrumentId: SEED_INSTRUMENT_PAMP_ID, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
-      buildMovement({ instrumentId: SEED_INSTRUMENT_BMA_ID, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
-      buildMovement({ instrumentId: 54, side: "BUY", sizeShares: 2, priceArs: "1.00" }),
+      buildTradingMovement({ instrumentId: 54, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
+      buildTradingMovement({ instrumentId: SEED_INSTRUMENT_PAMP_ID, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
+      buildTradingMovement({ instrumentId: SEED_INSTRUMENT_BMA_ID, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
+      buildTradingMovement({ instrumentId: 54, side: "BUY", sizeShares: 2, priceArs: "1.00" }),
     ];
 
     expect(
@@ -121,7 +121,7 @@ describe("derivePositions — caracterización", () => {
 
   it("venta sin compras previas: cantidad negativa, costo 0 y retorno indefinido", () => {
     const movements = [
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_PAMP_ID,
         side: "SELL",
         sizeShares: 5,
@@ -138,7 +138,7 @@ describe("derivePositions — caracterización", () => {
       ]),
       SEED_INSTRUMENT_PAMP_ID,
     );
-    expect(position.quantityShares).toBe(-5);
+    expect(position.quantityShares).toBe(-5n);
     expect(position.weightedAverageCostArs.toFixed(2)).toBe("0.00");
     expect(position.marketValueArs?.toFixed(2)).toBe("-250.00");
     expect(position.totalReturnPctX100).toBeNull();
