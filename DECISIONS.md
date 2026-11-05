@@ -1,4 +1,6 @@
-- Precio de referencia: última fila de `marketdata` por `date` (no `datetime`).
+- Precio de referencia: última fila de `marketdata` por `date` (no `datetime`),
+  para portfolio y órdenes (UC-1/3/4/5; la búsqueda UC-2 usa cotizaciones actuales
+  de Yahoo, ver entrada propia más abajo).
   Sin precio: `marketValue: null`, `priceAvailable: false`, no suma al total,
   y las órdenes que lo necesiten se rechazan con `NO_PRICE`.
 - MARKET: se ejecuta al precio de referencia, FILLED en la misma transacción.
@@ -38,5 +40,18 @@
   `POST /api/users/:userId/orders`, `DELETE /api/orders/:orderId`,
   `POST /api/users/:userId/transfers`.
 - MONEDA: no operable, no aparece en búsqueda ni en portfolio.positions.
+- Búsqueda UC-2 — REAPERTURA EXCLUSIVA de Yahoo (decisión del usuario, spec
+  `specs/instruments-current-quotes.md` Rev. 2): query ausente/vacía/sólo
+  espacios => listado inicial; `limit` default 10 (entero 1..100); match parcial
+  case-insensitive por ticker/name, MONEDA excluida, orden ticker asc.
+  Cotización ACTUAL de Yahoo con símbolo directo `ticker + ".BA"` (sin mapping):
+  `price` = último precio de sesión disponible, `previousClose` = cierre de la
+  sesión anterior (no histórico arbitrario ni precio instantáneo). Ticker sin
+  cotización válida => se OMITE y el cupo se completa con los siguientes
+  candidatos (sin fallback al seed; puede haber menos resultados). Yahoo
+  indisponible/timeout/rate-limit/red => 503 `MARKET_DATA_SERVICE_UNAVAILABLE`
+  (ni array vacío ni listado parcial como éxito). Dinero de salida string con
+  2 decimales; `dailyVariationPct` number. Yahoo sigue FUERA de ingesta,
+  matching y `price_ticks`; UC-1/3/4/5 no usan Yahoo.
 - Índices: una sola fuente (`prisma/schema.prisma`). Mínimos: `(status, instrumentId)`,
   `(userId, status)`, `marketdata(instrumentId, date DESC)`.
