@@ -8,13 +8,13 @@
 // Dinero (AGENTS.md): los esperados se computan con Decimal construido
 // desde strings y se comparan como Decimal — nunca float.
 
-import { Decimal } from "decimal.js";
 import express from "express";
 import type { Express } from "express";
 import request, { type Response } from "supertest";
 import {
   IDEMPOTENCY_KEY_HEADER,
   type ApiErrorBody,
+  FinancialDecimal,
   type OrderResponse,
   type OrderType,
   type PortfolioResponse,
@@ -80,9 +80,9 @@ export interface OrderPayload {
   readonly type: OrderType;
   readonly timeInForce?: TimeInForce;
   readonly size?: number;
-  /** Dinero: número o string en el wire (PositiveArsInputSchema). */
-  readonly amountArs?: number | string;
-  readonly price?: number | string;
+  /** Dinero (D3): string decimal canónico — los number JSON se rechazan 400. */
+  readonly amountArs?: string;
+  readonly price?: string;
 }
 
 /** POST /api/users/:userId/orders (UC-3), con Idempotency-Key opcional. */
@@ -124,7 +124,10 @@ export const asErrorBody = (res: Response): ApiErrorBody =>
 
 /** size (acciones) × precio (string ARS) → string ARS exacto con 2 decimales. */
 export const costArs = (size: number, priceArs: string): string =>
-  new Decimal(String(size)).mul(new Decimal(priceArs)).toDecimalPlaces(2).toFixed(2);
+  new FinancialDecimal(String(size))
+    .mul(new FinancialDecimal(priceArs))
+    .toDecimalPlaces(2, FinancialDecimal.ROUND_HALF_UP)
+    .toFixed(2);
 
 /**
  * Cash disponible esperado después de un delta: before ± delta (Decimal
@@ -135,26 +138,35 @@ export const expectedCashAfter = (
   cashBefore: unknown,
   deltaArs: string,
 ): string => {
-  if (typeof cashBefore !== "number") {
+  if (typeof cashBefore !== "string") {
     throw new Error(
-      `GET /portfolio no devolvió cash numérico (llegó ${String(cashBefore)}) — ¿endpoint de portfolio no montado?`,
+      `GET /portfolio no devolvió cash como string monetario (llegó ${String(cashBefore)}) — ¿endpoint de portfolio no montado?`,
     );
   }
-  return new Decimal(String(cashBefore))
-    .plus(new Decimal(deltaArs))
+  return new FinancialDecimal(cashBefore)
+    .plus(new FinancialDecimal(deltaArs))
     .toFixed(2);
 };
 
 /**
- * Assert de dinero serializado: el número JSON del contrato (MoneyArs,
- * ≤2 decimales) debe representar EXACTAMENTE el monto esperado. La
- * comparación es Decimal(String(actual)) vs Decimal(expected), nunca float.
+ * Assert de dinero serializado: el valor del contrato (MoneyArs, string con
+ * EXACTAMENTE 2 decimales, D3) debe representar EXACTAMENTE el monto
+ * esperado y con forma canónica: un number JSON NO es un money válido
+ * (la compatibilidad silenciosa ocultaría una regresión de contrato). La
+ * comparación es Decimal(actual) vs Decimal(expected), construidos desde
+ * string — nunca float.
  */
+const MONEY_OUTPUT_GRAMMAR = /^-?(?:0|[1-9][0-9]*)\.[0-9]{2}$/;
+
 export const expectMoneyArs = (actual: unknown, expectedArs: string): void => {
-  if (typeof actual !== "number") {
+  if (
+    typeof actual !== "string" ||
+    !MONEY_OUTPUT_GRAMMAR.test(actual) ||
+    actual === "-0.00"
+  ) {
     throw new Error(
-      `Se esperaba money serializado (number) igual a ${expectedArs}; llegó: ${String(actual)}`,
+      `Se esperaba money serializado (string canónico de 2 decimales) igual a ${expectedArs}; llegó: ${String(actual)}`,
     );
   }
-  expect(new Decimal(String(actual)).toFixed(2)).toBe(expectedArs);
+  expect(new FinancialDecimal(actual).toFixed(2)).toBe(expectedArs);
 };
