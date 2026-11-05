@@ -6,15 +6,16 @@
 // `DATABASE_URL` se fija al destino aislado de esta suite antes de usar Prisma;
 // los repositorios y fixtures apuntan a la misma base de test.
 //
-// Dinero (AGENTS.md): los esperados se computan con Decimal construido desde
-// strings y se comparan como Decimal — nunca float.
+// Dinero (AGENTS.md): los esperados se computan con el constructor financiero
+// (FinancialDecimal, contracts) construido desde strings y se comparan como
+// Decimal — nunca float.
 
 import { databaseUrlForTestName } from "../../helpers/test-database-url.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { Decimal } from "decimal.js";
 import type { Express } from "express";
 import { Pool, type QueryResultRow } from "pg";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import { buildApp } from "../../../src/http/app.js";
 import { buildOrdersRouter } from "../../../src/http/orders/orders-router.js";
 import { buildPortfolioRouter } from "../../../src/http/portfolio/portfolio-router.js";
@@ -100,7 +101,8 @@ export interface SubmitOrderRow {
   readonly userid: number | null;
   readonly side: string | null;
   readonly status: string | null;
-  readonly size: number | null;
+  /** NUMERIC(24,2) (D1/D2): pg lo devuelve como string — acciones o pesos. */
+  readonly size: string | null;
   readonly price: string | null;
   readonly "filledPrice": string | null;
   readonly "timeInForce": string;
@@ -130,7 +132,8 @@ export const insertTestOrder = async (order: {
   readonly userId: number;
   readonly instrumentId: number;
   readonly side: string;
-  readonly size: number;
+  /** Unidad física de `size` (D2): acciones (BUY/SELL) o pesos (CASH_*). */
+  readonly size: string;
   readonly priceArs: string;
 }): Promise<void> => {
   await dbQuery(
@@ -141,13 +144,17 @@ export const insertTestOrder = async (order: {
   );
 };
 
-/** Cash liquidado (cashSettled) proyectado con COALESCE (ver arriba) — string ARS. */
+/**
+ * Cash liquidado (cashSettled) proyectado por UNIDAD (D2): cash mueve su
+ * `size` (pesos exactos); BUY/SELL mueve size × COALESCE(filledPrice, price)
+ * — string ARS.
+ */
 export const sqlCashSettledArs = async (userId: number): Promise<string> => {
   const rows = await dbQuery<{ cash: string }>(
     `SELECT COALESCE(sum(CASE side
-             WHEN 'CASH_IN'  THEN  size * COALESCE("filledPrice", price)
+             WHEN 'CASH_IN'  THEN  size
              WHEN 'SELL'     THEN  size * COALESCE("filledPrice", price)
-             WHEN 'CASH_OUT' THEN -size * COALESCE("filledPrice", price)
+             WHEN 'CASH_OUT' THEN -size
              WHEN 'BUY'      THEN -size * COALESCE("filledPrice", price)
            END), 0) AS cash
        FROM orders
@@ -162,7 +169,9 @@ export const sqlCashAfter = (
   cashBeforeArs: string,
   deltaArs: string,
 ): string =>
-  new Decimal(cashBeforeArs).plus(new Decimal(deltaArs)).toFixed(2);
+  new FinancialDecimal(cashBeforeArs)
+    .plus(new FinancialDecimal(deltaArs))
+    .toFixed(2);
 
 /** Usuario fresco (sin órdenes) para aislar cada test — fixture de estado, sin repos. */
 export const insertTestUser = async (email: string): Promise<number> => {
@@ -177,7 +186,11 @@ export const insertTestUser = async (email: string): Promise<number> => {
   return id;
 };
 
-/** CASH_IN FILLED (estilo legacy: price = ejecución) ⇒ cash += amountArs. */
+/**
+ * CASH_IN FILLED con la unidad vigente (D2/D4): el monto EXACTO viaja en
+ * `size` (pesos, con centavos) y el precio unitario es 1.00 — sin sizing de
+ * acciones ni floor. `requireCashUnitPrice` (mappers) exige ese 1.00 al leer.
+ */
 export const insertTestCashIn = async (
   userId: number,
   amountArs: string,
@@ -186,8 +199,8 @@ export const insertTestCashIn = async (
     userId,
     instrumentId: SEED_INSTRUMENT_ARS_ID, // ARS: el instrumento del cash (docs §2)
     side: "CASH_IN",
-    size: 1,
-    priceArs: amountArs,
+    size: amountArs,
+    priceArs: "1.00",
   });
 };
 
@@ -204,14 +217,14 @@ export const countSubmitOrdersWithIdempotencyKey = async (
 };
 
 // ---------------------------------------------------------------------------
-// Dinero: helpers de esperados (Decimal desde strings, nunca float)
+// Dinero: helpers de esperados (FinancialDecimal desde strings, nunca float)
 // ---------------------------------------------------------------------------
 
 /** size (acciones) × precio (string ARS) → string ARS exacto con 2 decimales. */
 export const costArs = (size: number, priceArs: string): string =>
-  new Decimal(String(size))
-    .mul(new Decimal(priceArs))
-    .toDecimalPlaces(2)
+  new FinancialDecimal(String(size))
+    .mul(new FinancialDecimal(priceArs))
+    .toDecimalPlaces(2, FinancialDecimal.ROUND_HALF_UP)
     .toFixed(2);
 
 /** Cash esperado después de un delta: before ± delta (Decimal, nunca float). */
@@ -219,22 +232,34 @@ export const expectedCashAfter = (
   cashBefore: unknown,
   deltaArs: string,
 ): string => {
-  if (typeof cashBefore !== "number") {
+  if (typeof cashBefore !== "string") {
     throw new Error(
-      `GET /portfolio no devolvió cash numérico (llegó ${String(cashBefore)}).`,
+      `GET /portfolio no devolvió cash como string monetario (llegó ${String(cashBefore)}).`,
     );
   }
-  return new Decimal(String(cashBefore))
-    .plus(new Decimal(deltaArs))
+  return new FinancialDecimal(cashBefore)
+    .plus(new FinancialDecimal(deltaArs))
     .toFixed(2);
 };
 
-/** Assert de dinero serializado: Decimal(String(actual)) === Decimal(expected). */
+/**
+ * Assert de dinero serializado: el valor del contrato (MoneyArs, string con
+ * EXACTAMENTE 2 decimales, D3) debe representar EXACTAMENTE el monto
+ * esperado y con forma canónica; un number JSON NO es money válido. La
+ * comparación es Decimal(actual) vs Decimal(expected), construidos desde
+ * string — nunca float.
+ */
+const MONEY_OUTPUT_GRAMMAR = /^-?(?:0|[1-9][0-9]*)\.[0-9]{2}$/;
+
 export const expectMoneyArs = (actual: unknown, expectedArs: string): void => {
-  if (typeof actual !== "number") {
+  if (
+    typeof actual !== "string" ||
+    !MONEY_OUTPUT_GRAMMAR.test(actual) ||
+    actual === "-0.00"
+  ) {
     throw new Error(
-      `Se esperaba money serializado (number) igual a ${expectedArs}; llegó: ${String(actual)}`,
+      `Se esperaba money serializado (string canónico de 2 decimales) igual a ${expectedArs}; llegó: ${String(actual)}`,
     );
   }
-  expect(new Decimal(String(actual)).toFixed(2)).toBe(expectedArs);
+  expect(new FinancialDecimal(actual).toFixed(2)).toBe(expectedArs);
 };
