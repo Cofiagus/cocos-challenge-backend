@@ -3,8 +3,9 @@
 @base_url = http://localhost:3000
 
 ### MARKET BUY con size — 201 FILLED al precio de referencia
-# User 1 (seed: cash disponible 627500). Respuesta real verificada: price null (no lleva
-# límite), filledPrice = close de la última vela (PAMP 925.85), FILLED en la misma transacción.
+# User 1 (seed: cash disponible "627500.00"). Contrato aprobado: size de trading es number
+# entero; price null (MARKET no lleva límite); filledPrice string monetario = close de la
+# última vela (PAMP "925.85"); FILLED en la misma transacción.
 POST {{base_url}}/api/users/1/orders
 Content-Type: application/json
 
@@ -16,7 +17,8 @@ Content-Type: application/json
 }
 
 ### MARKET BUY con amountArs (monto total en pesos) — 201 FILLED
-# size = floor(amountArs / precio de referencia) = floor(1000 / 925.85) = 1; el residuo queda como cash.
+# El monto entra como string decimal estricto (un JSON number => 400).
+# size = floor(amountArs / precio de referencia) = floor(1000.00 / 925.85) = 1; el residuo queda como cash.
 POST {{base_url}}/api/users/1/orders
 Content-Type: application/json
 
@@ -24,11 +26,12 @@ Content-Type: application/json
   "ticker": "PAMP",
   "side": "BUY",
   "type": "MARKET",
-  "amountArs": 1000
+  "amountArs": "1000.00"
 }
 
-### LIMIT GTC (default) — 201 NEW (siempre queda resting)
-# Reserva limit × size de cash (10 × 900). No se llena al enviar.
+### Dinero como JSON number — 400 VALIDATION_ERROR (sin crear orden)
+# El contrato aprobado rechaza el number aunque sea pequeño: el parser JSON ya pudo
+# perder cifras y la aplicación no puede recuperarlas.
 POST {{base_url}}/api/users/1/orders
 Content-Type: application/json
 
@@ -40,8 +43,21 @@ Content-Type: application/json
   "price": 900
 }
 
+### LIMIT GTC (default) — 201 NEW (siempre queda resting)
+# price como string monetario. Reserva limit × size de cash ("900.00" × 10). No se llena al enviar.
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 10,
+  "price": "900.00"
+}
+
 ### MARKET sin fondos (user 2 del seed no tiene cash) — 201 REJECTED INSUFFICIENT_FUNDS
-# Respuesta real verificada. El rechazo del negocio SE PERSISTE (201), no es error HTTP.
+# El rechazo del negocio SE PERSISTE (201), no es error HTTP.
 POST {{base_url}}/api/users/2/orders
 Content-Type: application/json
 
@@ -72,7 +88,21 @@ Content-Type: application/json
   "side": "BUY",
   "type": "MARKET",
   "size": 10,
-  "price": 900
+  "price": "900.00"
+}
+
+### Dinero fuera de la gramática (exponente) — 400 VALIDATION_ERROR
+# Gramática: hasta 22 dígitos enteros + 2 decimales, punto decimal; sin exponente,
+# separadores, "+", espacios ni ceros iniciales (salvo el 0 propio).
+POST {{base_url}}/api/users/1/orders
+Content-Type: application/json
+
+{
+  "ticker": "PAMP",
+  "side": "BUY",
+  "type": "LIMIT",
+  "size": 10,
+  "price": "9.0e2"
 }
 
 ### Instrumento MONEDA (ARS, id 66) — 400 INSTRUMENT_NOT_OPERABLE
@@ -120,8 +150,8 @@ Content-Type: application/json
   "size": 10
 }
 
-### IOC que CRUZA (límite 930 >= ref 925.85) — 201 FILLED con mejora a 925.85
-# BUY paga min(límite, referencia). Respuesta real verificada.
+### IOC que CRUZA (límite 930.00 >= ref 925.85) — 201 FILLED con mejora a "925.85"
+# BUY paga min(límite, referencia); filledPrice como string monetario.
 POST {{base_url}}/api/users/1/orders
 Content-Type: application/json
 
@@ -131,10 +161,10 @@ Content-Type: application/json
   "type": "LIMIT",
   "timeInForce": "IOC",
   "size": 10,
-  "price": 930
+  "price": "930.00"
 }
 
-### IOC que NO cruza (límite 100 < ref 925.85) — 201 CANCELLED NO_IMMEDIATE_MATCH
+### IOC que NO cruza (límite 100.00 < ref 925.85) — 201 CANCELLED NO_IMMEDIATE_MATCH
 # Evaluación única contra la referencia; sin fills parciales.
 POST {{base_url}}/api/users/1/orders
 Content-Type: application/json
@@ -145,13 +175,13 @@ Content-Type: application/json
   "type": "LIMIT",
   "timeInForce": "IOC",
   "size": 10,
-  "price": 100
+  "price": "100.00"
 }
 
-### Idempotencia — mismo payload, misma key (los tres con esta key idéntica salvo `size`)
+### Idempotencia — mismo payload, misma key (los tres con esta key idéntica salvo `price`)
 # 1) Crea la orden (acá REJECTED por fondos — user 2 no tiene cash). Anotá el `id`.
 # 2) MISMA key + MISMO payload → 201 con la orden ORIGINAL (mismo id, sin nuevo evento).
-# 3) MISMA key + OTRO payload (size 2) → 409 IDEMPOTENCY_CONFLICT.
+# 3) MISMA key + OTRO payload (price "101.00") → 409 IDEMPOTENCY_CONFLICT.
 POST {{base_url}}/api/users/2/orders
 Content-Type: application/json
 Idempotency-Key: demo-key-1
@@ -161,7 +191,7 @@ Idempotency-Key: demo-key-1
   "side": "BUY",
   "type": "LIMIT",
   "size": 1,
-  "price": 100
+  "price": "100.00"
 }
 
 ###
@@ -174,7 +204,7 @@ Idempotency-Key: demo-key-1
   "side": "BUY",
   "type": "LIMIT",
   "size": 1,
-  "price": 100
+  "price": "100.00"
 }
 
 ###
@@ -186,8 +216,8 @@ Idempotency-Key: demo-key-1
   "ticker": "PAMP",
   "side": "BUY",
   "type": "LIMIT",
-  "size": 2,
-  "price": 100
+  "size": 1,
+  "price": "101.00"
 }
 
 ### Header idempotency inválido (vacío) — 400 VALIDATION_ERROR

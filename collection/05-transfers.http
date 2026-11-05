@@ -3,9 +3,82 @@
 @base_url = http://localhost:3000
 
 ### Depósito CASH_IN — 201 FILLED inmediata
-# Transferencia = orden del instrumento MONEDA del cash (ARS id 66) con price 1.00 y
-# size = pesos. Respuesta real verificada: CASH_IN 123.45 acredita size 123 (entero en
-# pesos; el residual 0.45 queda en la metadata del evento, no acreditado).
+# Contrato aprobado (grandes montos): amountArs string decimal estricto; el monto se mueve
+# EXACTO, con centavos y sin floor. En la respuesta size es string monetario de pesos
+# ("123.45") y price/filledPrice "1.00".
+POST {{base_url}}/api/users/2/transfers
+Content-Type: application/json
+
+{
+  "amountArs": "123.45",
+  "side": "CASH_IN"
+}
+
+### Depósito de un centavo — 201 FILLED (ya no hay ZERO_SIZE de cash)
+# Con la spec aprobada la transferencia nueva mueve el monto exacto: "0.01" es válida.
+# El ZERO_SIZE queda para el sizing de acciones y los históricos.
+POST {{base_url}}/api/users/2/transfers
+Content-Type: application/json
+
+{
+  "amountArs": "0.01",
+  "side": "CASH_IN"
+}
+
+### Extracción CASH_OUT que excede el disponible — 201 REJECTED INSUFFICIENT_FUNDS
+# CASH_OUT compara el MONTO EXACTO contra el disponible dentro de la transacción.
+# En la respuesta size = el monto pedido como string ("1000000.00", no "0.00").
+# User 2 sin cash (salvo que ya corriste los depósitos de arriba: ajustá el monto).
+POST {{base_url}}/api/users/2/transfers
+Content-Type: application/json
+
+{
+  "amountArs": "1000000.00",
+  "side": "CASH_OUT"
+}
+
+### Extracción CASH_OUT contra el DISPONIBLE (no el settled) — 201 REJECTED
+# User 1 (seed): settled "753000.00" pero disponible "627500.00" (reservado "125500.00")
+# ⇒ "700000.00" > disponible ⇒ REJECTED. Elegido para que también rechace DESPUÉS de correr
+# 03/04 contra la misma base (esas corridas debitan cash y liberan la reserva de la orden 5,
+# dejando el disponible por debajo de 700000 de todos modos).
+POST {{base_url}}/api/users/1/transfers
+Content-Type: application/json
+
+{
+  "amountArs": "700000.00",
+  "side": "CASH_OUT"
+}
+
+### Idempotencia — misma key, mismo payload → 201 con la orden original (anotá el `id`)
+# Comportamiento general: la key es la primera escritura; el retry no duplica ni reejecuta.
+# Política para keys cash HISTÓRICAS (pedidas por 123.45 y persistidas como 123 pesos por el
+# contrato anterior): el retry con el mismo pedido original devuelve la fila original
+# ("size": "123.00") sin reacreditar el residuo; monto distinto o evidencia insuficiente
+# del evento de origen → 409. No se puede reproducir acá una key histórica real: requiere
+# una fila previa al despliegue (ver README → Migración coordinada).
+POST {{base_url}}/api/users/2/transfers
+Content-Type: application/json
+Idempotency-Key: demo-key-transfer-1
+
+{
+  "amountArs": "123.45",
+  "side": "CASH_IN"
+}
+
+### Idempotencia — misma key, monto DISTINTO — 409 IDEMPOTENCY_CONFLICT
+# Dos transferencias con la misma key pero montos que difieren por centavos
+# ("123.45" vs "123.99") dan 409, nunca colapsan por floor.
+POST {{base_url}}/api/users/2/transfers
+Content-Type: application/json
+Idempotency-Key: demo-key-transfer-1
+
+{
+  "amountArs": "123.99",
+  "side": "CASH_IN"
+}
+
+### Dinero como JSON number — 400 VALIDATION_ERROR (sin crear orden)
 POST {{base_url}}/api/users/2/transfers
 Content-Type: application/json
 
@@ -14,45 +87,12 @@ Content-Type: application/json
   "side": "CASH_IN"
 }
 
-### Extracción CASH_OUT que excede el disponible — 201 REJECTED INSUFFICIENT_FUNDS
-# Respuesta real verificada: size = el monto pedido (1000000, no 0). User 2 sin cash.
+### Monto inválido (negativo) — 400 VALIDATION_ERROR
 POST {{base_url}}/api/users/2/transfers
 Content-Type: application/json
 
 {
-  "amountArs": 1000000,
-  "side": "CASH_OUT"
-}
-
-### Extracción CASH_OUT contra el DISPONIBLE (no el settled) — 201 REJECTED
-# User 1 (seed): settled 753000 pero disponible 627500 (reservado 125500) ⇒ 700000
-# > disponible ⇒ REJECTED. Elegido para que también rechace DESPUÉS de correr 03/04
-# contra la misma base (esas corridas debitan cash y liberan la reserva de la orden 5,
-# dejando el disponible por debajo de 700000 de todos modos).
-POST {{base_url}}/api/users/1/transfers
-Content-Type: application/json
-
-{
-  "amountArs": 700000,
-  "side": "CASH_OUT"
-}
-
-### Monto menor a un peso — 201 REJECTED ZERO_SIZE
-# floor(0.50 / 1.00) = 0 ⇒ size 0, sub-caso del sizing de DECISIONS.md.
-POST {{base_url}}/api/users/2/transfers
-Content-Type: application/json
-
-{
-  "amountArs": 0.50,
-  "side": "CASH_IN"
-}
-
-### Monto inválido — 400 VALIDATION_ERROR (sin crear orden)
-POST {{base_url}}/api/users/2/transfers
-Content-Type: application/json
-
-{
-  "amountArs": -10,
+  "amountArs": "-10.00",
   "side": "CASH_IN"
 }
 
@@ -61,6 +101,6 @@ POST {{base_url}}/api/users/999/transfers
 Content-Type: application/json
 
 {
-  "amountArs": 100,
+  "amountArs": "100.00",
   "side": "CASH_IN"
 }

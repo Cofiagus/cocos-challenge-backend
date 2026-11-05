@@ -3,9 +3,10 @@
 @base_url = http://localhost:3000
 
 ### Cancelar una orden NEW del seed — 200 con la orden CANCELLED
-# Orden 5 del seed (LOMA BUY LIMIT 50 @ 710, status NEW). Respuesta real verificada:
-# 200 (no 201), reason null (la cancelación del usuario no lleva razón) y al volver a
-# consultar el portfolio baja el reservedCash (se libera la reserva de 50 × 710).
+# Orden 5 del seed (LOMA BUY LIMIT 50 @ 710, status NEW). Contrato aprobado: price string
+# monetario ("710.00"), size de trading number entero (50), reason null (la cancelación del
+# usuario no lleva razón). Al volver a consultar el portfolio baja el reservedCash en
+# "35500.00" (se libera la reserva de 50 × 710).
 DELETE {{base_url}}/api/orders/5
 
 ### Cancelar una orden que NO está NEW — 422 ORDER_NOT_CANCELLABLE

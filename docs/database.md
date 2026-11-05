@@ -13,6 +13,13 @@ Si algo cambia en la base, se regenera el snapshot con `make db-snapshot` (ver �
 > en `GTC`/`filledPrice NULL`). Para levantar una base de la app: `npx prisma migrate deploy` +
 > `psql -f db/seed.sql` — **no** `make db-load LEGACY=1` (ese aplica el snapshot legacy). Ver §2 y §6.
 
+> ⚠️ **Grandes montos (spec aprobada, D1–D5).** La migración **versionada nueva** (aún no aplicada;
+> el estado lo registra `PROGRESS.md`) amplia los campos financieros a `NUMERIC(24,2)`: `orders.price`,
+> `orders.filledPrice`, `orders.size` y los 5 precios de `marketdata`. Los IDs, FKs y secuencias
+> **quedan INTEGER** (sin UUID ni BIGINT de identificadores). La guía operativa de la ventana
+> coordinada vive en [`README.md` → Migración coordinada](../README.md#migración-coordinada-de-grandes-montos);
+> los tipos y CHECKs objetivo están en §9.
+
 ---
 
 ## 1. Panorama
@@ -83,6 +90,8 @@ Cobertura real: **solo 2023-07-13 y 2023-07-14**, 63 de los 66 instrumentos.
 Sin filas: `PGR` (id 3), `IRCP` (id 10) y `ARS` (id 66).
 Sin `UNIQUE (instrumentid, date)` → nada impide duplicar una vela.
 
+Los cinco precios quedan `numeric(10,2)` en el snapshot y en el esquema migrado vigente; la migración de grandes montos los amplia a `numeric(24,2)` conservando nombres, mapeos y nullabilidad.
+
 ### `orders`
 
 Tipos del **snapshot legacy**; en el esquema migrado `type`/`side`/`status` son enums nativos
@@ -143,6 +152,12 @@ Combinaciones presentes en el seed (11 órdenes, todas del user 1):
 `datetime` es `timestamp without time zone`: el seed está en hora local del mercado
 (2023-07-12 y 2023-07-13, entre 12:11 y 16:11).
 
+**Unidades en `size` (grandes montos):** físicamente una sola columna `numeric(24,2)`, dos unidades
+según `side` — en `BUY`/`SELL` es **cantidad de acciones enteras** (por orden 1..2147483647; `0`
+sólo en `REJECTED`), en `CASH_IN`/`CASH_OUT` es el **monto en pesos con centavos** (nuevas
+transferencias > 0, hasta el máximo D1). El valor `0` en cash queda reservado a los `REJECTED`
+históricos de `ZERO_SIZE`; una transferencia nueva nunca lo produce.
+
 ---
 
 ## 3. Cómo se derivan cash y posiciones
@@ -189,6 +204,10 @@ Las dos queries usan `coalesce("filledPrice", price)` porque la API guarda el pr
 ejecución en `filledPrice` (y en `price` el límite, o `NULL` en `MARKET`); sólo las filas
 legacy del seed lo tienen en `price`. Los números de esta sección no cambian: el seed tiene
 `filledPrice NULL` en todas sus filas.
+
+Tras la migración de grandes montos estas queries no cambian: operan sobre `numeric(24,2)` y
+devuelven `numeric` exacto (la API serializa el dinero como string de 2 decimales; el SQL nunca
+convierte plata a float).
 
 `db/queries/portfolio.sql` reproduce exactamente estos números — se validó cargando
 `db/schema.sql` + `db/seed.sql` en un PostgreSQL 18 limpio y comparando contra el resultado
@@ -282,7 +301,7 @@ Faltantes que sí importan cuando el volumen crezca (no ahora):
 | `marketdata (instrumentid, date DESC)` **UNIQUE**    | El índice ya existe en la migración; falta el UNIQUE, que evita velas duplicadas |
 | `instruments (ticker)` **UNIQUE**                    | Búsqueda por ticker y dedupe                                     |
 | `users (email)` **UNIQUE**                           | Login / alta                                                    |
-| `CHECK (size > 0)`                                   | `size` no tiene validación en la DB (los enums del migrado sí acotan `side`) |
+| `CHECK (size > 0)`                                   | `size` no tiene validación general en la DB; la migración de grandes montos agrega CHECKs **acotados a los campos financieros modificados** (ver §9) — no esta regla amplia |
 | `orders.status NOT NULL DEFAULT 'NEW'`               | Hoy todo es nullable: un `INSERT` sin status rompe la proyección |
 
 Están escritos y comentados en `db/indexes.sql` — **no** los apliques sobre Neon sin querer.
@@ -363,3 +382,38 @@ SELECT id, ticker, name, type FROM instruments
 WHERE ticker ILIKE '%' || $1 || '%' OR name ILIKE '%' || $1 || '%'
 ORDER BY ticker LIMIT 20;
 ```
+
+---
+
+## 9. Grandes montos: tipos y CHECKs de la migración versionada
+
+Objetivo aprobado (spec `specs/datos-financieros-grandes-montos.md` §2, D1/D2/D5) — migración
+nueva versionada, create-only, **aún no aplicada**:
+
+| Campos | Hoy (migrado vigente) | Con la migración |
+| --- | --- | --- |
+| `orders.price`, `orders.filledPrice` | `numeric(10,2)` | `numeric(24,2)` — máximo por fila `9999999999999999999999.99`; NULL se conserva donde corresponde |
+| `orders.size` | `integer` | `numeric(24,2)`, **entero almacenado** en BUY/SELL; pesos con centavos en cash |
+| `marketdata.high`, `low`, `open`, `close`, `previousClose` | `numeric(10,2)` | `numeric(24,2)`, no negativos; se conserva el caso de precio 0 |
+| IDs, FKs, secuencias | `integer` | **Sin cambios** — no UUID, no BIGINT de identificadores |
+
+CHECKs acotados a los campos financieros modificados (excepción firmada D5 a "no editar
+migraciones"; sólo la migración nueva, nunca la inicial ni los snapshots SQL):
+
+- Todo precio no nulo debe ser finito; precio de orden positivo.
+- `size` no nulo: finito y no negativo. En BUY/SELL, entero y ≤ 2147483647; `size 0` sólo
+  compatible con `REJECTED`. En cash, `0` sólo para los `REJECTED` históricos de `ZERO_SIZE`.
+- Un NULL financiero ya permitido **no** se reemplaza por cero; la nullabilidad legacy no se
+  endurece en este trabajo.
+- No se agregan constraints de email/ticker, índices nuevos, triggers de estados ni cambios al
+  mecanismo de idempotencia.
+
+**Límite honesto:** `NUMERIC(24,2)` puede redondear una entrada SQL con escala mayor a 2
+**antes** de que un CHECK la evalúe; el borde Zod la rechaza antes de persistir. Los CHECKs
+garantizan el valor almacenado, no reconstruyen la precisión de escrituras SQL externas.
+
+El seed del challenge **carga sin editarse** sobre el esquema final y conserva sus valores por
+valor (cash disponible 627500.00, reservado 125500.00, patrimonio 889756.00; PAMP 40, METR 500,
+BMA −10): lo que cambia es la forma JSON en que la API los representa, no el dinero persistido.
+El procedimiento de despliegue (pausa de escrituras, backup, preflight, ensayo, rollback) está en
+[`README.md` → Migración coordinada](../README.md#migración-coordinada-de-grandes-montos).

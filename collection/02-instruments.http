@@ -3,7 +3,8 @@
 @base_url = http://localhost:3000
 
 ### Búsqueda por ticker — 200, array plano (sin wrapper)
-# Respuesta real verificada: price = close de la última marketdata por date (2023-07-14).
+# price = close de la última marketdata por date (2023-07-14) como string monetario
+# ("229.50" para METR); previousClose "232.00"; dailyVariationPct sigue siendo number.
 # MONEDA (ARS) nunca aparece en los resultados.
 GET {{base_url}}/api/instruments?query=METR
 
