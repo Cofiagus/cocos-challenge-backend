@@ -2,7 +2,9 @@
 
 API REST para consultar el portfolio de un usuario, buscar instrumentos, enviar órdenes al mercado (`MARKET` / `LIMIT`), cancelar órdenes en estado `NEW` y registrar transferencias de cash (`CASH_IN` / `CASH_OUT`).
 
-> Resolución del challenge técnico. **No hay tabla de cash ni de posiciones: ambas son proyecciones de `orders`** (ver [docs/database.md](docs/database.md)). Los comandos del quickstart y los ejemplos de los endpoints salen de corridas contra PostgreSQL 18 con el seed cargado.
+> Resolución del challenge técnico. **No hay tabla de cash ni de posiciones: ambas son proyecciones de `orders`** (ver [docs/database.md](docs/database.md)). Los comandos del quickstart y los ejemplos de los endpoints salen de corridas contra PostgreSQL 18 con el seed cargado (contrato anterior al de grandes montos).
+
+> **Grandes montos (spec aprobada):** [`specs/datos-financieros-grandes-montos.md`](specs/datos-financieros-grandes-montos.md) Rev. 2 (D1–D5 firmadas) cambia el formato del dinero en todo el contrato: entra como **string decimal estricto**, sale como **string con 2 decimales**, `quantity` del portfolio es **string entero** y el `size` de la respuesta es `number` en órdenes de trading pero **string monetario** en transferencias. Es un **cambio incompatible** con el contrato anterior (dinero `number`): los clientes se actualizan en coordinación con el despliegue (ver [Migración coordinada](#migración-coordinada-de-grandes-montos)). El estado de la implementación lo registra `PROGRESS.md`; los ejemplos de este README muestran el contrato aprobado, no una corrida ya ejecutada contra él.
 
 ## Quickstart
 
@@ -29,7 +31,7 @@ El seed modifica datos; no lo ejecutes sobre una base con datos que quieras cons
 npm run dev
 ```
 
-Verificación: `curl http://localhost:3000/api/users/1/portfolio` → `200` con `"totalAccountValue": 889756` **cuando** la DB contiene el seed del challenge.
+Verificación: `curl http://localhost:3000/api/users/1/portfolio` → `200` con `"totalAccountValue": "889756.00"` **cuando** la DB contiene el seed del challenge.
 
 **Configuración:** copiá `.env.example` a `.env` y reemplazá el placeholder de `DATABASE_URL` por la URL de la base elegida. En producción, configurá `DATABASE_URL` en el entorno/secret manager; no subas `.env` ni pegues credenciales en el repositorio. Para tests destructivos configurá una `TEST_DATABASE_URL` independiente, incluso si apunta a otra DB del mismo servidor PostgreSQL.
 
@@ -43,7 +45,7 @@ Verificación: `curl http://localhost:3000/api/users/1/portfolio` → `200` con 
 | Framework HTTP | Express 5 |
 | Acceso a datos | Prisma 7 (`@prisma/client` 7.10.1 + `@prisma/adapter-pg` driver adapter) |
 | Validación | Zod 4 (borde HTTP estricto) |
-| Dinero | `decimal.js` — **nunca float** (ver [Supuestos](#supuestos-y-decisiones)) |
+| Dinero | `decimal.js` con constructor financiero aislado de precisión 64 — **nunca float**; entrada y salida HTTP en **string** (ver [Supuestos](#supuestos-y-decisiones)) |
 | Base de datos | PostgreSQL compatible con las migraciones de Prisma; la URL se configura por `DATABASE_URL` |
 | Testing | Jest 30 + ts-jest + supertest |
 
@@ -73,19 +75,31 @@ Body de error uniforme (todos los errores, 4xx y 5xx):
 
 > Los 11 códigos son `API_ERROR_CODES` en [`src/contracts/errors.ts`](src/contracts/errors.ts). El 500 responde `Error interno del servidor.` y el detalle (stack en una línea) queda en stderr.
 
+**Formato del dinero y las cantidades** (spec aprobada, D3):
+
+| Dato | Entra | Sale |
+| --- | --- | --- |
+| Dinero (`price`, `amountArs`, `filledPrice`, `cash`, `reservedCash`, `totalAccountValue`, `marketValue`, `previousClose`) | **string decimal estricto**: hasta 22 dígitos enteros y 2 decimales, punto decimal; sin exponente, separadores, `+`, espacios ni ceros iniciales (salvo el `0` propio). Un JSON `number` ⇒ 400: el parser ya pudo perder cifras. | **string con exactamente 2 decimales**, sin notación científica ni `-0.00`; `null` donde significa ausencia. |
+| `size` (trading) | `number` entero, 1..2147483647 (cota INT4 por orden, sin cambios) | `number` entero, o `null` según el caso vigente |
+| `size` (transferencias) | — (el monto viaja en `amountArs` string) | **string monetario** de pesos con 2 decimales (ej. `"123.45"`) |
+| `quantity` (portfolio) | — | **string entero canónico**, con signo para la negativa heredada |
+| Porcentajes (`totalReturnPct`, `dailyVariationPct`) | — | `number` (sin cambios) |
+
+El máximo por fila es `9999999999999999999999.99` (NUMERIC(24,2)); los agregados (`cash`, `totalAccountValue`, `quantity`) pueden superarlo por suma y siguen exactos.
+
 ### 1. Portfolio — `GET /api/users/:userId/portfolio`
 
 **Response 200** (base recién migrada y seedeada, user 1):
 
 ```json
 {
-  "cash": 627500,
-  "reservedCash": 125500,
-  "totalAccountValue": 889756,
+  "cash": "627500.00",
+  "reservedCash": "125500.00",
+  "totalAccountValue": "889756.00",
   "positions": [
-    { "ticker": "BMA",  "name": "Banco Macro S.A.",   "quantity": -10, "marketValue": -15028,  "priceAvailable": true, "totalReturnPct": -2.42 },
-    { "ticker": "PAMP", "name": "Pampa Holding S.A.", "quantity": 40,  "marketValue": 37034,   "priceAvailable": true, "totalReturnPct": -0.45 },
-    { "ticker": "METR", "name": "MetroGAS S.A.",      "quantity": 500, "marketValue": 114750, "priceAvailable": true, "totalReturnPct": -8.2 }
+    { "ticker": "BMA",  "name": "Banco Macro S.A.",   "quantity": "-10", "marketValue": "-15028.00",  "priceAvailable": true, "totalReturnPct": -2.42 },
+    { "ticker": "PAMP", "name": "Pampa Holding S.A.", "quantity": "40",  "marketValue": "37034.00",   "priceAvailable": true, "totalReturnPct": -0.45 },
+    { "ticker": "METR", "name": "MetroGAS S.A.",      "quantity": "500", "marketValue": "114750.00", "priceAvailable": true, "totalReturnPct": -8.2 }
   ]
 }
 ```
@@ -95,11 +109,11 @@ Body de error uniforme (todos los errores, 4xx y 5xx):
 | `cash` | Disponible para operar = `cashSettled − cashReserved` |
 | `reservedCash` | Reservado por órdenes `NEW` BUY (`limit × size`) |
 | `totalAccountValue` | `cash + reservedCash + Σ marketValue` de las posiciones **con** precio |
-| `positions[]` | `{ticker, name, quantity, marketValue, priceAvailable, totalReturnPct}` |
+| `positions[]` | `{ticker, name, quantity, marketValue, priceAvailable, totalReturnPct}` — `quantity` string entero, `marketValue` string monetario |
 
-`cash` = disponible, no el settled: 753000 − 125500 = 627500. `totalAccountValue` = 627500 + 125500 + 37034 + 114750 − 15028 = **889756** (la negativa BMA resta).
+`cash` = disponible, no el settled: 753000.00 − 125500.00 = 627500.00. `totalAccountValue` = 627500.00 + 125500.00 + 37034.00 + 114750.00 − 15028.00 = **889756.00** (la negativa BMA resta). Los valores del seed no cambian: cambia su **forma JSON** (string con 2 decimales).
 
-**Abrir o cancelar una orden no mueve el total**, sólo lo reparte: tras comprar 1 PAMP a mercado el `cash` baja a 626574.15 y la posición sube a 41 acciones (`marketValue` 37959.85), con el total todavía en 889756; al cancelar la orden 5 el `reservedCash` baja de 125500 a 90000 y el `cash` sube los mismos 35500, otra vez con el total en 889756.
+**Abrir o cancelar una orden no mueve el total**, sólo lo reparte: tras comprar 1 PAMP a mercado el `cash` baja a `"626574.15"` y la posición sube a `"41"` acciones (`marketValue` `"37959.85"`), con el total todavía en `"889756.00"`; al cancelar la orden 5 el `reservedCash` baja de `"125500.00"` a `"90000.00"` y el `cash` sube los mismos 35500, otra vez con el total en `"889756.00"`.
 
 - Sin precio de referencia: `marketValue: null`, `priceAvailable: false`, `totalReturnPct: null`, y **no suma** al total.
 - `MONEDA` (ARS) nunca aparece; posición con cantidad 0 no se lista; la negativa del seed (BMA −10) se lista tal cual.
@@ -119,14 +133,14 @@ curl "http://localhost:3000/api/instruments?query=METR"
     "ticker": "METR",
     "name": "MetroGAS S.A.",
     "type": "ACCIONES",
-    "price": 229.5,
-    "previousClose": 232,
+    "price": "229.50",
+    "previousClose": "232.00",
     "dailyVariationPct": -1.08
   }
 ]
 ```
 
-`price` = `close` de la última fila de `marketdata` por `date`; sin marketdata (ej. `PGR`, `IRCP`) → `price`/`previousClose`/`dailyVariationPct` en `null`.
+`price` = `close` de la última fila de `marketdata` por `date` (string monetario con 2 decimales; `dailyVariationPct` sigue siendo `number`); sin marketdata (ej. `PGR`, `IRCP`) → `price`/`previousClose`/`dailyVariationPct` en `null`.
 
 Errores: `400 VALIDATION_ERROR` — `query` vacía o ausente (`?query=` → 400), `limit` fuera de 1..100.
 
@@ -137,11 +151,13 @@ Errores: `400 VALIDATION_ERROR` — `query` vacía o ausente (`?query=` → 400)
 | Campo | Regla |
 | ----- | ----- |
 | `instrumentId` \| `ticker` | exactamente **uno** de los dos |
-| `size` \| `amountArs` | exactamente **uno**: acciones enteras 1..2147483647, o monto en ARS > 0 (número o string) del que se deriva `size = floor(amountArs / precio)` |
+| `size` \| `amountArs` | exactamente **uno**: acciones enteras 1..2147483647 (`size`, `number` — sin cambios), o monto en ARS > 0 como **string decimal estricto** (`amountArs`) del que se deriva `size = floor(amountArs / precio)` |
 | `side` | `BUY` \| `SELL` |
 | `type` | `MARKET` \| `LIMIT` |
-| `price` | > 0 **obligatorio si `LIMIT`** · **en `MARKET` se omite o va `null`** (un número ⇒ 400: se ejecuta al precio de referencia) |
+| `price` | **string monetario** > 0, **obligatorio si `LIMIT`** · **en `MARKET` se omite o va `null`** (un precio ⇒ 400: se ejecuta al precio de referencia) |
 | `timeInForce` | opcional: `GTC` (default) \| `IOC` \| `FOK` |
+
+El dinero **nunca viaja como JSON `number`**: `"price": "900.00"`, `"amountArs": "1000.00"`. Gramática de entrada: hasta 22 dígitos enteros y 2 decimales, punto decimal; sin exponente, separadores, `+`, espacios ni ceros iniciales (salvo el `0` propio). `"123.0"` y `"123.00"` son el mismo monto.
 
 **Header opcional:** `Idempotency-Key` (string de 1–64; ausente ⇒ sin idempotencia, inválido ⇒ 400).
 
@@ -163,7 +179,7 @@ curl -X POST http://localhost:3000/api/users/1/orders \
   "status": "FILLED",
   "size": 1,
   "price": null,
-  "filledPrice": 925.85,
+  "filledPrice": "925.85",
   "filledAt": "2026-11-04T09:54:58",
   "datetime": "2026-11-04T09:54:58",
   "reason": null
@@ -172,10 +188,12 @@ curl -X POST http://localhost:3000/api/users/1/orders \
 
 | Campo | Significado |
 | ----- | ----------- |
-| `price` | **límite enviado** (`LIMIT`); `null` en `MARKET` |
-| `filledPrice` | **precio de ejecución** si `FILLED`; `null` si no ejecutó |
+| `price` | **límite enviado** (`LIMIT`), string monetario; `null` en `MARKET` |
+| `filledPrice` | **precio de ejecución** si `FILLED`, string monetario; `null` si no ejecutó |
 | `reason` | `INSUFFICIENT_FUNDS` · `INSUFFICIENT_POSITION` · `ZERO_SIZE` · `NO_PRICE` · `NO_IMMEDIATE_MATCH`; `null` en `NEW`/`FILLED` y en la respuesta de un DELETE |
 | `datetime`/`filledAt` | ISO 8601 **sin offset** (timestamp sin zona, hora local del mercado) |
+
+**`size` de la respuesta, discriminado por side:** en `BUY`/`SELL` es `number` entero (o `null`); en transferencias `CASH_IN`/`CASH_OUT` es **string monetario** de pesos con 2 decimales — un cash histórico del seed de `size 123` se representa como `"123.00"`, sin cambiar el valor persistido.
 
 Comportamiento por tipo (precios de referencia del seed: PAMP 925.85, METR 229.50, BMA 1502.80 — última `marketdata` por `date`):
 
@@ -183,7 +201,7 @@ Comportamiento por tipo (precios de referencia del seed: PAMP 925.85, METR 229.5
 - `LIMIT GTC` → queda `NEW` (reserva `limit × size` de cash en BUY; `size` acciones en SELL), o `REJECTED` si no alcanza el cash/tenencia.
 - `LIMIT IOC/FOK` → una evaluación contra la referencia: cruza → `FILLED` **con mejora** (BUY a `min(límite, ref)`; SELL a `max`); no cruza → `CANCELLED` con `reason NO_IMMEDIATE_MATCH` (201).
 
-Errores: `400 VALIDATION_ERROR` (XORs, `LIMIT` sin `price`, `MARKET` con `price`, `size` fuera de 1..2147483647, header inválido) · `400 INSTRUMENT_NOT_OPERABLE` (MONEDA) · `404 USER_NOT_FOUND` · `404 INSTRUMENT_NOT_FOUND` · `409 IDEMPOTENCY_CONFLICT`. El rechazo del negocio **se persiste** (`201 REJECTED` con `reason`), no es error HTTP: fondos/tenencia insuficientes, `ZERO_SIZE`, `NO_PRICE`.
+Errores: `400 VALIDATION_ERROR` (XORs, `LIMIT` sin `price`, `MARKET` con `price`, dinero como `number` o fuera de la gramática monetaria, `size` fuera de 1..2147483647, `size` derivado de `amountArs` fuera de rango — 400 **sin ninguna escritura**, header inválido) · `400 INSTRUMENT_NOT_OPERABLE` (MONEDA) · `404 USER_NOT_FOUND` · `404 INSTRUMENT_NOT_FOUND` · `409 IDEMPOTENCY_CONFLICT`. El rechazo del negocio **se persiste** (`201 REJECTED` con `reason`), no es error HTTP: fondos/tenencia insuficientes, `ZERO_SIZE`, `NO_PRICE`.
 
 **Idempotencia** (ejemplos verificados, user 2 del seed):
 
@@ -191,7 +209,7 @@ Errores: `400 VALIDATION_ERROR` (XORs, `LIMIT` sin `price`, `MARKET` con `price`
 # 1º envío con key → crea la orden (acá REJECTED por fondos: user 2 no tiene cash)
 curl -X POST http://localhost:3000/api/users/2/orders \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-key-1' \
-  -d '{"ticker":"PAMP","side":"BUY","type":"LIMIT","size":1,"price":100}'
+  -d '{"ticker":"PAMP","side":"BUY","type":"LIMIT","size":1,"price":"100.00"}'
 → 201 {"id":13,...,"status":"REJECTED","reason":"INSUFFICIENT_FUNDS"}
 
 # Misma key + MISMO payload → la orden ORIGINAL (201, id 13, sin nuevo evento)
@@ -200,7 +218,7 @@ curl -X POST http://localhost:3000/api/users/2/orders \
 # Misma key + OTRO payload → 409
 curl -X POST http://localhost:3000/api/users/2/orders \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-key-1' \
-  -d '{"ticker":"PAMP","side":"BUY","type":"LIMIT","size":2,"price":100}'
+  -d '{"ticker":"PAMP","side":"BUY","type":"LIMIT","size":2,"price":"100.00"}'
 → 409 {"error":{"code":"IDEMPOTENCY_CONFLICT","message":"Idempotency-Key ya usada con otro payload (orden existente 13)."}}
 ```
 
@@ -213,7 +231,7 @@ Sólo órdenes `NEW`. **Response 200** con la `OrderResponse` cancelada (201 es 
 ```bash
 curl -X DELETE http://localhost:3000/api/orders/5   # orden NEW del seed (LOMA BUY LIMIT 50 @ 710)
 → 200 {"id":5,"instrumentId":45,"side":"BUY","type":"LIMIT","timeInForce":"GTC",
-       "status":"CANCELLED","size":50,"price":710,"filledPrice":null,"filledAt":null,
+       "status":"CANCELLED","size":50,"price":"710.00","filledPrice":null,"filledAt":null,
        "datetime":"2023-07-12T12:14:20","reason":null}
 ```
 
@@ -221,26 +239,30 @@ Al cancelar una `NEW` **se libera su reserva** (visible en `reservedCash` del po
 
 ### 5. Transferencias — `POST /api/users/:userId/transfers`
 
-**Request:** `{"amountArs": <monto en ARS > 0, número o string>, "side": "CASH_IN" | "CASH_OUT"}` · header `Idempotency-Key` opcional.
+**Request:** `{"amountArs": "<monto en ARS > 0 como string decimal estricto>", "side": "CASH_IN" | "CASH_OUT"}` · header `Idempotency-Key` opcional. Un JSON `number` ⇒ 400.
 
-Transferencia = **orden** del instrumento MONEDA del cash (ticker `ARS`, id 66) con `price = 1.00` y `size` = pesos (convención del seed). `CASH_IN` → `FILLED` inmediata; `CASH_OUT` valida contra el **disponible** (`settled − reservas`) → `REJECTED INSUFFICIENT_FUNDS` persistida (201) si no alcanza.
+Transferencia = **orden** del instrumento MONEDA del cash (ticker `ARS`, id 66) con `price = 1.00` (string `"1.00"` en la respuesta). Con la spec aprobada (D4) la transferencia mueve el **monto exacto con centavos, sin floor**: `CASH_IN` acredita exactamente `amountArs` → `FILLED` inmediata; `CASH_OUT` compara **ese monto exacto** contra el disponible leído dentro de la transacción (`settled − reservas`) → `REJECTED INSUFFICIENT_FUNDS` persistida (201) si no alcanza. Una transferencia de `0.01` es válida: **ya no** existe el `ZERO_SIZE` de cash (ese rechazo queda para el sizing de acciones y los históricos).
+
+En la respuesta, `size` es **string monetario** de pesos con 2 decimales (el monto movido o pedido):
 
 ```bash
 curl -X POST http://localhost:3000/api/users/2/transfers \
   -H 'Content-Type: application/json' -d '{"amountArs":123.45,"side":"CASH_IN"}'
 → 201 {"id":16,"instrumentId":66,"side":"CASH_IN","type":"MARKET","timeInForce":"GTC",
-       "status":"FILLED","size":123,"price":1,"filledPrice":1,...,"reason":null}
+       "status":"FILLED","size":"123.45","price":"1.00","filledPrice":"1.00",...,"reason":null}
 
 curl -X POST http://localhost:3000/api/users/2/transfers \
-  -H 'Content-Type: application/json' -d '{"amountArs":1000000,"side":"CASH_OUT"}'
-→ 201 {"id":17,...,"status":"REJECTED","size":1000000,...,"reason":"INSUFFICIENT_FUNDS"}
+  -H 'Content-Type: application/json' -d '{"amountArs":"0.01","side":"CASH_IN"}'
+→ 201 {"id":17,...,"status":"FILLED","size":"0.01","price":"1.00","filledPrice":"1.00",...,"reason":null}
 
 curl -X POST http://localhost:3000/api/users/2/transfers \
-  -H 'Content-Type: application/json' -d '{"amountArs":0.5,"side":"CASH_IN"}'
-→ 201 {"id":18,...,"status":"REJECTED","size":0,...,"reason":"ZERO_SIZE"}
+  -H 'Content-Type: application/json' -d '{"amountArs":"1000000.00","side":"CASH_OUT"}'
+→ 201 {"id":18,...,"status":"REJECTED","size":"1000000.00",...,"reason":"INSUFFICIENT_FUNDS"}
 ```
 
-Errores: `400 VALIDATION_ERROR` (monto ≤ 0 o basura, side inválido) · `404 USER_NOT_FOUND` · `409 IDEMPOTENCY_CONFLICT`. `size` es entero en pesos: `CASH_IN 123.45` acredita **123** (el residual `0.45` queda en la metadata del evento — ver [Límites](#límites-conocidos)). `0 < amountArs < 1` → `REJECTED ZERO_SIZE` (201).
+Errores: `400 VALIDATION_ERROR` (monto ≤ 0, número JSON, fuera de la gramática monetaria, side inválido) · `404 USER_NOT_FOUND` · `409 IDEMPOTENCY_CONFLICT`.
+
+**Idempotencia de cash histórico** (spec §5, política conservadora): una key cash histórica pedida por `123.45` pero persistida como 123 pesos **sigue moviendo `"123.00"`** — no se reacredita el residuo de `0.45`. El retry compara el monto original documentado en `metadata.amountArs` del evento de origen: mismo pedido original → la fila original (201, sin evento nuevo); monto distinto → **409**; si la evidencia del evento no alcanza para establecer el pedido exacto → **409** (no se adivina ni se vuelven a mover fondos).
 
 ## Supuestos y decisiones
 
@@ -260,8 +282,8 @@ Decisiones de diseño con su porqué. La lista inmutable de decisiones del build
 7. **Reservas derivadas de las órdenes `NEW`, sin tabla.** BUY `NEW` reserva `limit × size` de cash; SELL `NEW` reserva `size` acciones. **`cash disponible = cashSettled − cashReserved`** (el portfolio reporta `cash` disponible y `reservedCash` por separado). **`totalAccountValue = cash disponible + cashReserved + Σ marketValue`** de las posiciones con precio: abrir o cancelar una orden no lo mueve, sólo mueve plata entre disponible, reservado y posición. **`CASH_OUT` valida contra el disponible**, no contra el settled: las `NEW` son compromisos reales de plata ya prometida.
 8. **BUY valida fondos contra el cash disponible; SELL contra las acciones vendibles** (posición `FILLED` del instrumento − acciones reservadas por `NEW` del mismo instrumento). Es la misma lectura que el punto anterior aplicada a ambos lados: dos submits que juntos exceden el cash dejan una `FILLED` y una `REJECTED` (testeado).
 9. **P&L no realizado sobre costo promedio ponderado; las ventas no tocan el promedio.** El costo de la posición es el de las compras que la forman; vender cambia la cantidad, no el costo unitario de lo que queda. **Posición con cantidad 0 no se lista** (dejar de existir no es tenerla en 0). **Posición negativa heredada del seed (BMA −10) se lista tal cual** — ver [Posición negativa del seed](#posición-negativa-del-seed-bma--10).
-10. **`amountArs`: `size = floor(amount / precio)`; `size 0` → `REJECTED ZERO_SIZE`.** El challenge pide "la cantidad de acciones máximas que puede enviar, sin fracciones": el `floor` garantiza que nunca se compromete más que el monto (el residuo queda como cash). Con `LIMIT` el precio de sizing es el **límite** (el peor precio aceptable para un BUY: nunca se compromete más que el monto a ese precio); con `MARKET`, la referencia.
-11. **El dinero nunca es float.** Interno: `Decimal` (decimal.js). Entrada: número o string parseado con `Decimal` (un JSON `number` se convierte con `String(value)` — la repr más corta exacta — jamás `new Decimal(number)`). Salida: números con 2 decimales (`serializeMoneyArs` cuantiza a 2 decimales **antes** de serializar). El float no puede representar `0.1` y rompe cualquier aritmética de plata.
+10. **`amountArs` de trading: `size = floor(amount / precio)`; `size 0` → `REJECTED ZERO_SIZE`.** El challenge pide "la cantidad de acciones máximas que puede enviar, sin fracciones": el `floor` garantiza que nunca se compromete más que el monto (el residuo queda como cash). Con `LIMIT` el precio de sizing es el **límite** (el peor precio aceptable para un BUY: nunca se compromete más que el monto a ese precio); con `MARKET`, la referencia. El floor **sólo aplica al trading**: con la spec aprobada, las transferencias de cash mueven el monto exacto con centavos (ver 29) — la rama cash no pasa por el sizing de acciones. Si el `size` derivado supera 2147483647, la orden se rechaza con 400 **antes** de convertir a `number` y sin ninguna escritura (ni una `REJECTED`).
+11. **El dinero nunca es float y nunca se degrada a `number`.** Interno: `Decimal` construido con un **constructor financiero aislado** (clone de decimal.js, precisión 64, `ROUND_HALF_UP`), alimentado **sólo por strings**; las cantidades agregadas viven en `bigint`. Entrada HTTP: **string decimal estricto** (hasta 22 enteros + 2 decimales); un JSON `number` se rechaza con 400 — el parser JSON ya pudo perder cifras y la aplicación no puede recuperarlas. Salida: **string con exactamente 2 decimales** (cuantizado en `Decimal` antes de serializar), sin notación científica ni `-0.00`; porcentajes conservan su `number`. En DB, precios y montos: `NUMERIC(24,2)` (D1/D2). El float no puede representar `0.1` y el `number` de JS pierde exactitud por arriba de 2^53: ninguna plata cruza por `number`.
 12. **`orders.price` = límite enviado; `orders.filledPrice` = precio de ejecución.** Una sola columna `price` perdería el límite original al llenar la orden. La migración agrega `filledPrice`/`filledAt`; el mapper de lectura aplica `filledPrice ?? price` para las filas legacy del seed (su `price` ya trae la ejecución y su `filledPrice` es `NULL`).
 
 ### Idempotencia y concurrencia
@@ -287,9 +309,16 @@ Decisiones de diseño con su porqué. La lista inmutable de decisiones del build
 22. **DELETE exitoso → `200`** (no 201): el 201 quedó reservado para creación; la cancelación devuelve la orden `CANCELLED` con 200.
 23. **Evento `CANCELLED` por usuario con `reason: null` y metadata `{origin: "USER"}`**: las razones del contrato son de rechazo/no-cruce, no de una cancelación pedida; el origen viaja en metadata.
 24. **El instrumento del cash se resuelve por ticker `"ARS"`** (vía port), no por id hardcodeado: el id 66 es un dato del seed, el ticker es el identificador estable.
-25. **`size` en una transferencia `REJECTED` = el monto pedido** (no 0): el `floor` no interviene (price 1.00) y la orden se rechaza por fondos — registrar `size 0` escondería qué se pidió. El `ZERO_SIZE` de una transferencia (`0 < amountArs < 1` peso) **sí** persiste `size 0` como sub-caso de la misma regla de `DECISIONS.md` (rama testeada).
+25. **`size` en una transferencia `REJECTED` = el monto pedido** (no 0): el `floor` no interviene (price 1.00) y la orden se rechaza por fondos — registrar `size 0` escondería qué se pidió. *(Histórico: describía el contrato con pesos enteros; con la spec aprobada el monto es exacto con centavos y el `ZERO_SIZE` de cash desaparece para transferencias nuevas — ver 29. La regla del monto pedido en la respuesta sigue vigente, ahora como string monetario.)*
 26. **El replay idempotente devuelve `reason: null`**: la respuesta re-envía la fila original; la razón de su rechazo ya vive en `order_events` (verificado en vivo arriba).
 27. **`INSTRUMENT_NOT_FOUND` → 404** (no fijado por `DECISIONS.md`; la spec sugería 400): "no existe el recurso apuntado" es semántica de 404, igual que el usuario.
+
+### Grandes montos (spec aprobada — Rev. 2)
+
+28. **Cambio incompatible de representación (D3):** dinero de entrada y salida como strings decimales, `quantity` agregada como string entero con signo, `size` de trading sigue `number` entero y el `size` de transferencias pasa a string monetario. No hay endpoint paralelo ni `number`/`string` según el tamaño: un solo formato. La fuente normativa es la spec firmada; `DECISIONS.md` registra la decisión.
+29. **Transferencias exactas (D4):** el cash nuevo mueve el monto pedido con centavos, sin floor; `0.01` es válida. `CASH_OUT` valida el monto **exacto** contra el disponible dentro de la transacción. Para keys idempotentes cash históricas rige la política conservadora de la spec §5 (replay del monto original documentado, 409 ante montos distintos o evidencia insuficiente): el dinero ya movido no se reescribe ni se "regalan" los centavos históricos descartados.
+30. **Unidades separadas aunque compartan columna (D2):** `orders.size` pasa a `NUMERIC(24,2)` pero BUY/SELL siguen siendo **acciones enteras** (acotadas a INT4 por orden) y CASH_IN/CASH_OUT **pesos con centavos**; el dominio los separa en tipos discriminados. La deuda del campo físico de doble propósito se mantiene visible, no se oculta.
+31. **Migración coordinada (D5):** la nueva migración versionada (create-only, con CHECKs financieros acotados como única excepción autorizada a "no editar migraciones") se aplica con pausa de escrituras y reemplazo de todas las instancias viejas antes de habilitar cash fraccional/grande. No se promete despliegue rolling ni downtime cero. Procedimiento: [Migración coordinada](#migración-coordinada-de-grandes-montos).
 
 ## Posición negativa del seed (BMA −10)
 
@@ -300,12 +329,25 @@ El dataset trae una **inconsistencia documentada, no corregida**: el usuario 1 v
 
 ## Límites conocidos
 
-- **Transferencias fraccionarias:** `size` es entero en pesos ⇒ `CASH_IN 123.45` acredita **123** (verificado en vivo). El residuo queda registrado (`residualArs: "0.45"`) en la metadata del evento, **no** acreditado al cash.
+- **Replays cash históricos:** un `CASH_IN` histórico pedido por `123.45` pero persistido como 123 pesos sigue representando `123.00` — el residuo descartado **no** se reacredita ni se debita al recalcular (decisión 29). Las transferencias **nuevas** ya mueven el monto exacto con centavos.
 - **Fills parciales no modelados:** una `IOC` que cruza se llena completa o se cancela (todo-o-nada), sin ejecución parcial del tamaño.
 - **Matching sin disparador:** `matchRestingOrders` existe (función pura testeada) pero **nada la llama en producción** — las `NEW` no se llenan cuando cambia el precio de referencia. Punto de enchufe documentado.
 - **Sin autenticación:** `userId` viene del path y se confía (el challenge lo explicita). Cualquier `userId` del seed opera su cuenta.
 - **`make db-load` / `make db-reset` cargan el snapshot legacy** (sin `"timeInForce"`/`filledPrice`/`filledAt`/`idempotencyKey` ni `order_events`) y por eso **exigen `LEGACY=1`**: sin esa variable abortan sin tocar la base. El flujo vigente es `npx prisma migrate deploy` + `db/seed.sql` (como en el quickstart); los targets quedan para recargar el dataset original de referencia.
 - **Docker sin verificar:** la secuencia del quickstart se corrió contra un PostgreSQL 18 local, no contra el contenedor de `docker-compose.yml` (Postgres 16). Es la vía estándar del repo, pero no se ejecutó en esta entrega.
+
+## Migración coordinada de grandes montos
+
+La ampliación a `NUMERIC(24,2)` es un cambio de esquema **y de contrato** a la vez; se despliega como una ventana coordinada, no como un deploy más. La migración es **versionada** (`prisma/migrations/**`, nueva, create-only) y aún no está aplicada; el estado real lo registra `PROGRESS.md`.
+
+1. **Pausa de escrituras.** Se detiene la ingesta de órdenes/transferencias y se reemplazan **todas** las instancias del cliente viejo antes de habilitar cash fraccional/grande: el cliente anterior espera `size` entero y no es compatible con el nuevo tipo. No hay convivencia rolling; no se promete downtime cero — la ventana se mide y se anuncia.
+2. **Backup y plan de restauración**, probados en el ensayo antes de fijar la ventana. Sin backup verificado no se arranca.
+3. **Preflight de sólo lectura** sobre una copia o DB de test aislada: inventariar `size`/precios nulos, ceros, negativos, cash con precio distinto de 1.00 y keys cash sin evidencia del monto original (metadata del evento). Registrar conteos y valores de control; jamás credenciales ni datos personales en el informe. Ante inconsistencias se detiene y se pide una decisión — no se normaliza por defecto.
+4. **Ensayo en DB de test:** aplicar la migración versionada y cargar `db/seed.sql` **sin editarlo**; verificar conservación exacta de valores, IDs, claves y eventos (mismo cash/posiciones/patrimonio por valor, aunque cambie la forma JSON).
+5. **Aplicar la migración** en la ventana acordada y habilitar escrituras con los clientes ya actualizados al contrato string (misma ventana de coordinación).
+6. **Rollback:** antes de aceptar datos nuevos, restaurar el estado ensayado. **Después** de almacenar fracciones o importes fuera del rango anterior **no existe downgrade por cast/truncado**: requiere restauración/reconciliación aprobada, con costo e indisponibilidad explícitos.
+
+Límite honesto: `NUMERIC(24,2)` puede redondear una escritura SQL externa con más de 2 decimales **antes** de que un `CHECK` la evalúe; los CHECKs garantizan el valor almacenado, no la precisión original de escrituras que no pasan por la API. La gramática Zod del borde rechaza esa entrada antes de persistir.
 
 ## Evolución propuesta
 

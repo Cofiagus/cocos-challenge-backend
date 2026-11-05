@@ -12,9 +12,11 @@ Base: `http://localhost:3000/api` · JSON · errores siempre `{ "error": { "code
 
 | Tema | Regla |
 |---|---|
-| Dinero | Entrada: número JSON o string decimal. Salida: **número con 2 decimales**, cuantizado en `Decimal` antes de serializar. Nunca se calcula en float. |
+| Dinero | Entrada: **string decimal estricto** — hasta 22 dígitos enteros y 2 decimales, punto decimal; sin exponente, separadores, `+`, espacios ni ceros iniciales (salvo el `0` propio). Un JSON `number` ⇒ 400: el parser ya pudo perder cifras y la aplicación no puede recuperarlas. Salida: **string con exactamente 2 decimales**, sin notación científica ni `-0.00`; `null` donde significa ausencia. Los agregados (`cash`, `totalAccountValue`) pueden superar el máximo de una fila por suma. Nunca se calcula en float: constructor `Decimal` financiero de precisión 64, alimentado por strings. |
 | Timestamps | ISO 8601 **sin offset** (`2026-11-03T12:00:00`): la columna es `timestamp` sin zona, hora local del mercado. |
-| `size` | Entero de acciones. En transferencias, entero de pesos. En órdenes, hasta 2147483647: la cota de la columna `INTEGER` de Postgres — un valor mayor es 400 `VALIDATION_ERROR`, no un 500 del INSERT. |
+| `size` (órdenes) | Acciones enteras: entrada `number` 1..2147483647 (la cota INT4 por orden, sin cambios) y respuesta `number` entero o `null`. Un `size` derivado de `amountArs` fuera de ese rango es 400 `VALIDATION_ERROR` **sin ninguna escritura**, no un 500 del INSERT. |
+| `size` (transferencias) | En la respuesta es **string monetario** de pesos con 2 decimales (el monto movido o pedido, ej. `"123.45"`); el monto entra por `amountArs` (string). |
+| `quantity` (portfolio) | **String entero canónico**, con signo para la posición negativa heredada; el agregado interno es exacto (bigint) aunque supere el entero seguro de JS. |
 | `reason` | Sólo en `REJECTED`/`CANCELLED`: `INSUFFICIENT_FUNDS`, `INSUFFICIENT_POSITION`, `ZERO_SIZE`, `NO_PRICE`, `NO_IMMEDIATE_MATCH`. En `NEW`/`FILLED` es `null`. |
 | `Idempotency-Key` | Header opcional, 1..64 chars, en `POST /orders` y `POST /transfers`. |
 | Validación | Zod `strict()`: campo desconocido o tipo inválido → **400 sin escribir nada**. |
@@ -34,7 +36,7 @@ Proyección de `orders`, no una tabla de saldos. `cash` es **disponible** (`sett
 - `totalAccountValue` = `cash` disponible + `reservedCash` + Σ `marketValue` de las posiciones
   con precio. Abrir una orden no lo mueve (la reserva es exacta: baja `cash` y sube
   `reservedCash` en la misma cifra) y cancelarla tampoco (se libera la reserva).
-- Posición con cantidad 0 no se lista. La negativa heredada del seed (BMA −10) se lista tal cual.
+- Posición con cantidad 0 no se lista. La negativa heredada del seed (BMA −10) se lista tal cual (`"quantity": "-10"`).
 - `MONEDA` (ARS) nunca aparece como posición: el cash no es un activo operable.
 - Usuario inexistente → 404. `userId` no entero > 0 → 400.
 
@@ -65,10 +67,12 @@ Idempotencia: la key es la **primera escritura** de la transacción (`ON CONFLIC
   (la razón del rechazo vive en `order_events`).
 - Misma key + otro payload → **409**.
 
-En `MARKET`, `price` se omite o va `null`; un número → 400. En `LIMIT` es obligatorio (> 0).
+En `MARKET`, `price` se omite o va `null`; un precio → 400. En `LIMIT` es obligatorio: **string monetario** > 0 (`"900.00"`). El dinero (`price`, `amountArs`) **nunca** viaja como JSON `number`.
 
 Errores: 400 (XOR `instrumentId`|`ticker`, XOR `size`|`amountArs`, `LIMIT` sin `price`, `MARKET`
-con `price` numérico, `size` por encima de la cota, header inválido), 400
+con `price`, dinero como `number` o fuera de la gramática monetaria, `size` por encima de la cota
+— incluido el derivado de `amountArs`, rechazado antes de convertir a `number` y sin escribir,
+header inválido), 400
 `INSTRUMENT_NOT_OPERABLE` (MONEDA), 404 usuario, 404 instrumento, 409 idempotencia.
 
 ## 4. `DELETE /orders/:orderId`
@@ -81,15 +85,23 @@ uno devuelve **200** y el otro **422**, sin mutar ni duplicar eventos. Cancelar 
 
 ## 5. `POST /users/:userId/transfers`
 
-Una transferencia es una **orden** del instrumento `ARS` (`price` = 1.00, `size` = pesos): así la
-proyección de cash la procesa como cualquier otro movimiento, sin tabla aparte.
+Una transferencia es una **orden** del instrumento `ARS` (`price` = `"1.00"`, el monto viaja en
+`amountArs`): así la proyección de cash la procesa como cualquier otro movimiento, sin tabla aparte.
 
-- `CASH_IN` → `FILLED` inmediata.
-- `CASH_OUT` valida contra el **disponible**; si no alcanza → `REJECTED INSUFFICIENT_FUNDS` con
-  **201** (persistida, auditable).
-- `size` es entero: `123.45` acredita **123**; el residuo queda en la metadata del evento.
-- `0 < amountArs < 1` → `REJECTED ZERO_SIZE` (201).
-- Mismo comportamiento de idempotencia que `POST /orders` (201 replay / 409 conflicto).
+- `CASH_IN` acredita el **monto exacto con centavos, sin floor** → `FILLED` inmediata. `"0.01"`
+  es válida: el `ZERO_SIZE` de cash desapareció para transferencias nuevas (queda para el sizing
+  de acciones y los históricos).
+- `CASH_OUT` compara el **monto exacto** contra el **disponible** leído dentro de la transacción;
+  si no alcanza → `REJECTED INSUFFICIENT_FUNDS` con **201** (persistida, auditable).
+- En la respuesta, `size` es el monto como **string monetario** de 2 decimales: `CASH_IN
+  "123.45"` → `"size": "123.45"`, `"price": "1.00"`.
+- Idempotencia de cash histórico (política conservadora): una key histórica pedida por `123.45`
+  pero persistida como 123 pesos devuelve la fila original (`"size": "123.00"`) — el residuo
+  descartado no se reacredita. Retry con monto distinto → **409**; si la evidencia del evento de
+  origen (`metadata.amountArs`) no alcanza para establecer el pedido exacto → **409**.
+- Mismo comportamiento de idempotencia general que `POST /orders` (201 replay / 409 conflicto);
+  dos transferencias nuevas con montos que difieren por centavos (`"123.01"` vs `"123.99"`) son
+  **409**, nunca colapsan por floor.
 
 ## Códigos de error
 
