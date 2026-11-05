@@ -27,5 +27,6 @@ Orden sugerido (algunos ejemplos mutan estado y los idempotency keys se gastan):
 > verificado por suites automatizadas contra DB de test real** (37 suites / 515 tests en verde;
 > evidencia y límites en [`../docs/references/large-money-verification.md`](../docs/references/large-money-verification.md)).
 > Eso **no** incluye una corrida manual íntegra de esta colección ni una DB de aplicación ya
-> migrada: el despliegue sigue pendiente de la ventana coordinada. Los `id` de los comentarios
+> migrada: esta verificación no aplicó migraciones a la DB de la app; el despliegue requiere
+> la ventana coordinada. Los `id` de los comentarios
 > siguen siendo ilustrativos.
