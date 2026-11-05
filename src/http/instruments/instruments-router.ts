@@ -12,9 +12,9 @@
 
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { Decimal } from "decimal.js";
 import {
   API_ERROR_CODES,
+  FinancialDecimal,
   InstrumentSearchQuerySchema,
   apiErrorBody,
   serializeMoneyArs,
@@ -28,8 +28,11 @@ import type {
   MarketdataRepository,
 } from "../../domain/ports/index.js";
 
-/** 100, para los puntos porcentuales — Decimal, nunca float. */
-const HUNDRED = new Decimal(100);
+/**
+ * 100 para los puntos porcentuales, en el constructor financiero (64 cifras):
+ * la variación se deriva de precios que pueden ser grandes.
+ */
+const HUNDRED = new FinancialDecimal("100");
 
 /** Deps del slice de instruments: interfaces de src/domain/ports. */
 export interface InstrumentsRouterDeps {
@@ -47,7 +50,7 @@ export interface InstrumentsRouterDeps {
  */
 const dailyVariationPctX100 = (
   snapshot: MarketdataSnapshot,
-): Decimal | null =>
+): FinancialDecimal | null =>
   snapshot.previousCloseArs.isZero()
     ? null
     : snapshot.closeArs
