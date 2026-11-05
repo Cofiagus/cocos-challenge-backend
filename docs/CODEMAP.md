@@ -68,7 +68,7 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 
 | archivo | responsabilidad | exports | llamado por | test |
 |---|---|---|---|---|
-| `src/domain/ports/index.ts` | las 4 interfaces que la aplicación consume y la infra implementa (DIP) | `OrderRepository`, `PortfolioReadRepository`, `InstrumentRepository`, `MarketdataRepository` | `application` · routers · `infra` | `integration/infra` |
+| `src/domain/ports/index.ts` | las 4 interfaces de repositorio que la aplicación consume y la infra implementa (DIP) + la fuente de cotizaciones inyectable de UC-2 (`InstrumentQuoteSource`, dinero `FinancialDecimal`); `InstrumentRepository.searchByQuery` acepta `offset` opcional (iteración interna del catálogo, NO paginación HTTP) | `OrderRepository`, `PortfolioReadRepository`, `InstrumentRepository`, `MarketdataRepository`, `InstrumentQuote`, `InstrumentQuoteSource` | `application` · routers · `infra` | `integration/infra` · `unit/instrument-search-ports` |
 
 ## 6. application — casos de uso (orquestan tx + repos + dominio)
 

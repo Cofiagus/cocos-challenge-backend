@@ -142,12 +142,48 @@ export interface InstrumentRepository {
   ) => Promise<InstrumentRecord | null>;
   /**
    * Búsqueda parcial case-insensitive sobre ticker y/o name, EXCLUYE
-   * MONEDA, ordenada y limitada por `limit`.
+   * MONEDA, ordenada por ticker asc y limitada por `limit`.
+   *
+   * `offset` (default 0) pagina DENTRO de la misma búsqueda: es la iteración
+   * interna que permite completar el cupo cuando el proveedor de cotizaciones
+   * omite instrumentos sin cotización. NO es paginación del contrato HTTP.
    */
   readonly searchByQuery: (
     query: string,
     limit: number,
+    offset?: number,
   ) => Promise<readonly InstrumentRecord[]>;
+}
+
+/**
+ * Cotización ACTUAL de un instrumento tal como la informa el proveedor externo.
+ * Dinero SIEMPRE `FinancialDecimal` (64 cifras del proyecto) construido desde
+ * string (AGENTS.md §5.1): nunca float ni el `Decimal` base de decimal.js.
+ */
+export interface InstrumentQuote {
+  /**
+   * Último precio de sesión disponible. Invariante: SIEMPRE > 0 — la fuente
+   * nunca entrega 0 ni negativos; si el proveedor no informa un precio
+   * positivo, devuelve `null` (sin cotización computable) o lanza el error de
+   * indisponibilidad, nunca un valor corrupto (el caso de uso DIVIDE por
+   * previousClose para la variación diaria).
+   */
+  readonly priceArs: FinancialDecimal;
+  /** Cierre de la sesión anterior. Invariante: SIEMPRE > 0 (ídem priceArs). */
+  readonly previousCloseArs: FinancialDecimal;
+}
+
+/**
+ * Fuente de cotizaciones inyectable (DIP). El caso de uso de búsqueda la
+ * consume; la infraestructura la implementa contra Yahoo Finance. `null` =
+ * ticker sin cotización computable (se omite y se sigue con el siguiente
+ * candidato), NO es falla del servicio: eso se señala lanzando
+ * `MarketDataServiceUnavailableError`.
+ */
+export interface InstrumentQuoteSource {
+  readonly getCurrentQuote: (
+    ticker: string,
+  ) => Promise<InstrumentQuote | null>;
 }
 
 /**
