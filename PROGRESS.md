@@ -13,8 +13,9 @@
 |---|---|---|---|
 | A0 operador DB (GLM) | Identidad/arranque PG 5433; inventario read-only DB app; backup privado y restore de clon de test | ARRANQUE/BACKUP VERIFICADOS; evidencia económica DEVUELTA | Padre verificó PID 76063, loopback 5433, history/checksum inicial y SHA256 del backup; G0 aún pendiente |
 | QA-G0 (DeepSeek) | Fórmulas económicas y fingerprints completos, SQL sólo lectura sobre app/clon; artefactos privados | DESPACHADA (`deleg_bc8c6647`) | Debe corregir las métricas de A0 y probar igualdad app/restauración sin tocar datos |
-| C-SEAMS (DeepSeek) | Contratos UC-2, error/puerto financiero, offset catálogo y dos unit tests; sólo sus filas CODEMAP | DESPACHADA (`deleg_1e4f96c9`) | Base 71 tests verde; gates propios pendientes; consumidores aún no adaptados |
-| C-YAHOO / C-UC2 | Adaptador y caso de uso/router en worktrees separados | NO LANZADAS | Esperan seams verificados e integrados en candidata |
+| C-SEAMS (DeepSeek) | Contratos UC-2, error/puerto financiero, offset catálogo y dos unit tests; sólo sus filas CODEMAP | DONE en `56773b2`, revisión independiente pendiente | Padre repitió lint + 5 suites / 64 unit tests verdes; aún no integrado en candidata ni main |
+| QA-SEAMS (DeepSeek independiente) | Revisión read-only del SHA exacto en worktree propio | DESPACHADA (`deleg_d187bcfe`) | Califica el seam, no el cierre global; espera matriz y ACCEPT/REJECT |
+| C-YAHOO / C-UC2 | Adaptador y caso de uso/router en worktrees separados | PREPARADAS, NO LANZADAS | Worktrees propios desde `56773b2`, dependencias/cliente y lint + 64 tests base verdes; esperan QA del seam |
 | C-WIRING / C-TESTS / C-DOCS | Composición, funcionales y docs/OpenAPI UC-2 por rutas del plan | NO LANZADAS | Esperan sus dependencias; no copias completas pre-D3 |
 | QA independiente / G2 | Candidato completo y contratos financieros | PENDIENTE | Suite completa y revisión del SHA antes de main |
 | A3 / G3 migración app | Único operador DB sobre main integrado | NO INICIADA | Requiere G0 + G2, backup si DB preexistente y destino revalidado |
@@ -28,6 +29,7 @@
 - Sin QUESTIONs nuevas. Los hechos dinámicos del preflight anterior se revalidan antes de operar. No afirmar precio real ni cierre completo si Yahoo devuelve 503 o no hay evidencia de cobertura.
 - Decisiones de A0: se acepta arranque del cluster existente y backup/restore privados; se rechaza la supuesta evolución de posiciones del informe, basada en sumas sin filtro FILLED ni signo de cash. SELECTs correctos del padre verifican cash liquidado user 1 `753000.00`, user 2 `123.00`; posiciones liquidadas user 1: BMA `-10`, PAMP `40`, METR `500`. No hubo mutación de datos: el defecto era del cálculo de evidencia. G0 no se cierra sin QA económica y hashes completos comparables.
 - DB app ya existe, con 12 órdenes y la migración inicial aplicada cuyo checksum coincide con el archivo versionado. **No se hará seed**. La migración de grandes montos sigue pendiente; el backup privado tiene permisos 700/600 y manifest verificado. El clon `a0_restore_rehearsal_20261105` en 55432 se conserva para comparación.
+- C-SEAMS: se aceptan adaptación a FinancialDecimal y wire string, tests negativos adicionales que refuerzan D3 y offset sólo interno. Pendientes conocidos del staging (no de main): 1 error TypeScript del router viejo ante campos que ya no aceptan null y D4 de docs por el 503 aún no documentado; deben cerrarlos C-UC2/C-DOCS antes de G1/G2. No se amplía ownership para ocultarlos. Cuatro commits atómicos: `4ad4659`, `c51c809`, `dff54a1`, `56773b2`; CODEMAP asociado al código.
 
 ---
 
