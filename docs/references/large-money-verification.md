@@ -15,19 +15,32 @@ hay evidencia, no reglas nuevas.
   `npm run lint`, `npm run build` y `npm run openapi` sin diff, y el reset de la base de
   test default desde las **2 migraciones versionadas** (`init_trading_api`,
   `large_money`) + `db/seed.sql` **sin editar**.
-- La implementación está completa en esta rama; **`main` aún no integra el trabajo**.
+- La evidencia corresponde a la rama candidata previa a la integración en `main`; el estado
+  real de integración (qué SHA está mergeado) lo registran `git log` y `PROGRESS.md`, no
+  este documento.
 
 ## Comandos reproducibles
 
-La base de test es la que apunta la `TEST_DATABASE_URL` **del entorno** (PostgreSQL local
-de pruebas; el repo no fija proveedor, host ni credenciales, y este documento no los
-registra). Nunca apuntar el reset a la base de la app.
+Los gates de generación corren **antes** del reset y de la suite; el repo no fija proveedor,
+host ni credenciales, y este documento no los registra. Nunca apuntar el reset a la base de
+la app: la `TEST_DATABASE_URL` es una URL dedicada del servidor PostgreSQL local de ensayo,
+y las suites derivan de ella sus propias DBs aisladas.
 
 ```bash
-npx prisma generate                     # requiere DATABASE_URL apuntando a una DB desechable de dev/test
-npm run test:db:reset                   # recrea la base de TEST_DATABASE_URL: 2 migraciones + seed
+npx prisma generate                                     # cliente Prisma; no conecta ni aplica migraciones
+npm run typecheck && npm run lint && npm run build && npm run openapi
+git status --porcelain                                  # vacío: sin diff en openapi.json ni en el árbol
+TEST_DB_NAME=cocos_challenge_test npm run test:db:reset # 2 migraciones + seed en la DB de ensayo
 DOTENV_CONFIG_QUIET=true npx jest --runInBand --detectOpenHandles
 ```
+
+- `npx prisma generate` sólo necesita una `DATABASE_URL` bien formada en el entorno: no
+  conecta a ninguna base ni aplica migraciones, así que no requiere una DB existente.
+- El reset **no** recrea la base del path de `TEST_DATABASE_URL`: suelta y crea la DB
+  nombrada por `TEST_DB_NAME` (en el gate, `cocos_challenge_test`, default del script) sobre
+  el **servidor** de esa URL. Exige permiso de crear/eliminar bases en ese servidor aislado
+  de ensayo — no en la DB de la app. Cada suite funcional fija su propio `TEST_DB_NAME`
+  aislado derivado de esa misma URL y se auto-resetea.
 
 ## Matriz de aceptación (spec §Aceptación → tests → resultado)
 
@@ -36,7 +49,7 @@ DOTENV_CONFIG_QUIET=true npx jest --runInBand --detectOpenHandles
 | 1 | Máximo D1 persiste y vuelve con centavos; máximo+0.01 y más escala rechazados sin filas | `tests/functional/large-money/large-money-acceptance.test.ts` §1 “CASH_IN 0.01 / 123.45 / máximo…” y §2 “máximo+0.01, tercer decimal, number y exponente…”; `tests/integration/infra/large-money-storage.test.ts` “round-trip exacto…” y “rechaza máximo+0.01 por overflow del typmod” | ✔ |
 | 2 | `90071992547409.93` sin perder el centavo; máximo−0.01 = `…98` | large-money §1 “90071992547409.93 no pierde el centavo…” | ✔ |
 | 3 | 0.01 y 123.45 exactos; CASH_OUT por un centavo sobre disponible no debita | large-money §1 + §3 “0.01 sobre disponible 0 ⇒ 201 REJECTED… sin débito” | ✔ |
-| 4 | Concurrencia: fondos para una sola ⇒ una escritura; auditoría en la misma disciplina | large-money §3 “dos CASH_OUT concurrentes…”; `tests/functional/orders/create-order.test.ts` UC-3·12/·13 (idempotencia concurrente y cash concurrente) | ✔ |
+| 4 | Concurrencia: fondos para una sola ⇒ **dos órdenes con sus eventos** (una `FILLED`, otra `REJECTED`) y **un solo débito**; auditoría en la misma disciplina | large-money §3 “dos CASH_OUT concurrentes…”; `tests/functional/orders/create-order.test.ts` UC-3·12/·13 (idempotencia concurrente y cash concurrente) | ✔ |
 | 5 | Size derivado fuera de rango ⇒ 400 sin INSERT; fracciones no se guardan como trading | large-money §6 “BUY amountArs 2147483648.00 ⇒ 400 sin orden/evento”; `tests/unit/contracts-orders.test.ts` (cota INT4); storage “acepta cash grande (> INT4)…” | ✔ |
 | 6 | Agregados > máximo exactos; `quantity` > entero seguro sin contaminar marketValue | large-money §7 “dos cash máximos…”; `tests/unit/domain/portfolio.test.ts` (ver Límites) | ✔ |
 | 7 | Seed conserva valores e IDs; replays históricos §5 no reejecutan movimientos | large-money §5 (replay 123.45→123.00, 409 sin evidencia, ZERO_SIZE histórico); storage “preflight legacy…”, “aplica la migración nueva… conserva filas, IDs, keys y eventos” | ✔ |
@@ -46,8 +59,10 @@ DOTENV_CONFIG_QUIET=true npx jest --runInBand --detectOpenHandles
 
 ## Guardas SQL vs. guardas de aplicación
 
-- **SQL (CHECKs, verificados contra PostgreSQL real, no mocks):** precios finitos y
-  positivos, `size` finito y no negativo, acciones enteras ≤ INT4 en BUY/SELL, y
+- **SQL (CHECKs, verificados contra PostgreSQL real, no mocks):** en `orders`, `price` y
+  `filledPrice` finitos y **estrictamente positivos** (> 0); en `marketdata`, sus precios
+  finitos y **no negativos** (≥ 0: el 0 es válido, los negativos se rechazan); `size` finito
+  y no negativo, acciones enteras ≤ INT4 en BUY/SELL, y
   `orders_size_zero_only_rejected_check` (size 0 sólo en `REJECTED`, sin mirar
   `order_events`). Los nombres reales están asertados en `large-money-storage.test.ts`.
 - **Aplicación:** gramática monetaria del borde (Zod, 400 sin escribir), sizing defensivo
