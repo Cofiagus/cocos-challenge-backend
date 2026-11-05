@@ -24,6 +24,7 @@ import type {
 } from "../../contracts/index.js";
 import type { OrderRepository } from "../../domain/ports/index.js";
 import { getPrismaClient } from "../../lib/prisma-client.js";
+import { cashIdempotencyOutcome } from "./cash-idempotency.js";
 import { CorruptRowError } from "./corrupt-row.error.js";
 import {
   decimalFromDb,
@@ -43,13 +44,21 @@ import {
 // Insert idempotente — piezas puras/aisladas de createOrder
 // ---------------------------------------------------------------------------
 
-/** Parámetros de escritura del dinero del draft (Decimal → string; NULL se conserva). */
+/** Parámetros de escritura del monto/precios (Decimal → string; NULL se conserva). */
 interface OrderWriteParams {
+  /** Unidad física de `size`: acciones enteras (trading) o monto ARS (cash). */
+  readonly size: string;
   readonly price: string | null;
   readonly filledPrice: string | null;
 }
 
 const orderWriteParams = (draft: OrderDraft): OrderWriteParams => ({
+  // D2: el monto cash viaja como Decimal → string (nunca Number); las
+  // acciones son enteras y seguras por el contrato.
+  size:
+    draft.side === "BUY" || draft.side === "SELL"
+      ? String(draft.sizeShares)
+      : decimalToDbParam(draft.amountArs),
   price: draft.priceArs === null ? null : decimalToDbParam(draft.priceArs),
   filledPrice:
     draft.filledPriceArs === null ? null : decimalToDbParam(draft.filledPriceArs),
@@ -62,7 +71,7 @@ const orderCreateData = (
 ): Prisma.OrderUncheckedCreateInput => ({
   instrumentId: draft.instrumentId,
   userId: draft.userId,
-  size: draft.sizeShares,
+  size: params.size,
   price: params.price,
   type: draft.type,
   side: draft.side,
@@ -86,16 +95,27 @@ const pricesEqual = (
 };
 
 /**
- * Mismo PAYLOAD idempotente: instrumentId/side/type/size/price/timeInForce
- * (DECISIONS.md; status/filled* los decide la app, no integran el payload).
+ * Mismo PAYLOAD idempotente salvo la unidad de `size`:
+ * instrumentId/side/type/timeInForce/price (DECISIONS.md; status/filled* los
+ * decide la app, no integran el payload).
  */
-const sameOrderPayload = (row: Order, draft: OrderDraft): boolean =>
+const sameIdentityPayload = (row: Order, draft: OrderDraft): boolean =>
   row.instrumentId === draft.instrumentId &&
   row.side === draft.side &&
   row.type === draft.type &&
   row.timeInForce === draft.timeInForce &&
-  row.size === draft.sizeShares &&
   pricesEqual(row.price, draft.priceArs);
+
+/** Acciones: igualdad exacta contra la columna Decimal (sin pasar por float). */
+const sameTradingSize = (row: Order, draft: OrderDraft): boolean => {
+  if (draft.side !== "BUY" && draft.side !== "SELL") {
+    return false;
+  }
+  if (row.size === null) {
+    return false;
+  }
+  return decimalFromDb(row.size).equals(String(draft.sizeShares));
+};
 
 interface ClaimedOrderRow {
   /** true si ESTE envío insertó la fila; false si la key ya estaba reclamada. */
@@ -119,7 +139,7 @@ const claimOrderRow = async (
       ("instrumentid", "userid", "size", "price", "type", "side", "status",
        "datetime", "timeInForce", "filledPrice", "filledAt", "idempotencyKey")
     VALUES
-      (${draft.instrumentId}, ${draft.userId}, ${draft.sizeShares}, ${params.price},
+      (${draft.instrumentId}, ${draft.userId}, ${params.size}, ${params.price},
        ${draft.type}, ${draft.side}, ${draft.status}, ${draft.datetime},
        ${draft.timeInForce}, ${params.filledPrice}, ${draft.filledAt},
        ${draft.idempotencyKey})
@@ -191,13 +211,17 @@ export class PrismaOrderRepository implements OrderRepository {
       return { outcome: "CREATED", order: mapOrderRow(row) };
     }
 
-    // Conflicto: el payload decide REPLAY vs CONFLICT (la API mapea 409).
-    return {
-      outcome: sameOrderPayload(row, draft)
-        ? "IDEMPOTENT_REPLAY"
-        : "IDEMPOTENT_CONFLICT",
-      order: mapOrderRow(row),
-    };
+    // Conflicto: identidad + unidad de size deciden REPLAY vs CONFLICT.
+    if (!sameIdentityPayload(row, draft)) {
+      return { outcome: "IDEMPOTENT_CONFLICT", order: mapOrderRow(row) };
+    }
+    const outcome: CreateOrderResult["outcome"] =
+      draft.side === "BUY" || draft.side === "SELL"
+        ? sameTradingSize(row, draft)
+          ? "IDEMPOTENT_REPLAY"
+          : "IDEMPOTENT_CONFLICT"
+        : await cashIdempotencyOutcome(db, row, draft.amountArs);
+    return { outcome, order: mapOrderRow(row) };
   };
 
   // -------------------------------------------------------------------------
