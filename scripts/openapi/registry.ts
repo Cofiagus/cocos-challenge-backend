@@ -35,6 +35,7 @@ export const KNOWN_ERROR_CODES = [
   "INSTRUMENT_NOT_FOUND",
   "IDEMPOTENCY_CONFLICT",
   "ORDER_NOT_CANCELLABLE",
+  "MARKET_DATA_SERVICE_UNAVAILABLE",
   "NOT_FOUND",
   "INVALID_JSON",
   "PAYLOAD_TOO_LARGE",
@@ -223,34 +224,43 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
     method: "get",
     summary: "Buscar instrumentos",
     description:
-      "Match parcial case-insensitive sobre `ticker` y/o `name`. `MONEDA` nunca aparece. " +
-      "La respuesta es un array plano (sin wrapper). Sin marketdata, `price`, `previousClose` y " +
-      "`dailyVariationPct` vienen en `null`.",
+      "Sin `query` (ausente, vacía o sólo espacios) devuelve el listado inicial; con texto " +
+      "(se recorta) es match parcial case-insensitive sobre `ticker` y/o `name`. `MONEDA` nunca " +
+      "aparece. `limit` es entero 1..100 con default 10; fuera de rango o parámetro desconocido " +
+      "es 400 (la `query` ausente/vacía NUNCA es inválida). Respuesta: array plano ordenado por " +
+      "ticker. `price` es el último precio de sesión vigente (Yahoo) y `previousClose` el cierre " +
+      "de la sesión anterior, ambos string monetario de 2 decimales; `dailyVariationPct` es number " +
+      "redondeado a 2 decimales. Campos no-nullable: el instrumento sin cotización computable se " +
+      "OMITE y el cupo se completa con los siguientes candidatos hasta agotar el catálogo. " +
+      "Proveedor indisponible (timeout / rate-limit) ⇒ 503: sin listado parcial como éxito y sin " +
+      "precios del seed.",
     query: InstrumentSearchQuerySchema,
     responses: [
       {
+        // Sin ejemplo 200: los precios ya no salen del seed (UC-2 Rev. 2, los
+        // precios SON la respuesta y vienen de Yahoo en vivo). La captura real
+        // queda para la verificación HTTP en vivo (A5); inventar una cotización
+        // acá haría el ejemplo irreproducible contra el servidor.
         status: 200,
-        description: "Coincidencias ordenadas por ticker.",
+        description:
+          "Coincidencias ordenadas por ticker, con cotización vigente (sin ejemplo 200: " +
+          "la captura real queda para la verificación en vivo del despliegue local).",
         schema: InstrumentSearchResponseSchema,
-        example: [
-          {
-            ticker: "METR",
-            name: "MetroGAS S.A.",
-            type: "ACCIONES",
-            price: "229.50",
-            previousClose: "232.00",
-            dailyVariationPct: -1.08,
-          },
-        ],
       },
       errorBody(
         400,
         "VALIDATION_ERROR",
-        "`query` vacía o ausente; `limit` fuera de 1..100.",
-        "Query inválida: query: Invalid input: expected string, received undefined",
+        "`limit` fuera de 1..100 o parámetro desconocido (`query` ausente/vacía es válida: listado inicial).",
+        "Query inválida: limit: Too big: expected number to be <=100",
+      ),
+      errorBody(
+        503,
+        "MARKET_DATA_SERVICE_UNAVAILABLE",
+        "El proveedor de cotizaciones no responde (timeout o rate-limit): no hay 200 parcial ni precios de seed.",
+        "El servicio de cotizaciones (Yahoo Finance) no está disponible. Intentá nuevamente más tarde.",
       ),
     ],
-    errorCodes: ["VALIDATION_ERROR"],
+    errorCodes: ["VALIDATION_ERROR", "MARKET_DATA_SERVICE_UNAVAILABLE"],
   },
   {
     expressPath: "/users/:userId/orders",

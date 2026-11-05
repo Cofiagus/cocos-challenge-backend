@@ -275,7 +275,7 @@
     "/api/instruments": {
       "get": {
         "summary": "Buscar instrumentos",
-        "description": "Match parcial case-insensitive sobre `ticker` y/o `name`. `MONEDA` nunca aparece. La respuesta es un array plano (sin wrapper). Sin marketdata, `price`, `previousClose` y `dailyVariationPct` vienen en `null`.",
+        "description": "Sin `query` (ausente, vacía o sólo espacios) devuelve el listado inicial; con texto (se recorta) es match parcial case-insensitive sobre `ticker` y/o `name`. `MONEDA` nunca aparece. `limit` es entero 1..100 con default 10; fuera de rango o parámetro desconocido es 400 (la `query` ausente/vacía NUNCA es inválida). Respuesta: array plano ordenado por ticker. `price` es el último precio de sesión vigente (Yahoo) y `previousClose` el cierre de la sesión anterior, ambos string monetario de 2 decimales; `dailyVariationPct` es number redondeado a 2 decimales. Campos no-nullable: el instrumento sin cotización computable se OMITE y el cupo se completa con los siguientes candidatos hasta agotar el catálogo. Proveedor indisponible (timeout / rate-limit) ⇒ 503: sin listado parcial como éxito y sin precios del seed.",
         "operationId": "get-api-instruments",
         "tags": [
           "instruments"
@@ -284,10 +284,9 @@
           {
             "name": "query",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
             }
           },
           {
@@ -295,7 +294,7 @@
             "in": "query",
             "required": false,
             "schema": {
-              "default": 20,
+              "default": 10,
               "type": "integer",
               "minimum": 1,
               "maximum": 100
@@ -304,7 +303,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Coincidencias ordenadas por ticker.",
+            "description": "Coincidencias ordenadas por ticker, con cotización vigente (sin ejemplo 200: la captura real queda para la verificación en vivo del despliegue local).",
             "content": {
               "application/json": {
                 "schema": {
@@ -326,39 +325,18 @@
                         ]
                       },
                       "price": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
-                            "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
+                        "type": "string",
+                        "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                        "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
                       },
                       "previousClose": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
-                            "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
+                        "type": "string",
+                        "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{2}$",
+                        "description": "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar)."
                       },
                       "dailyVariationPct": {
-                        "anyOf": [
-                          {
-                            "type": "number",
-                            "description": "Porcentaje en puntos (2 decimales)."
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
+                        "type": "number",
+                        "description": "Porcentaje en puntos (2 decimales)."
                       }
                     },
                     "required": [
@@ -371,22 +349,12 @@
                     ],
                     "additionalProperties": false
                   }
-                },
-                "example": [
-                  {
-                    "ticker": "METR",
-                    "name": "MetroGAS S.A.",
-                    "type": "ACCIONES",
-                    "price": "229.50",
-                    "previousClose": "232.00",
-                    "dailyVariationPct": -1.08
-                  }
-                ]
+                }
               }
             }
           },
           "400": {
-            "description": "`query` vacía o ausente; `limit` fuera de 1..100. Código: `VALIDATION_ERROR`.",
+            "description": "`limit` fuera de 1..100 o parámetro desconocido (`query` ausente/vacía es válida: listado inicial). Código: `VALIDATION_ERROR`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -418,7 +386,7 @@
                 "example": {
                   "error": {
                     "code": "VALIDATION_ERROR",
-                    "message": "Query inválida: query: Invalid input: expected string, received undefined"
+                    "message": "Query inválida: limit: Too big: expected number to be <=100"
                   }
                 }
               }
@@ -497,6 +465,45 @@
                   "error": {
                     "code": "INTERNAL_ERROR",
                     "message": "Error interno del servidor."
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El proveedor de cotizaciones no responde (timeout o rate-limit): no hay 200 parcial ni precios de seed. Código: `MARKET_DATA_SERVICE_UNAVAILABLE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "MARKET_DATA_SERVICE_UNAVAILABLE",
+                    "message": "El servicio de cotizaciones (Yahoo Finance) no está disponible. Intentá nuevamente más tarde."
                   }
                 }
               }
