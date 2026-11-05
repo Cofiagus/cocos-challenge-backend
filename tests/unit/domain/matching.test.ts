@@ -3,7 +3,6 @@
 // matchRestingOrders pura. Precios con centavos reales del seed
 // (SEED_REFERENCE_CLOSES) — exactos, nunca aproximados.
 
-import { Decimal } from "decimal.js";
 import {
   evaluateCross,
   matchRestingOrders,
@@ -12,6 +11,7 @@ import type {
   CrossDecision,
   RestingOrderFill,
 } from "../../../src/domain/matching/index.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import type {
   TimeInForce,
   TradingSide,
@@ -30,9 +30,9 @@ const buildEvaluateCrossInput = (
   overrides: EvaluateCrossOverrides = {},
 ): Parameters<typeof evaluateCross>[0] => ({
   side: overrides.side ?? "BUY",
-  limitPriceArs: new Decimal(overrides.limitPriceArs ?? "100.00"),
+  limitPriceArs: new FinancialDecimal(overrides.limitPriceArs ?? "100.00"),
   timeInForce: overrides.timeInForce ?? "IOC",
-  referencePriceArs: new Decimal(overrides.referencePriceArs ?? "100.00"),
+  referencePriceArs: new FinancialDecimal(overrides.referencePriceArs ?? "100.00"),
 });
 
 /** Fail ruidoso si la decisión no es FILLED, con el precio esperado a centavos. */
@@ -208,7 +208,7 @@ describe("evaluateCross — evaluación única contra el precio de referencia", 
 });
 
 describe("matchRestingOrders — qué NEW llenaría a este ref (PURA)", () => {
-  const referencePriceArs = new Decimal(SEED_REFERENCE_CLOSES.PAMP); // 925.85
+  const referencePriceArs = new FinancialDecimal(SEED_REFERENCE_CLOSES.PAMP); // 925.85
 
   const fillOf = (
     fills: readonly RestingOrderFill[],
