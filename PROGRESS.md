@@ -5,12 +5,14 @@
 - Firma humana 2026-11-05: «SI APRUEBO» al plan Rev. 3 y sus cuatro puntos. Fuente inmutable: `specs/integracion-instrumentos-despliegue-local.md`; firma registrada en `e967050`, ya integrado en main.
 - Base de runtime preservada: `8d1475f`; UC-2 origen `4541d1c`, ancestro común `60b3764`. Snapshot recuperable: `backup/pre-instruments-rollout-20261105`. El cambio actual de main sólo incorpora el plan firmado y este registro; UC-2 aún NO integrado y DB app aún NO migrada.
 - Último gate documental de main re-corrido en `e967050`: typecheck + lint + 2 suites / 15 tests docs + diff-check verdes. Integrador y seams preparados con dependencias offline y Prisma Client 7.10.1 propios: ambos typecheck/lint + 6 suites / 71 tests verdes.
+- Baseline completo repetido por el supervisor sobre main `266d85d`: **37 suites / 515 tests**, `openHandles=[]`, contra PostgreSQL real en 55432. La primera corrida dio 64 fallos de setup porque la DB base nueva no existía; se creó/migró/cargó exclusivamente `cocos_rollout_supervisor_test` con el script versionado y la repetición pasó completa, sin cambios de código. Evidencia privada: `run-logs/instruments-rollout-20261105/main-baseline-prepared-jest.json` del perfil.
 - Rama candidata: `feature/instruments-local-rollout`, worktree `/home/cofi/repos/coccb-wt-local-rollout-int`. Main sólo recibirá código tras G2 y QA independiente; el padre supervisa/verifica/integra, no implementa código de producción.
 - Topología aprobada: app PostgreSQL local 5433 / `cocos_challenge`; API loopback 3000; DBs de test aisladas en 55432. Seed sólo en DB app recién creada, nunca en una preexistente. El entorno heredado `lm_prepare_test` NO es destino runtime.
 
 | Célula / fase | Ownership | Estado | Evidencia / siguiente gate |
 |---|---|---|---|
-| A0 operador DB (GLM) | Identidad/arranque PG 5433; inventario read-only DB app; backup privado y restore de clon de test | DESPACHADA (`deleg_13fd6f61`) | G0 pendiente; no migraciones ni seed app autorizados a esta célula |
+| A0 operador DB (GLM) | Identidad/arranque PG 5433; inventario read-only DB app; backup privado y restore de clon de test | ARRANQUE/BACKUP VERIFICADOS; evidencia económica DEVUELTA | Padre verificó PID 76063, loopback 5433, history/checksum inicial y SHA256 del backup; G0 aún pendiente |
+| QA-G0 (DeepSeek) | Fórmulas económicas y fingerprints completos, SQL sólo lectura sobre app/clon; artefactos privados | DESPACHADA (`deleg_bc8c6647`) | Debe corregir las métricas de A0 y probar igualdad app/restauración sin tocar datos |
 | C-SEAMS (DeepSeek) | Contratos UC-2, error/puerto financiero, offset catálogo y dos unit tests; sólo sus filas CODEMAP | DESPACHADA (`deleg_1e4f96c9`) | Base 71 tests verde; gates propios pendientes; consumidores aún no adaptados |
 | C-YAHOO / C-UC2 | Adaptador y caso de uso/router en worktrees separados | NO LANZADAS | Esperan seams verificados e integrados en candidata |
 | C-WIRING / C-TESTS / C-DOCS | Composición, funcionales y docs/OpenAPI UC-2 por rutas del plan | NO LANZADAS | Esperan sus dependencias; no copias completas pre-D3 |
@@ -24,6 +26,8 @@
 - Máximo cuatro células activas, worktree por célula de código y DB de test por suite. Un solo administrador de la DB app; los tests sí escriben en sus DBs aisladas.
 - Anomalía financiera, legacy sin history, writer desconocido o cambio de contrato/deps/migración no previsto → detener esa parte y volver al humano. No baseline automática, normalización silenciosa, reset app, push ni PR por iniciativa propia.
 - Sin QUESTIONs nuevas. Los hechos dinámicos del preflight anterior se revalidan antes de operar. No afirmar precio real ni cierre completo si Yahoo devuelve 503 o no hay evidencia de cobertura.
+- Decisiones de A0: se acepta arranque del cluster existente y backup/restore privados; se rechaza la supuesta evolución de posiciones del informe, basada en sumas sin filtro FILLED ni signo de cash. SELECTs correctos del padre verifican cash liquidado user 1 `753000.00`, user 2 `123.00`; posiciones liquidadas user 1: BMA `-10`, PAMP `40`, METR `500`. No hubo mutación de datos: el defecto era del cálculo de evidencia. G0 no se cierra sin QA económica y hashes completos comparables.
+- DB app ya existe, con 12 órdenes y la migración inicial aplicada cuyo checksum coincide con el archivo versionado. **No se hará seed**. La migración de grandes montos sigue pendiente; el backup privado tiene permisos 700/600 y manifest verificado. El clon `a0_restore_rehearsal_20261105` en 55432 se conserva para comparación.
 
 ---
 
