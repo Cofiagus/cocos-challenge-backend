@@ -82,22 +82,30 @@ const DEFAULT_EXISTING_ORDER: OrderRecord = {
   datetime: new Date("2023-07-14T10:00:00.000Z"),
 };
 
-/** Fila que el repo devolvería tras insertar el draft (id fijo: 501). */
-const orderFromDraft = (draft: OrderDraft, id: number): OrderRecord => ({
-  id,
-  instrumentId: draft.instrumentId,
-  userId: draft.userId,
-  side: draft.side,
-  type: draft.type,
-  timeInForce: draft.timeInForce,
-  status: draft.status,
-  sizeShares: draft.sizeShares,
-  priceArs: draft.priceArs,
-  filledPriceArs: draft.filledPriceArs,
-  filledAt: draft.filledAt,
-  idempotencyKey: draft.idempotencyKey,
-  datetime: draft.datetime,
-});
+/**
+ * Fila que el repo devolvería tras insertar el draft (id fijo: 501). El
+ * `side` discrimina la unidad física: acciones (number) en trading, monto
+ * exacto (Decimal) en cash.
+ */
+const orderFromDraft = (draft: OrderDraft, id: number): OrderRecord => {
+  const common = {
+    id,
+    instrumentId: draft.instrumentId,
+    userId: draft.userId,
+    type: draft.type,
+    timeInForce: draft.timeInForce,
+    status: draft.status,
+    priceArs: draft.priceArs,
+    filledPriceArs: draft.filledPriceArs,
+    filledAt: draft.filledAt,
+    idempotencyKey: draft.idempotencyKey,
+    datetime: draft.datetime,
+  };
+  if (draft.side === "BUY" || draft.side === "SELL") {
+    return { ...common, side: draft.side, sizeShares: draft.sizeShares };
+  }
+  return { ...common, side: draft.side, amountArs: draft.amountArs };
+};
 
 export const buildSubmitOrderFakes = (
   seed: SubmitOrderFakeSeed = {},

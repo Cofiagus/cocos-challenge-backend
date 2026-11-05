@@ -4,15 +4,20 @@
 //
 // Fija las tres salidas del claim idempotente (CREATED / REPLAY / CONFLICT),
 // el orden de las escrituras (createOrder SIEMPRE primero) y que el evento de
-// auditoría va en la MISMA transacción.
+// auditoría va en la MISMA transacción. El draft está discriminado por unidad:
+// acciones (trading) o monto exacto (cash, D4) — nunca las dos.
 
 import { Decimal } from "decimal.js";
 import {
   IdempotencyConflictError,
   persistOrderDecision,
-  type OrderDraftBase,
+  type CashOrderDraftBase,
+  type TradingOrderDraftBase,
 } from "../../../src/application/orders/persist-order-decision.js";
-import type { DecidedOrder } from "../../../src/application/orders/decide-order.js";
+import type {
+  DecidedCashOrder,
+  DecidedOrder,
+} from "../../../src/application/orders/decide-order.js";
 import type { OrderRecord } from "../../../src/contracts/index.js";
 import {
   buildSubmitOrderFakes,
@@ -24,7 +29,7 @@ import {
 const DATETIME = new Date("2023-07-14T10:00:00.000Z");
 const FILLED_AT = new Date("2023-07-14T10:00:01.000Z");
 
-const BASE: OrderDraftBase = {
+const BASE: TradingOrderDraftBase = {
   userId: 1,
   instrumentId: 1,
   side: "BUY",
@@ -32,6 +37,17 @@ const BASE: OrderDraftBase = {
   timeInForce: "GTC",
   priceArs: null,
   idempotencyKey: "idem-1",
+  datetime: DATETIME,
+};
+
+const CASH_BASE: CashOrderDraftBase = {
+  userId: 1,
+  instrumentId: 66,
+  side: "CASH_IN",
+  type: "MARKET",
+  timeInForce: "GTC",
+  priceArs: new Decimal("1.00"),
+  idempotencyKey: "idem-cash",
   datetime: DATETIME,
 };
 
@@ -53,6 +69,16 @@ const REJECTED: DecidedOrder = {
   eventType: "REJECTED",
   reason: "INSUFFICIENT_FUNDS",
   metadata: { ticker: "PAMP", requiredCostArs: "2777.55" },
+};
+
+const CASH_FILLED: DecidedCashOrder = {
+  status: "FILLED",
+  amountArs: new Decimal("123.45"),
+  filledPriceArs: new Decimal("1.00"),
+  filledAt: FILLED_AT,
+  eventType: "ACCEPTED",
+  reason: null,
+  metadata: { ticker: "ARS", amountArs: "123.45" },
 };
 
 const EXISTING_ORDER: OrderRecord = {
@@ -88,8 +114,7 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
     const result = await persistOrderDecision(
       fakes.deps.orders,
       fakes.transaction,
-      FILLED,
-      BASE,
+      { kind: "TRADING", base: BASE, decided: FILLED },
     );
 
     expect(fakes.createdDrafts).toEqual([
@@ -126,8 +151,7 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
     const result = await persistOrderDecision(
       fakes.deps.orders,
       fakes.transaction,
-      REJECTED,
-      BASE,
+      { kind: "TRADING", base: BASE, decided: REJECTED },
     );
 
     expect(result.reason).toBe("INSUFFICIENT_FUNDS");
@@ -142,6 +166,42 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
     expectSameTransaction(fakes);
   });
 
+  it("CREATED de CASH: persiste el monto exacto sin acciones ficticias", async () => {
+    const fakes = fakesFor({});
+
+    const result = await persistOrderDecision(
+      fakes.deps.orders,
+      fakes.transaction,
+      { kind: "CASH", base: CASH_BASE, decided: CASH_FILLED },
+    );
+
+    expect(fakes.createdDrafts).toEqual([
+      {
+        ...CASH_BASE,
+        status: "FILLED",
+        amountArs: new Decimal("123.45"),
+        filledPriceArs: new Decimal("1.00"),
+        filledAt: FILLED_AT,
+      },
+    ]);
+    expect(fakes.createdDrafts[0]).not.toHaveProperty("sizeShares");
+    expect(fakes.appendedEvents).toEqual([
+      {
+        orderId: 501,
+        eventType: "ACCEPTED",
+        reason: null,
+        metadata: { ticker: "ARS", amountArs: "123.45" },
+      },
+    ]);
+    expect(result.order.side).toBe("CASH_IN");
+    expect(result.reason).toBeNull();
+    expect(callLabels(fakes.calls)).toEqual([
+      "orders.createOrder",
+      "orders.appendOrderEvent",
+    ]);
+    expectSameTransaction(fakes);
+  });
+
   it("REPLAY: devuelve la orden ORIGINAL con reason null y sin evento", async () => {
     const fakes = fakesFor({
       createOutcome: "IDEMPOTENT_REPLAY",
@@ -151,8 +211,7 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
     const result = await persistOrderDecision(
       fakes.deps.orders,
       fakes.transaction,
-      FILLED,
-      BASE,
+      { kind: "TRADING", base: BASE, decided: FILLED },
     );
 
     expect(result.order).toBe(EXISTING_ORDER);
@@ -171,8 +230,7 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
     const error = await persistOrderDecision(
       fakes.deps.orders,
       fakes.transaction,
-      FILLED,
-      BASE,
+      { kind: "TRADING", base: BASE, decided: FILLED },
     ).then(
       () => null,
       (reason: unknown) => reason,

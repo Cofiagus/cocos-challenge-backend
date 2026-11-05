@@ -9,16 +9,23 @@
 //   2. IDEMPOTENT_CONFLICT ⇒ 409 (el repo ya comparó el payload).
 //      IDEMPOTENT_REPLAY ⇒ la orden ORIGINAL, sin evento nuevo.
 //   3. CREATED ⇒ appendOrderEvent en la MISMA tx que la mutación.
+//
+// D2/D3 (spec grandes montos): el draft está discriminado por `side`, así que
+// las acciones (number ≤ INT4) y el monto cash (Decimal exacto) viajan cada
+// uno con su tipo. El `Omit` es DISTRIBUTIVO a propósito: un Omit sobre la
+// unión borraría los discriminantes y permitiría mezclar unidades.
 
 import {
   API_ERROR_CODES,
+  type CashOrderDraft,
   type OrderDraft,
   type OrderRejectionReason,
   type OrderRecord,
+  type TradingOrderDraft,
   type TransactionContext,
 } from "../../contracts/index.js";
 import type { OrderRepository } from "../../domain/ports/index.js";
-import type { DecidedOrder } from "./decide-order.js";
+import type { DecidedCashOrder, DecidedOrder } from "./decide-order.js";
 
 /**
  * 409 de idempotencia: la misma Idempotency-Key llegó con otro payload. Es
@@ -37,17 +44,70 @@ export class IdempotencyConflictError extends Error {
   }
 }
 
-/** Campos comunes del draft; el estado y el fill los agrega la decisión. */
-export type OrderDraftBase = Omit<
-  OrderDraft,
-  "status" | "sizeShares" | "filledPriceArs" | "filledAt"
+/** Campos que agrega la decisión, no el draft base. */
+type DecidedDraftFields =
+  | "status"
+  | "filledPriceArs"
+  | "filledAt"
+  | "sizeShares"
+  | "amountArs";
+
+/** `Omit` miembro a miembro: conserva el `side` literal de cada rama. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
+/** Campos comunes de un draft de TRADING; `sizeShares` lo agrega la decisión. */
+export type TradingOrderDraftBase = DistributiveOmit<
+  TradingOrderDraft,
+  DecidedDraftFields
 >;
+
+/** Campos comunes de un draft de CASH; `amountArs` lo agrega la decisión. */
+export type CashOrderDraftBase = DistributiveOmit<
+  CashOrderDraft,
+  DecidedDraftFields
+>;
+
+/**
+ * Entrada de la persistencia: la decisión y el draft base SIEMPRE de la misma
+ * unidad (trading con acciones, cash con monto), correlacionados por `kind`.
+ */
+export type PersistedOrderDecisionInput =
+  | {
+      readonly kind: "TRADING";
+      readonly base: TradingOrderDraftBase;
+      readonly decided: DecidedOrder;
+    }
+  | {
+      readonly kind: "CASH";
+      readonly base: CashOrderDraftBase;
+      readonly decided: DecidedCashOrder;
+    };
 
 /** Salida: la fila persistida + la razón (REJECTED/CANCELLED; null si NEW/FILLED). */
 export interface PersistedOrderDecision {
   readonly order: OrderRecord;
   readonly reason: OrderRejectionReason | null;
 }
+
+/** Draft completo: los campos comunes + los que decidió el caso de uso. */
+const draftOf = (input: PersistedOrderDecisionInput): OrderDraft =>
+  input.kind === "TRADING"
+    ? {
+        ...input.base,
+        status: input.decided.status,
+        sizeShares: input.decided.sizeShares,
+        filledPriceArs: input.decided.filledPriceArs,
+        filledAt: input.decided.filledAt,
+      }
+    : {
+        ...input.base,
+        status: input.decided.status,
+        amountArs: input.decided.amountArs,
+        filledPriceArs: input.decided.filledPriceArs,
+        filledAt: input.decided.filledAt,
+      };
 
 /**
  * Persiste la decisión: createOrder como PRIMERA escritura (claim idempotente)
@@ -57,19 +117,10 @@ export interface PersistedOrderDecision {
 export const persistOrderDecision = async (
   orders: OrderRepository,
   tx: TransactionContext,
-  decided: DecidedOrder,
-  base: OrderDraftBase,
+  input: PersistedOrderDecisionInput,
 ): Promise<PersistedOrderDecision> => {
-  const draft: OrderDraft = {
-    ...base,
-    status: decided.status,
-    sizeShares: decided.sizeShares,
-    filledPriceArs: decided.filledPriceArs,
-    filledAt: decided.filledAt,
-  };
-
   // PRIMERA ESCRITURA de la tx: claim idempotente (ON CONFLICT — DECISIONS.md).
-  const created = await orders.createOrder(draft, tx);
+  const created = await orders.createOrder(draftOf(input), tx);
 
   if (created.outcome === "IDEMPOTENT_CONFLICT") {
     throw new IdempotencyConflictError(created.order.id);
@@ -84,12 +135,12 @@ export const persistOrderDecision = async (
   await orders.appendOrderEvent(
     {
       orderId: created.order.id,
-      eventType: decided.eventType,
-      reason: decided.reason,
-      metadata: decided.metadata,
+      eventType: input.decided.eventType,
+      reason: input.decided.reason,
+      metadata: input.decided.metadata,
     },
     tx,
   );
 
-  return { order: created.order, reason: decided.reason };
+  return { order: created.order, reason: input.decided.reason };
 };

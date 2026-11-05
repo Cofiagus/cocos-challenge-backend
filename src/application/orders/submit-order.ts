@@ -23,10 +23,11 @@
 
 import {
   API_ERROR_CODES,
+  MAX_ORDER_SIZE_SHARES,
   type ApiErrorCode,
   type CreateOrderRequest,
+  type FinancialDecimal,
   type InstrumentRecord,
-  type OrderDraft,
   type TransactionContext,
 } from "../../contracts/index.js";
 import { deriveReservations } from "../../domain/index.js";
@@ -46,10 +47,11 @@ import {
   rejectForZeroSize,
   resolveSizing,
   type DecidedOrder,
+  type SizingDecision,
 } from "./decide-order.js";
 import {
   persistOrderDecision,
-  type OrderDraftBase,
+  type TradingOrderDraftBase,
   type PersistedOrderDecision,
 } from "./persist-order-decision.js";
 
@@ -160,7 +162,7 @@ const readReferencePrice = async (
   instrument: InstrumentRecord,
   tx: TransactionContext,
   needsPrice: boolean,
-): Promise<OrderDraft["priceArs"]> => {
+): Promise<FinancialDecimal | null> => {
   if (!needsPrice) return null;
   const snapshot = await deps.marketdata.getLatestSnapshot(instrument.id, tx);
   return snapshot === null ? null : snapshot.closeArs;
@@ -169,26 +171,34 @@ const readReferencePrice = async (
 interface DraftBaseInput {
   readonly input: SubmitOrderInput;
   readonly instrumentId: number;
-  readonly limitPriceArs: OrderDraft["priceArs"];
+  readonly limitPriceArs: FinancialDecimal | null;
   readonly datetime: Date;
 }
 
-/** Campos del draft que no dependen de la decisión de estado. */
+/**
+ * Campos del draft de TRADING que no dependen de la decisión de estado. El
+ * `side` se ramifica para conservar el literal (la unión discriminada del
+ * contrato no acepta un `TradingSide` genérico).
+ */
 const buildDraftBase = ({
   input,
   instrumentId,
   limitPriceArs,
   datetime,
-}: DraftBaseInput): OrderDraftBase => ({
-  userId: input.userId,
-  instrumentId,
-  side: input.request.side,
-  type: input.request.type,
-  timeInForce: input.request.timeInForce,
-  priceArs: limitPriceArs,
-  idempotencyKey: input.idempotencyKey,
-  datetime,
-});
+}: DraftBaseInput): TradingOrderDraftBase => {
+  const common = {
+    userId: input.userId,
+    instrumentId,
+    type: input.request.type,
+    timeInForce: input.request.timeInForce,
+    priceArs: limitPriceArs,
+    idempotencyKey: input.idempotencyKey,
+    datetime,
+  };
+  return input.request.side === "BUY"
+    ? { ...common, side: "BUY" }
+    : { ...common, side: "SELL" };
+};
 
 interface DecideOrderContext {
   readonly deps: SubmitOrderDeps;
@@ -196,10 +206,35 @@ interface DecideOrderContext {
   readonly userId: number;
   readonly request: CreateOrderRequest;
   readonly instrument: InstrumentRecord;
-  readonly referencePriceArs: OrderDraft["priceArs"];
+  readonly referencePriceArs: FinancialDecimal | null;
   readonly needsPrice: boolean;
-  readonly limitPriceArs: OrderDraft["priceArs"];
+  readonly limitPriceArs: FinancialDecimal | null;
 }
+
+/**
+ * Un size derivado fuera de INT4 es un error de CONTRATO, no un REJECTED de
+ * negocio: 400 VALIDATION_ERROR y ninguna escritura (ni orden REJECTED). Sólo
+ * se traduce el RangeError del sizing; un error inesperado sigue subiendo al
+ * manejador central (500).
+ */
+const resolveSizingOrThrow = (
+  request: CreateOrderRequest,
+  referencePriceArs: FinancialDecimal | null,
+  limitPriceArs: FinancialDecimal | null,
+): SizingDecision => {
+  try {
+    return resolveSizing(request, referencePriceArs, limitPriceArs);
+  } catch (error) {
+    if (error instanceof RangeError) {
+      throw new SubmitOrderError(
+        400,
+        API_ERROR_CODES.VALIDATION_ERROR,
+        `El size derivado de amountArs no es un entero entre 0 y ${String(MAX_ORDER_SIZE_SHARES)}.`,
+      );
+    }
+    throw error;
+  }
+};
 
 /**
  * Decide el estado leyendo fondos/tenencia en la tx, en el orden que evita
@@ -213,7 +248,11 @@ const decideOrder = async (
     return rejectForMissingPrice(request, instrument);
   }
 
-  const sizing = resolveSizing(request, referencePriceArs, limitPriceArs);
+  const sizing = resolveSizingOrThrow(
+    request,
+    referencePriceArs,
+    limitPriceArs,
+  );
   const auditBase = buildAuditBase(
     instrument,
     request,
@@ -298,7 +337,11 @@ const submitInsideTransaction = async (
     limitPriceArs,
   });
 
-  return persistOrderDecision(deps.orders, tx, decided, base);
+  return persistOrderDecision(deps.orders, tx, {
+    kind: "TRADING",
+    base,
+    decided,
+  });
 };
 
 export const submitOrder = (

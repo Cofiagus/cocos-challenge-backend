@@ -2,80 +2,69 @@
 //
 // DECISIONS.md: las transferencias se modelan como ORDERS del instrumento
 // MONEDA del cash (ARS — seed id 66, docs/database.md §2) con la convención
-// del seed: price = 1.00 (un peso) y size = pesos ⇒ el cash que proyecta
-// deriveCash (size × price sobre FILLED) es exactamente el monto movido.
-// CASH_IN/CASH_OUT NO pasan por la regla "MONEDA no operable": esa
-// validación es para trading (BUY/SELL de un instrumento) — éstas son
-// movimientos de cash sobre el propio instrumento MONEDA.
+// del seed: price = 1.00 (un peso) y size = el MONTO en pesos.
 //
-// Espeja submitOrder (UC-3) paso a paso — es el MISMO mecanismo
-// de orders, sin instrumento del request ni precio de referencia:
+// D4 (spec grandes montos): las transferencias NUEVAS mueven el monto EXACTO
+// en ARS, con centavos y sin floor — 0.01 es una transferencia válida, no un
+// ZERO_SIZE. El monto viaja como Decimal desde el string del borde; el draft
+// CASH lleva `amountArs` (nunca acciones) y el evento lo audita como string
+// canónico de 2 decimales (metadata.amountArs) para los replays históricos.
+// Un CASH_IN/CASH_OUT histórico de 123.45 que persistió 123 sigue moviendo
+// 123.00: no se reescribe ni se regalan/debitan centavos.
+//
+// Espeja submitOrder (UC-3) paso a paso — es el MISMO mecanismo de orders,
+// sin instrumento del request ni precio de referencia:
 //
 //   1. userExists (tx)                       ⇒ 404 USER_NOT_FOUND.
 //   2. instrumento del cash por ticker (ARS, dentro de la tx): el seed lo
-//      garantiza (docs §2); si faltara es corrupción ⇒ 500 INTERNAL_ERROR (manejador central).
-//   3. size = floor(amountArs / 1.00) — la MISMA regla de sizing de
-//      DECISIONS.md (amountArs ⇒ size derivado); con price 1.00 es el
-//      monto en pesos enteros. size 0 (amountArs < 1 peso) ⇒ REJECTED
-//      ZERO_SIZE persistida (201), como en E.
-//   4. CASH_IN (depósito): SIN validación de fondos ⇒ FILLED inmediata.
+//      garantiza (docs §2); si faltara es corrupción ⇒ 500 INTERNAL_ERROR.
+//   3. CASH_IN (depósito): SIN validación de fondos ⇒ FILLED inmediata.
 //      CASH_OUT (extracción): cash DISPONIBLE leído DENTRO de la tx
 //      (listSettledMovements + listRestingOrders con tx → deriveCash −
 //      deriveReservations.cashReservedArs): monto > disponible ⇒ REJECTED
 //      INSUFFICIENT_FUNDS persistida (201) con el evento y metadata
-//      (disponible y requerido). OJO: valida contra el DISPONIBLE
-//      (settled − reservas), NO contra el settled — dos CASH_OUT
-//      simultáneas que juntas exceden quedan una FILLED y una REJECTED
-//      gracias al pg_advisory_xact_lock por usuario.
-//   5. createOrder(draft, tx) es la PRIMERA ESCRITURA (claim idempotente
-//      con ON CONFLICT DO NOTHING): el draft completo, status
-//      incluido, se decide ANTES con las lecturas de 2–4. IDEMPOTENT_REPLAY
-//      ⇒ la orden original (201, sin evento nuevo); IDEMPOTENT_CONFLICT ⇒
-//      409 (el repositorio ya comparó el payload). La persistencia es la COMPARTIDA con
-//      el envío de órdenes (persist-order-decision.ts).
-//   6. appendOrderEvent ACCEPTED/REJECTED en la MISMA tx (DECISIONS.md:
-//      auditoría en la misma transacción que la mutación).
-//
-// La respuesta (router) es 201 OrderResponse SIEMPRE que se persistió
-// (FILLED o REJECTED — DECISIONS.md). Dinero SIEMPRE Decimal (AGENTS.md):
-// nunca float, y a metadata jsonb como string de 2 decimales.
+//      (disponible y requerido), conservando el monto pedido exacto.
+//   4. createOrder(draft, tx) es la PRIMERA ESCRITURA (claim idempotente
+//      con ON CONFLICT DO NOTHING): el draft completo se decide ANTES con
+//      las lecturas de 1–3. IDEMPOTENT_REPLAY ⇒ la orden original (201, sin
+//      evento nuevo); IDEMPOTENT_CONFLICT ⇒ 409. La persistencia es la
+//      COMPARTIDA con el envío de órdenes (persist-order-decision.ts).
+//   5. appendOrderEvent ACCEPTED/REJECTED en la MISMA tx (auditoría en la
+//      misma transacción que la mutación).
 
-import { Decimal } from "decimal.js";
 import {
   API_ERROR_CODES,
+  FinancialDecimal,
+  serializeMoneyArs,
   type ApiErrorCode,
   type InstrumentRecord,
   type OrderEventMetadata,
   type TransactionContext,
   type TransferSide,
 } from "../../contracts/index.js";
-import {
-  deriveCash,
-  deriveReservations,
-  sizeSharesFromAmountArs,
-} from "../../domain/index.js";
+import { deriveCash, deriveReservations } from "../../domain/index.js";
 import type {
   InstrumentRepository,
   OrderRepository,
   PortfolioReadRepository,
 } from "../../domain/ports/index.js";
-import { rejectForZeroSize, type DecidedOrder } from "../orders/decide-order.js";
+import type { DecidedCashOrder } from "../orders/decide-order.js";
 import {
   persistOrderDecision,
-  type OrderDraftBase,
+  type CashOrderDraftBase,
   type PersistedOrderDecision,
 } from "../orders/persist-order-decision.js";
 
 /** Ticker del instrumento MONEDA del cash (seed: ARS, id 66 — fixtures). */
 const CASH_TICKER = "ARS";
 
-/** Precio unitario del cash: un peso (convención del seed: size = pesos). */
-const CASH_UNIT_PRICE_ARS = new Decimal("1.00");
+/** Precio unitario del cash: un peso (convención histórica del seed). */
+const CASH_UNIT_PRICE_ARS = new FinancialDecimal("1.00");
 
 /**
  * Error de aplicación de la transferencia: el router lo mapea a status +
- * apiErrorBody. A diferencia de E, NO hay códigos extra: USER_NOT_FOUND ya
- * vive en API_ERROR_CODES (el 409 de idempotencia es la clase compartida).
+ * apiErrorBody. NO hay códigos extra: USER_NOT_FOUND ya vive en
+ * API_ERROR_CODES (el 409 de idempotencia es la clase compartida).
  */
 export class SubmitTransferError extends Error {
   constructor(
@@ -101,8 +90,8 @@ export interface SubmitTransferDeps {
 /** Entrada del caso de uso: el body YA validado por Zod en el borde. */
 export interface SubmitTransferInput {
   readonly userId: number;
-  /** Monto en ARS (> 0 — PositiveArsInputSchema en el borde). */
-  readonly amountArs: Decimal;
+  /** Monto exacto en ARS (> 0 — PositiveArsInputSchema en el borde). */
+  readonly amountArs: FinancialDecimal;
   readonly side: TransferSide;
   /** Idempotency-Key del header; null si no viene (es opcional). */
   readonly idempotencyKey: string | null;
@@ -111,48 +100,26 @@ export interface SubmitTransferInput {
 /** Salida: la fila persistida + la razón (REJECTED; null si FILLED). */
 export type SubmitTransferResult = PersistedOrderDecision;
 
-/** Tamaño decidido: pesos enteros + el residuo que queda como cash. */
-interface TransferSizing {
-  readonly sizeShares: number;
-  readonly residualArs: Decimal;
-}
-
 /**
- * size en pesos con la MISMA regla de sizing de DECISIONS.md:
- * floor(amountArs / 1.00) — con price 1.00 es el monto pedido en pesos
- * enteros (la fracción de peso no persiste en `size` INT; queda como
- * residuo documentado en la metadata del evento).
+ * Metadata de auditoría común: el monto va como string canónico de 2
+ * decimales (ningún float y ningún Decimal crudo en el jsonb).
  */
-const sizeTransfer = (amountArs: Decimal): TransferSizing => {
-  const sizeShares = sizeSharesFromAmountArs(amountArs, CASH_UNIT_PRICE_ARS);
-  const residualArs = amountArs.minus(
-    new Decimal(String(sizeShares)).mul(CASH_UNIT_PRICE_ARS),
-  );
-  return { sizeShares, residualArs };
-};
-
-/** Metadata de auditoría común (dinero como string de 2 decimales). */
 const buildAuditBase = (
   instrument: InstrumentRecord,
-  amountArs: Decimal,
-  residualArs: Decimal,
+  amountArs: FinancialDecimal,
 ): OrderEventMetadata => ({
   ticker: instrument.ticker,
-  amountArs: amountArs.toFixed(2),
-  residualArs: residualArs.toFixed(2),
+  amountArs: serializeMoneyArs(amountArs),
 });
 
-/**
- * Cash que entra o sale: FILLED inmediata a 1.00 (convención del seed; el
- * disponible sube o baja exactamente el monto).
- */
+/** Cash que entra o sale: FILLED inmediata a 1.00, moviendo el monto exacto. */
 const fillTransfer = (
-  sizeShares: number,
+  amountArs: FinancialDecimal,
   auditBase: OrderEventMetadata,
   decidedAt: Date,
-): DecidedOrder => ({
+): DecidedCashOrder => ({
   status: "FILLED",
-  sizeShares,
+  amountArs,
   filledPriceArs: CASH_UNIT_PRICE_ARS,
   filledAt: decidedAt,
   eventType: "ACCEPTED",
@@ -162,35 +129,33 @@ const fillTransfer = (
 
 /** Datos de la validación de fondos del CASH_OUT, ya leídos en la tx. */
 interface CashOutAssessment {
-  readonly sizeShares: number;
-  readonly cashAvailableArs: Decimal;
+  readonly amountArs: FinancialDecimal;
+  readonly cashAvailableArs: FinancialDecimal;
   readonly auditBase: OrderEventMetadata;
   /** Instante de decisión (después de las lecturas de fondos). */
   readonly decidedAt: Date;
 }
 
 /**
- * CASH_OUT: el monto pedido contra el DISPONIBLE (settled − reservas). No
- * alcanza ⇒ REJECTED persistida (201) con el evento y la metadata del porqué.
+ * CASH_OUT: el monto EXACTO contra el DISPONIBLE (settled − reservas). No
+ * alcanza ⇒ REJECTED persistida (201) con el evento, el monto pedido como
+ * size y la metadata del porqué (sin redondear ni anular el monto).
  */
-const assessCashOut = (input: CashOutAssessment): DecidedOrder => {
-  const requiredArs = new Decimal(String(input.sizeShares)).mul(
-    CASH_UNIT_PRICE_ARS,
-  );
-  if (!requiredArs.greaterThan(input.cashAvailableArs)) {
-    return fillTransfer(input.sizeShares, input.auditBase, input.decidedAt);
+const assessCashOut = (input: CashOutAssessment): DecidedCashOrder => {
+  if (!input.amountArs.greaterThan(input.cashAvailableArs)) {
+    return fillTransfer(input.amountArs, input.auditBase, input.decidedAt);
   }
   return {
     status: "REJECTED",
-    sizeShares: input.sizeShares, // el monto pedido (no 0: no hubo floor que lo anule)
+    amountArs: input.amountArs,
     filledPriceArs: null,
     filledAt: null,
     eventType: "REJECTED",
     reason: "INSUFFICIENT_FUNDS",
     metadata: {
       ...input.auditBase,
-      requiredArs: requiredArs.toFixed(2),
-      cashAvailableArs: input.cashAvailableArs.toFixed(2),
+      requiredArs: serializeMoneyArs(input.amountArs),
+      cashAvailableArs: serializeMoneyArs(input.cashAvailableArs),
     },
   };
 };
@@ -236,31 +201,34 @@ interface DraftBaseInput {
 }
 
 /**
- * Campos comunes del draft (el status/fill se decide y agrega después).
- * type MARKET + tif GTC: convención del seed para las filas CASH (no hay
- * ni límite ni referencia — el "precio de mercado" del cash es 1.00).
+ * Campos comunes del draft de CASH (el status/fill se decide después). El
+ * `side` se ramifica para conservar el literal discriminado del contrato.
  */
 const buildDraftBase = ({
   input,
   instrumentId,
   datetime,
-}: DraftBaseInput): OrderDraftBase => ({
-  userId: input.userId,
-  instrumentId,
-  side: input.side,
-  type: "MARKET",
-  timeInForce: "GTC",
-  priceArs: CASH_UNIT_PRICE_ARS,
-  idempotencyKey: input.idempotencyKey,
-  datetime,
-});
+}: DraftBaseInput): CashOrderDraftBase => {
+  const common = {
+    userId: input.userId,
+    instrumentId,
+    type: "MARKET" as const,
+    timeInForce: "GTC" as const,
+    priceArs: CASH_UNIT_PRICE_ARS,
+    idempotencyKey: input.idempotencyKey,
+    datetime,
+  };
+  return input.side === "CASH_IN"
+    ? { ...common, side: "CASH_IN" }
+    : { ...common, side: "CASH_OUT" };
+};
 
 interface DecideTransferContext {
   readonly deps: SubmitTransferDeps;
   readonly tx: TransactionContext;
   readonly userId: number;
+  readonly amountArs: FinancialDecimal;
   readonly side: TransferSide;
-  readonly sizing: TransferSizing;
   readonly auditBase: OrderEventMetadata;
 }
 
@@ -271,7 +239,7 @@ interface DecideTransferContext {
  */
 const readCashAvailable = async (
   context: DecideTransferContext,
-): Promise<Decimal> => {
+): Promise<FinancialDecimal> => {
   // Awaits SECUENCIALES: Prisma no documenta queries paralelas dentro de una
   // $transaction interactiva, y dos SELECT no ganan nada medible.
   const movements = await context.deps.portfolioRead.listSettledMovements(
@@ -288,21 +256,20 @@ const readCashAvailable = async (
 };
 
 /**
- * Decide el estado: ZERO_SIZE y CASH_IN se resuelven sin leer fondos; sólo
- * CASH_OUT con size > 0 lee movimientos y reservas.
+ * Decide el estado: CASH_IN se resuelve sin leer fondos; sólo CASH_OUT lee
+ * movimientos y reservas. No hay rama ZERO_SIZE: un monto positivo, por
+ * chico que sea, es una transferencia válida (D4).
  */
 const decideTransfer = async (
   context: DecideTransferContext,
-): Promise<DecidedOrder> => {
-  const { sizeShares } = context.sizing;
-  if (sizeShares === 0) return rejectForZeroSize(context.auditBase);
+): Promise<DecidedCashOrder> => {
   if (context.side === "CASH_IN") {
-    return fillTransfer(sizeShares, context.auditBase, new Date());
+    return fillTransfer(context.amountArs, context.auditBase, new Date());
   }
 
   const cashAvailableArs = await readCashAvailable(context);
   return assessCashOut({
-    sizeShares,
+    amountArs: context.amountArs,
     cashAvailableArs,
     auditBase: context.auditBase,
     // Segundo instante: el fill se fecha al DECIDIR, no al recibir el envío.
@@ -321,29 +288,28 @@ const submitInsideTransaction = async (
   await requireExistingUser(deps, tx, userId);
   const cashInstrument = await requireCashInstrument(deps, tx);
 
-  const sizing = sizeTransfer(amountArs);
   const datetime = new Date(); // hora de envío/aceptación
   const base = buildDraftBase({
     input,
     instrumentId: cashInstrument.id,
     datetime,
   });
-  const auditBase = buildAuditBase(
-    cashInstrument,
-    amountArs,
-    sizing.residualArs,
-  );
+  const auditBase = buildAuditBase(cashInstrument, amountArs);
 
   const decided = await decideTransfer({
     deps,
     tx,
     userId,
+    amountArs,
     side,
-    sizing,
     auditBase,
   });
 
-  return persistOrderDecision(deps.orders, tx, decided, base);
+  return persistOrderDecision(deps.orders, tx, {
+    kind: "CASH",
+    base,
+    decided,
+  });
 };
 
 export const submitTransfer = (

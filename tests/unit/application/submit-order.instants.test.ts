@@ -45,12 +45,10 @@ const snapshot = (
   previousCloseArs: new Decimal(closeArs),
 });
 
-/** CASH_IN de 1.00 por unidad: sizeShares = pesos liquidados. */
-const cashIn = (sizeShares: number): SettledOrderMovement => ({
-  instrumentId: 66,
+/** CASH_IN de un monto exacto en ARS (el cash no lleva acciones). */
+const cashIn = (amountArs: string): SettledOrderMovement => ({
   side: "CASH_IN",
-  sizeShares,
-  priceArs: new Decimal("1.00"),
+  amountArs: new Decimal(amountArs),
 });
 
 // ---------------------------------------------------------------------------
@@ -154,7 +152,7 @@ describe("submitOrder — los dos instantes del envío (UC-3)", () => {
     const fakes = fakesWithClockReads({
       instruments: [PAMP],
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     });
 
     const result = await submitOrder(fakes.deps, {
@@ -177,7 +175,7 @@ describe("submitOrder — los dos instantes del envío (UC-3)", () => {
     const fakes = fakesWithClockReads({
       instruments: [PAMP],
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     });
 
     const result = await submitOrder(fakes.deps, {
@@ -200,7 +198,7 @@ describe("submitOrder — los dos instantes del envío (UC-3)", () => {
   it("LIMIT GTC BUY (NEW, sin vela): datetime en T0+0 y filledAt nulo", async () => {
     const fakes = fakesWithClockReads({
       instruments: [PAMP],
-      movements: [cashIn(100_000)],
+      movements: [cashIn("100000.00")],
     });
 
     const result = await submitOrder(fakes.deps, {
@@ -227,7 +225,7 @@ describe("submitOrder — los dos instantes del envío (UC-3)", () => {
     const fakes = fakesWithClockReads({
       instruments: [PAMP],
       snapshot: snapshot(1, "925.85"),
-      movements: [cashIn(1_000)],
+      movements: [cashIn("1000.00")],
     });
 
     const result = await submitOrder(fakes.deps, {

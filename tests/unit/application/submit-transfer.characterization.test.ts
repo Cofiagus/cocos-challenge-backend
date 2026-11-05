@@ -2,13 +2,13 @@
 // ports que usa: orders, portfolioRead e instruments. Sin DB, sin Prisma, sin
 // Express (el port de marketdata del fake compartido queda sin usar).
 //
-// Fija el comportamiento OBSERVADO del código actual para poder refactorizarlo
-// sin cambiar el contrato: por caso se asertan LITERALMENTE el draft que
-// recibe createOrder, el evento de auditoría con su metadata completa, la
-// orden resultante y la LISTA ORDENADA de llamadas a ports (qué se lee, qué
-// no se lee y que createOrder es la primera escritura). Los esperados son
-// valores escritos a mano, nunca recalculados con la misma lógica del caso de
-// uso.
+// Fija el comportamiento del contrato aprobado (D4): la transferencia NUEVA
+// mueve el monto EXACTO en ARS, con centavos y sin floor (0.01 es válida), el
+// draft CASH lleva `amountArs` (nunca acciones) y la metadata del evento lo
+// audita como string canónico de 2 decimales. Por caso se asertan
+// LITERALMENTE el draft que recibe createOrder, el evento con su metadata
+// completa, la orden resultante y la LISTA ORDENADA de llamadas a ports (qué
+// se lee, qué no se lee y que createOrder es la primera escritura).
 //
 // Dinero SIEMPRE Decimal desde string (AGENTS.md): ningún fixture usa float.
 
@@ -21,6 +21,7 @@ import {
 } from "../../../src/application/transfers/submit-transfer.js";
 import type {
   InstrumentRecord,
+  OrderDraft,
   OrderEventMetadata,
   OrderEventType,
   OrderRecord,
@@ -58,12 +59,10 @@ const PAMP: InstrumentRecord = {
 
 const CASH_INSTRUMENT_ID = 66;
 
-/** Movimiento FILLED de cash a 1.00 por unidad: sizeShares = pesos. */
-const cashIn = (sizeShares: number): SettledOrderMovement => ({
-  instrumentId: CASH_INSTRUMENT_ID,
+/** Movimiento FILLED de cash: monto exacto, sin acciones ni precio. */
+const cashIn = (amountArs: string): SettledOrderMovement => ({
   side: "CASH_IN",
-  sizeShares,
-  priceArs: new Decimal("1.00"),
+  amountArs: new Decimal(amountArs),
 });
 
 /** BUY NEW que reserva `sizeShares × limitPriceArs` de cash. */
@@ -83,7 +82,7 @@ const restingBuy = (
 // Secuencias de ports esperadas (literales)
 // ---------------------------------------------------------------------------
 
-/** CASH_IN y ZERO_SIZE: se decide sin leer fondos (ni movimientos ni reservas). */
+/** CASH_IN: se decide sin leer fondos (ni movimientos ni reservas). */
 const CALLS_BEFORE_FUNDS = [
   "orders.withUserTransaction(1)",
   "portfolioRead.userExists(1)",
@@ -92,7 +91,7 @@ const CALLS_BEFORE_FUNDS = [
   "orders.appendOrderEvent",
 ] as const;
 
-/** CASH_OUT con size > 0: lee movimientos y reservas ANTES del claim. */
+/** CASH_OUT: lee movimientos y reservas ANTES del claim. */
 const CALLS_CASH_OUT = [
   "orders.withUserTransaction(1)",
   "portfolioRead.userExists(1)",
@@ -113,7 +112,7 @@ const CALLS_CASH_OUT_NO_EVENT = CALLS_CASH_OUT.slice(0, -1);
 interface ExpectedOrder {
   readonly id: number;
   readonly status: OrderStatus;
-  readonly sizeShares: number | null;
+  readonly amountArs: string;
   readonly filledPriceArs: string | null;
   readonly filledAt: "DATE" | null;
   readonly side: TransferSide;
@@ -121,7 +120,7 @@ interface ExpectedOrder {
 
 interface ExpectedDraft {
   readonly status: OrderStatus;
-  readonly sizeShares: number;
+  readonly amountArs: string;
   readonly filledPriceArs: string | null;
   readonly filledAt: "DATE" | null;
   readonly side: TransferSide;
@@ -176,8 +175,10 @@ interface ThrowCase {
 }
 
 // ---------------------------------------------------------------------------
-// Aserciones
+// Aserciones (valor monetario por toFixed, no por constructor de Decimal)
 // ---------------------------------------------------------------------------
+
+const decimalOf = (value: string): Decimal => new Decimal(value);
 
 const expectDraft = (
   fakes: SubmitOrderFakes,
@@ -189,23 +190,33 @@ const expectDraft = (
   if (draft === undefined) {
     throw new Error("createOrder no recibió ningún draft.");
   }
-  expect(draft).toEqual({
+  if (draft.side === "BUY" || draft.side === "SELL") {
+    throw new Error("Una transferencia no puede redactarse como trading.");
+  }
+  // Los precios/el monto se comparan por valor monetario exacto: el
+  // constructor (Decimal del fixture vs FinancialDecimal del caso de uso) no
+  // es parte del contrato.
+  const { filledPriceArs, priceArs, filledAt, amountArs, ...draftRest } =
+    draft;
+  expect(draftRest).toEqual({
     userId,
     instrumentId: CASH_INSTRUMENT_ID,
     side: expected.side,
     type: "MARKET",
     timeInForce: "GTC",
     status: expected.status,
-    sizeShares: expected.sizeShares,
-    priceArs: new Decimal("1.00"),
-    filledPriceArs:
-      expected.filledPriceArs === null
-        ? null
-        : new Decimal(expected.filledPriceArs),
-    filledAt: expected.filledAt === null ? null : expect.any(Date),
     idempotencyKey: expected.idempotencyKey,
     datetime: expect.any(Date),
   });
+  expect(draft).not.toHaveProperty("sizeShares");
+  expect(amountArs.toFixed(2)).toBe(expected.amountArs);
+  expect(priceArs?.toFixed(2)).toBe("1.00");
+  expect(filledAt).toEqual(
+    expected.filledAt === null ? null : expect.any(Date),
+  );
+  expect(filledPriceArs === null ? null : filledPriceArs.toFixed(2)).toBe(
+    expected.filledPriceArs,
+  );
 };
 
 const expectEvent = (
@@ -233,13 +244,15 @@ const expectOrder = (order: OrderRecord, expected: ExpectedOrder): void => {
   expect(order.type).toBe("MARKET");
   expect(order.timeInForce).toBe("GTC");
   expect(order.status).toBe(expected.status);
-  expect(order.sizeShares).toBe(expected.sizeShares);
-  expect(order.priceArs).toEqual(new Decimal("1.00"));
-  expect(order.filledPriceArs).toEqual(
-    expected.filledPriceArs === null
-      ? null
-      : new Decimal(expected.filledPriceArs),
-  );
+  if (order.side !== "CASH_IN" && order.side !== "CASH_OUT") {
+    throw new Error("La fila persistida no es de cash.");
+  }
+  expect(order.amountArs.toFixed(2)).toBe(expected.amountArs);
+  expect(order).not.toHaveProperty("sizeShares");
+  expect(order.priceArs?.toFixed(2)).toBe("1.00");
+  expect(
+    order.filledPriceArs === null ? null : order.filledPriceArs.toFixed(2),
+  ).toBe(expected.filledPriceArs);
   expect(order.filledAt).toEqual(
     expected.filledAt === null ? null : expect.any(Date),
   );
@@ -262,7 +275,7 @@ const captureError = async (
 ): Promise<unknown> =>
   submitTransfer(fakes.deps, {
     userId: testCase.userId ?? 1,
-    amountArs: new Decimal(testCase.amountArs),
+    amountArs: decimalOf(testCase.amountArs),
     side: testCase.side,
     idempotencyKey: testCase.idempotencyKey ?? null,
   }).then(
@@ -282,14 +295,14 @@ const persistedCases: PersistedCase[] = [
     seed: {
       instruments: [ARS],
       // Hay movimientos y reservas: el caso prueba que NO se leen.
-      movements: [cashIn(10_000)],
+      movements: [cashIn("10000.00")],
       restingOrders: [restingBuy(1, 10, "500.00")],
     },
     expected: {
       order: {
         id: 501,
         status: "FILLED",
-        sizeShares: 5000,
+        amountArs: "5000.00",
         filledPriceArs: "1.00",
         filledAt: "DATE",
         side: "CASH_IN",
@@ -297,7 +310,7 @@ const persistedCases: PersistedCase[] = [
       reason: null,
       draft: {
         status: "FILLED",
-        sizeShares: 5000,
+        amountArs: "5000.00",
         filledPriceArs: "1.00",
         filledAt: "DATE",
         side: "CASH_IN",
@@ -306,17 +319,13 @@ const persistedCases: PersistedCase[] = [
       event: {
         eventType: "ACCEPTED",
         reason: null,
-        metadata: {
-          ticker: "ARS",
-          amountArs: "5000.00",
-          residualArs: "0.00",
-        },
+        metadata: { ticker: "ARS", amountArs: "5000.00" },
       },
       calls: CALLS_BEFORE_FUNDS,
     },
   },
   {
-    name: "CASH_IN con monto fraccionario ⇒ size 100 y residuo 0.75 en la metadata",
+    name: "CASH_IN de 100.75 ⇒ FILLED con el monto EXACTO (sin floor a 100)",
     amountArs: "100.75",
     side: "CASH_IN",
     seed: { instruments: [ARS] },
@@ -324,7 +333,7 @@ const persistedCases: PersistedCase[] = [
       order: {
         id: 501,
         status: "FILLED",
-        sizeShares: 100,
+        amountArs: "100.75",
         filledPriceArs: "1.00",
         filledAt: "DATE",
         side: "CASH_IN",
@@ -332,7 +341,69 @@ const persistedCases: PersistedCase[] = [
       reason: null,
       draft: {
         status: "FILLED",
-        sizeShares: 100,
+        amountArs: "100.75",
+        filledPriceArs: "1.00",
+        filledAt: "DATE",
+        side: "CASH_IN",
+        idempotencyKey: null,
+      },
+      event: {
+        eventType: "ACCEPTED",
+        reason: null,
+        metadata: { ticker: "ARS", amountArs: "100.75" },
+      },
+      calls: CALLS_BEFORE_FUNDS,
+    },
+  },
+  {
+    name: "CASH_IN de 0.01 ⇒ FILLED (D4: el centavo es un monto válido, no ZERO_SIZE)",
+    amountArs: "0.01",
+    side: "CASH_IN",
+    seed: { instruments: [ARS] },
+    expected: {
+      order: {
+        id: 501,
+        status: "FILLED",
+        amountArs: "0.01",
+        filledPriceArs: "1.00",
+        filledAt: "DATE",
+        side: "CASH_IN",
+      },
+      reason: null,
+      draft: {
+        status: "FILLED",
+        amountArs: "0.01",
+        filledPriceArs: "1.00",
+        filledAt: "DATE",
+        side: "CASH_IN",
+        idempotencyKey: null,
+      },
+      event: {
+        eventType: "ACCEPTED",
+        reason: null,
+        metadata: { ticker: "ARS", amountArs: "0.01" },
+      },
+      calls: CALLS_BEFORE_FUNDS,
+    },
+  },
+  {
+    name: "CASH_IN del máximo D1 ⇒ FILLED con las 22 cifras enteras y los centavos",
+    amountArs: "9999999999999999999999.99",
+    side: "CASH_IN",
+    seed: { instruments: [ARS] },
+    expected: {
+      order: {
+        id: 501,
+        status: "FILLED",
+        amountArs: "9999999999999999999999.99",
+        filledPriceArs: "1.00",
+        filledAt: "DATE",
+        side: "CASH_IN",
+      },
+      reason: null,
+      draft: {
+        status: "FILLED",
+        amountArs: "9999999999999999999999.99",
         filledPriceArs: "1.00",
         filledAt: "DATE",
         side: "CASH_IN",
@@ -343,8 +414,7 @@ const persistedCases: PersistedCase[] = [
         reason: null,
         metadata: {
           ticker: "ARS",
-          amountArs: "100.75",
-          residualArs: "0.75",
+          amountArs: "9999999999999999999999.99",
         },
       },
       calls: CALLS_BEFORE_FUNDS,
@@ -354,12 +424,12 @@ const persistedCases: PersistedCase[] = [
     name: "CASH_OUT con disponible suficiente ⇒ FILLED a 1.00",
     amountArs: "5000.00",
     side: "CASH_OUT",
-    seed: { instruments: [ARS], movements: [cashIn(10_000)] },
+    seed: { instruments: [ARS], movements: [cashIn("10000.00")] },
     expected: {
       order: {
         id: 501,
         status: "FILLED",
-        sizeShares: 5000,
+        amountArs: "5000.00",
         filledPriceArs: "1.00",
         filledAt: "DATE",
         side: "CASH_OUT",
@@ -367,7 +437,7 @@ const persistedCases: PersistedCase[] = [
       reason: null,
       draft: {
         status: "FILLED",
-        sizeShares: 5000,
+        amountArs: "5000.00",
         filledPriceArs: "1.00",
         filledAt: "DATE",
         side: "CASH_OUT",
@@ -376,25 +446,52 @@ const persistedCases: PersistedCase[] = [
       event: {
         eventType: "ACCEPTED",
         reason: null,
-        metadata: {
-          ticker: "ARS",
-          amountArs: "5000.00",
-          residualArs: "0.00",
-        },
+        metadata: { ticker: "ARS", amountArs: "5000.00" },
       },
       calls: CALLS_CASH_OUT,
     },
   },
   {
-    name: "CASH_OUT mayor al disponible ⇒ REJECTED INSUFFICIENT_FUNDS con requerido y disponible",
+    name: "CASH_OUT de 123.45 sobre disponible entero ⇒ FILLED con los centavos exactos",
+    amountArs: "123.45",
+    side: "CASH_OUT",
+    seed: { instruments: [ARS], movements: [cashIn("1000.00")] },
+    expected: {
+      order: {
+        id: 501,
+        status: "FILLED",
+        amountArs: "123.45",
+        filledPriceArs: "1.00",
+        filledAt: "DATE",
+        side: "CASH_OUT",
+      },
+      reason: null,
+      draft: {
+        status: "FILLED",
+        amountArs: "123.45",
+        filledPriceArs: "1.00",
+        filledAt: "DATE",
+        side: "CASH_OUT",
+        idempotencyKey: null,
+      },
+      event: {
+        eventType: "ACCEPTED",
+        reason: null,
+        metadata: { ticker: "ARS", amountArs: "123.45" },
+      },
+      calls: CALLS_CASH_OUT,
+    },
+  },
+  {
+    name: "CASH_OUT mayor al disponible ⇒ REJECTED INSUFFICIENT_FUNDS con el monto pedido exacto",
     amountArs: "5000.00",
     side: "CASH_OUT",
-    seed: { instruments: [ARS], movements: [cashIn(1_000)] },
+    seed: { instruments: [ARS], movements: [cashIn("1000.00")] },
     expected: {
       order: {
         id: 501,
         status: "REJECTED",
-        sizeShares: 5000,
+        amountArs: "5000.00",
         filledPriceArs: null,
         filledAt: null,
         side: "CASH_OUT",
@@ -402,7 +499,7 @@ const persistedCases: PersistedCase[] = [
       reason: "INSUFFICIENT_FUNDS",
       draft: {
         status: "REJECTED",
-        sizeShares: 5000,
+        amountArs: "5000.00",
         filledPriceArs: null,
         filledAt: null,
         side: "CASH_OUT",
@@ -414,7 +511,6 @@ const persistedCases: PersistedCase[] = [
         metadata: {
           ticker: "ARS",
           amountArs: "5000.00",
-          residualArs: "0.00",
           requiredArs: "5000.00",
           cashAvailableArs: "1000.00",
         },
@@ -423,19 +519,19 @@ const persistedCases: PersistedCase[] = [
     },
   },
   {
-    name: "CASH_OUT con reservas previas: valida contra settled − reservas (627500), no contra el settled",
+    name: "CASH_OUT con reservas previas: valida contra settled − reservas (627500)",
     amountArs: "630000.00",
     side: "CASH_OUT",
     seed: {
       instruments: [ARS],
-      movements: [cashIn(753_000)],
+      movements: [cashIn("753000.00")],
       restingOrders: [restingBuy(1, 500, "251.00")], // reserva 125500
     },
     expected: {
       order: {
         id: 501,
         status: "REJECTED",
-        sizeShares: 630_000,
+        amountArs: "630000.00",
         filledPriceArs: null,
         filledAt: null,
         side: "CASH_OUT",
@@ -443,7 +539,7 @@ const persistedCases: PersistedCase[] = [
       reason: "INSUFFICIENT_FUNDS",
       draft: {
         status: "REJECTED",
-        sizeShares: 630_000,
+        amountArs: "630000.00",
         filledPriceArs: null,
         filledAt: null,
         side: "CASH_OUT",
@@ -455,7 +551,6 @@ const persistedCases: PersistedCase[] = [
         metadata: {
           ticker: "ARS",
           amountArs: "630000.00",
-          residualArs: "0.00",
           requiredArs: "630000.00",
           cashAvailableArs: "627500.00",
         },
@@ -467,12 +562,12 @@ const persistedCases: PersistedCase[] = [
     name: "CASH_OUT de EXACTAMENTE el disponible ⇒ FILLED (el límite es inclusivo)",
     amountArs: "5000.00",
     side: "CASH_OUT",
-    seed: { instruments: [ARS], movements: [cashIn(5_000)] },
+    seed: { instruments: [ARS], movements: [cashIn("5000.00")] },
     expected: {
       order: {
         id: 501,
         status: "FILLED",
-        sizeShares: 5000,
+        amountArs: "5000.00",
         filledPriceArs: "1.00",
         filledAt: "DATE",
         side: "CASH_OUT",
@@ -480,7 +575,7 @@ const persistedCases: PersistedCase[] = [
       reason: null,
       draft: {
         status: "FILLED",
-        sizeShares: 5000,
+        amountArs: "5000.00",
         filledPriceArs: "1.00",
         filledAt: "DATE",
         side: "CASH_OUT",
@@ -489,29 +584,21 @@ const persistedCases: PersistedCase[] = [
       event: {
         eventType: "ACCEPTED",
         reason: null,
-        metadata: {
-          ticker: "ARS",
-          amountArs: "5000.00",
-          residualArs: "0.00",
-        },
+        metadata: { ticker: "ARS", amountArs: "5000.00" },
       },
       calls: CALLS_CASH_OUT,
     },
   },
   {
-    name: "CASH_OUT de un centavo MÁS que el disponible (4999.99) ⇒ REJECTED (el size floor-ea a 5000)",
-    amountArs: "5000.00",
+    name: "CASH_OUT de un centavo MÁS que el disponible (5000.01 vs 5000.00) ⇒ REJECTED sin débito",
+    amountArs: "5000.01",
     side: "CASH_OUT",
-    seed: {
-      instruments: [ARS],
-      movements: [cashIn(5_000)],
-      restingOrders: [restingBuy(1, 1, "0.01")], // reserva 0.01 ⇒ disponible 4999.99
-    },
+    seed: { instruments: [ARS], movements: [cashIn("5000.00")] },
     expected: {
       order: {
         id: 501,
         status: "REJECTED",
-        sizeShares: 5000,
+        amountArs: "5000.01",
         filledPriceArs: null,
         filledAt: null,
         side: "CASH_OUT",
@@ -519,7 +606,7 @@ const persistedCases: PersistedCase[] = [
       reason: "INSUFFICIENT_FUNDS",
       draft: {
         status: "REJECTED",
-        sizeShares: 5000,
+        amountArs: "5000.01",
         filledPriceArs: null,
         filledAt: null,
         side: "CASH_OUT",
@@ -530,48 +617,43 @@ const persistedCases: PersistedCase[] = [
         reason: "INSUFFICIENT_FUNDS",
         metadata: {
           ticker: "ARS",
-          amountArs: "5000.00",
-          residualArs: "0.00",
-          requiredArs: "5000.00",
-          cashAvailableArs: "4999.99",
+          amountArs: "5000.01",
+          requiredArs: "5000.01",
+          cashAvailableArs: "5000.00",
         },
       },
       calls: CALLS_CASH_OUT,
     },
   },
   {
-    name: "CASH_OUT de menos de 1 peso ⇒ REJECTED ZERO_SIZE sin leer fondos",
+    name: "CASH_OUT de 0.50 ⇒ FILLED (D4: antes era ZERO_SIZE por el floor)",
     amountArs: "0.50",
     side: "CASH_OUT",
-    seed: { instruments: [ARS], movements: [cashIn(10_000)] },
+    seed: { instruments: [ARS], movements: [cashIn("10000.00")] },
     expected: {
       order: {
         id: 501,
-        status: "REJECTED",
-        sizeShares: 0,
-        filledPriceArs: null,
-        filledAt: null,
+        status: "FILLED",
+        amountArs: "0.50",
+        filledPriceArs: "1.00",
+        filledAt: "DATE",
         side: "CASH_OUT",
       },
-      reason: "ZERO_SIZE",
+      reason: null,
       draft: {
-        status: "REJECTED",
-        sizeShares: 0,
-        filledPriceArs: null,
-        filledAt: null,
+        status: "FILLED",
+        amountArs: "0.50",
+        filledPriceArs: "1.00",
+        filledAt: "DATE",
         side: "CASH_OUT",
         idempotencyKey: null,
       },
       event: {
-        eventType: "REJECTED",
-        reason: "ZERO_SIZE",
-        metadata: {
-          ticker: "ARS",
-          amountArs: "0.50",
-          residualArs: "0.50",
-        },
+        eventType: "ACCEPTED",
+        reason: null,
+        metadata: { ticker: "ARS", amountArs: "0.50" },
       },
-      calls: CALLS_BEFORE_FUNDS,
+      calls: CALLS_CASH_OUT,
     },
   },
   {
@@ -580,7 +662,7 @@ const persistedCases: PersistedCase[] = [
     side: "CASH_OUT",
     seed: {
       instruments: [ARS],
-      movements: [cashIn(1_000)],
+      movements: [cashIn("1000.00")],
       createOutcome: "IDEMPOTENT_REPLAY",
       existingOrder: {
         id: 900,
@@ -590,7 +672,7 @@ const persistedCases: PersistedCase[] = [
         type: "MARKET",
         timeInForce: "GTC",
         status: "REJECTED",
-        sizeShares: 5000,
+        amountArs: new Decimal("5000.00"),
         priceArs: new Decimal("1.00"),
         filledPriceArs: null,
         filledAt: null,
@@ -603,7 +685,7 @@ const persistedCases: PersistedCase[] = [
       order: {
         id: 900,
         status: "REJECTED",
-        sizeShares: 5000,
+        amountArs: "5000.00",
         filledPriceArs: null,
         filledAt: null,
         side: "CASH_OUT",
@@ -611,7 +693,7 @@ const persistedCases: PersistedCase[] = [
       reason: null,
       draft: {
         status: "REJECTED",
-        sizeShares: 5000,
+        amountArs: "5000.00",
         filledPriceArs: null,
         filledAt: null,
         side: "CASH_OUT",
@@ -650,7 +732,7 @@ const errorCases: ErrorCase[] = [
     side: "CASH_OUT",
     seed: {
       instruments: [ARS],
-      movements: [cashIn(1_000)],
+      movements: [cashIn("1000.00")],
       createOutcome: "IDEMPOTENT_CONFLICT",
       existingOrder: {
         id: 900,
@@ -660,7 +742,7 @@ const errorCases: ErrorCase[] = [
         type: "MARKET",
         timeInForce: "GTC",
         status: "REJECTED",
-        sizeShares: 5000,
+        amountArs: new Decimal("5000.00"),
         priceArs: new Decimal("1.00"),
         filledPriceArs: null,
         filledAt: null,
@@ -701,7 +783,7 @@ describe("submitTransfer — caracterización de la transferencia (UC-5)", () =>
 
     const result = await submitTransfer(fakes.deps, {
       userId,
-      amountArs: new Decimal(testCase.amountArs),
+      amountArs: decimalOf(testCase.amountArs),
       side: testCase.side,
       idempotencyKey: testCase.idempotencyKey ?? null,
     });
@@ -746,7 +828,7 @@ describe("submitTransfer — caracterización de la transferencia (UC-5)", () =>
 
     const error = await submitTransfer(fakes.deps, {
       userId: 1,
-      amountArs: new Decimal(testCase.amountArs),
+      amountArs: decimalOf(testCase.amountArs),
       side: testCase.side,
       idempotencyKey: null,
     }).then(
@@ -835,27 +917,13 @@ const fakesWithClockReads = (seed: SubmitOrderFakeSeed): SubmitOrderFakes => {
   return { ...fakes, deps };
 };
 
-const createdDraft = (fakes: SubmitOrderFakes): OrderRecord => {
+const createdDraft = (fakes: SubmitOrderFakes): OrderDraft => {
   expect(fakes.createdDrafts).toHaveLength(1);
   const created = fakes.createdDrafts[0];
   if (created === undefined) {
     throw new Error("createOrder no recibió ningún draft.");
   }
-  return {
-    id: 501,
-    instrumentId: created.instrumentId,
-    userId: created.userId,
-    side: created.side,
-    type: created.type,
-    timeInForce: created.timeInForce,
-    status: created.status,
-    sizeShares: created.sizeShares,
-    priceArs: created.priceArs,
-    filledPriceArs: created.filledPriceArs,
-    filledAt: created.filledAt,
-    idempotencyKey: created.idempotencyKey,
-    datetime: created.datetime,
-  };
+  return created;
 };
 
 describe("submitTransfer — los dos instantes de la transferencia (UC-5)", () => {
@@ -871,12 +939,12 @@ describe("submitTransfer — los dos instantes de la transferencia (UC-5)", () =
   it("CASH_OUT FILLED: datetime tras resolver el instrumento, filledAt tras leer los fondos", async () => {
     const fakes = fakesWithClockReads({
       instruments: [ARS],
-      movements: [cashIn(10_000)],
+      movements: [cashIn("10000.00")],
     });
 
     const result = await submitTransfer(fakes.deps, {
       userId: 1,
-      amountArs: new Decimal("5000.00"),
+      amountArs: decimalOf("5000.00"),
       side: "CASH_OUT",
       idempotencyKey: null,
     });
@@ -898,12 +966,12 @@ describe("submitTransfer — los dos instantes de la transferencia (UC-5)", () =
   it("CASH_OUT REJECTED: filledAt nulo y datetime igualmente antes de las lecturas de fondos", async () => {
     const fakes = fakesWithClockReads({
       instruments: [ARS],
-      movements: [cashIn(1_000)],
+      movements: [cashIn("1000.00")],
     });
 
     const result = await submitTransfer(fakes.deps, {
       userId: 1,
-      amountArs: new Decimal("5000.00"),
+      amountArs: decimalOf("5000.00"),
       side: "CASH_OUT",
       idempotencyKey: null,
     });
@@ -920,7 +988,7 @@ describe("submitTransfer — los dos instantes de la transferencia (UC-5)", () =
 
     const result = await submitTransfer(fakes.deps, {
       userId: 1,
-      amountArs: new Decimal("5000.00"),
+      amountArs: decimalOf("5000.00"),
       side: "CASH_IN",
       idempotencyKey: null,
     });
@@ -944,7 +1012,7 @@ describe("submitTransfer — el instrumento del cash se lee en la tx (UC-5)", ()
 
     await submitTransfer(fakes.deps, {
       userId: 1,
-      amountArs: new Decimal("5000.00"),
+      amountArs: decimalOf("5000.00"),
       side: "CASH_IN",
       idempotencyKey: null,
     });
