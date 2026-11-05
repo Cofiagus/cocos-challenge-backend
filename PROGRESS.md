@@ -11,11 +11,11 @@
 
 | Célula | Alcance / ownership | Estado | Gate |
 |---|---|---|---|
-| LM-A | Constructor/contratos de dinero y tests monetarios; CODEMAP sólo sus filas | REVISIÓN: 47 tests/build/lint re-corridos; corrección de overflow pct y consumidor test en ejecución | No integrado aún |
-| LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | REVISIÓN: 21 tests PG re-corridos; corrección CHECK cero/status NULL y configuración suite en ejecución | No integrado aún |
+| LM-A | Constructor/contratos de dinero y tests monetarios; CODEMAP sólo sus filas | ACEPTADA e integrada hasta 1099fb4 | typecheck/lint/build + 48 tests re-corridos en integradora |
+| LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | ACEPTADA en afc5e5f; preparada en branch LM-D, integración junto a mappers | 22 tests PG y validate/lint re-corridos; CHECK NULL cerrado |
 | LM-C0 | Tipos discriminados y schemas quantity/size (base LM-A 607c138) | EN EJECUCIÓN (ds_flash, cell/large-money-domain) | contratos aislados; consumidores pendientes |
 | LM-C1 | Dominio, casos de uso y HTTP; depende de seams LM-C0 | PENDIENTE | unit dominio/application/HTTP |
-| LM-D | Mappers, repos e idempotencia histórica; depende de seams LM-C y schema LM-B | PENDIENTE | integración PG real y concurrencia |
+| LM-D | Mappers, repos e idempotencia histórica; depende de seams LM-C y schema LM-B | ENTORNO PREPARADO (cell/large-money-infra, base e6ad04c) | Cliente Decimal generado; lm_d_test migrada/seed; espera LM-C0 |
 | LM-E-docs | README/docs/colección del contrato aprobado; rama cell/large-money-docs | REVISIÓN: 12 tests/docs y typecheck/lint re-corridos; corregir marcador patch y ejemplo cash numérico | No integrado aún |
 | LM-E-wire | OpenAPI y adaptación funcional; depende de código estable | PENDIENTE | docs/funcionales |
 | LM-QA | Revisión independiente de diff e invariantes | PENDIENTE | no merge a main sin firma adicional |
@@ -37,6 +37,8 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 - LM-B verificada sobre 11eb26d: 21 pruebas PostgreSQL reales; ALTER observado 95 ms en tabla chica. Se devuelve porque un CHECK debe tratar NULL explícitamente para que size=0 sólo permita REJECTED, y la suite no debe rechazar el nombre cocos_* del URL fuente global si sólo crea destinos propios lm_b_*.
 - Resolución LM-A: no inventar prohibición de cero negativo en el schema firmado genérico de entrada; Positive lo rechaza y la salida lo normaliza. No requiere cambiar el diseño ni consultar un nuevo default.
 - Seams de tipos se preparan en célula separada antes de paralelizar dominio/aplicación e infra; no se mezclan unidades mediante casts.
+- Revisión LM-A cerrada en 462074f: overflow pct cubierto y typecheck recuperado. Commits integrados 51d5076/e676d90/3d20e69/1099fb4; 4 suites / 48 tests y typecheck/lint/build re-corridos por el orquestador. Gate de alcance, no final de feature: faltan consumidores del contrato incompatible.
+- Revisión LM-B cerrada en afc5e5f: cero/status NULL rechazado y URL fuente global admitida sin DROP de esa base. 22 tests PG re-corridos (ALTER 95 ms en ensayo chico). Se espera integración con mappers para regenerar el cliente de la integradora; LM-D ya tiene cliente nuevo y base propia sin usar DB de app.
 
 ---
 
