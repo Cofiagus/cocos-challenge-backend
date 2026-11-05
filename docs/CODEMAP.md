@@ -90,7 +90,7 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 | `src/http/cancel/cancel-router.ts` | borde UC-4: Zod params → `cancelOrder` → 200 `OrderResponse` | `CancelRouterDeps`, `buildCancelRouter` | `http/server.ts` | `functional/cancel` |
 | `src/http/error-handler.ts` | los errores que no tienen handler de dominio: 404 de ruta o método inexistente, body JSON inválido (400), body demasiado grande (413) y 500 con mensaje genérico — el detalle (stack) queda en stderr | `JSON_BODY_LIMIT_KB`, `notFoundHandler`, `errorHandler` | `http/app.ts` | `unit/http/error-contract` |
 | `src/http/shared/edge.ts` | borde HTTP compartido por los routers: `validationMessage` (ZodError → texto), lectura del header `Idempotency-Key` y fila persistida → `OrderResponse` con `size` discriminado (acciones number, cash string monetario) | `validationMessage`, `IdempotencyKeyHeader`, `parseIdempotencyKeyHeader`, `toOrderResponse` | los 5 routers | `unit/http/edge` |
-| `src/http/instruments/instruments-router.ts` | borde UC-2: `query` → `searchByQuery` → batch de snapshots → respuesta | `InstrumentsRouterDeps`, `buildInstrumentsRouter` | `http/server.ts` | `functional/read` |
+| `src/http/instruments/instruments-router.ts` | borde UC-2: Zod query → `searchInstruments` → serialización (money string 2dp, pct number); `MarketDataServiceUnavailableError` ⇒ 503 `MARKET_DATA_SERVICE_UNAVAILABLE` exacto, cualquier otro error al error handler | `InstrumentsRouterDeps`, `buildInstrumentsRouter` | `http/server.ts` | `unit/http/instruments-search` · `functional/read` |
 | `src/http/orders/orders-router.ts` | borde UC-3: Zod params+body+header → `submitOrder` → 201 `OrderResponse` | `OrdersRouterDeps`, `buildOrdersRouter` | `http/server.ts` | `functional/orders` (ambas) |
 | `src/http/portfolio/portfolio-router.ts` | borde UC-1 como adaptador fino: Zod params → `getPortfolio` → serialización al contrato (la agregación vive en el caso de uso) | `PortfolioRouterDeps`, `buildPortfolioRouter` | `http/server.ts` | `functional/read` · `unit/http/error-contract` |
 | `src/http/server.ts` | composition root: instancia los 4 repos Prisma y arma `serverApp` con los 5 routers | `serverApp` | `src/index.ts` | — |
@@ -177,7 +177,6 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 
 ## 13. Deuda conocida (no "arreglar" sin spec)
 
-- UC-2 (instruments) **no tiene caso de uso**: la búsqueda y el batch de snapshots viven en el router (el de portfolio ya tiene el suyo: `src/application/portfolio/get-portfolio.ts`).
 - `marketdata-price-source.ts` implementa `PriceSource` y **nadie lo cablea** (punto de enchufe del matching).
 - La migración no tiene `CHECK` de transiciones de estado: la guarda es a nivel app.
 
