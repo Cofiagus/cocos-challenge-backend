@@ -85,7 +85,7 @@ Body de error uniforme (todos los errores, 4xx y 5xx):
 | `quantity` (portfolio) | — | **string entero canónico**, con signo para la negativa heredada |
 | Porcentajes (`totalReturnPct`, `dailyVariationPct`) | — | `number` (sin cambios) |
 
-El máximo por fila es `9999999999999999999999.99` (NUMERIC(24,2)); los agregados (`cash`, `totalAccountValue`, `quantity`) pueden superarlo por suma y siguen exactos.
+El máximo por fila es `9999999999999999999999.99` (NUMERIC(24,2)); los agregados de dinero (`cash`, `totalAccountValue`) pueden superarlo por suma y siguen exactos. `quantity` no entra en esa frase: no es dinero sino un entero de tenencia (`bigint` en el dominio, string entero en la respuesta), sin máximo monetario que necesite superar.
 
 ### 1. Portfolio — `GET /api/users/:userId/portfolio`
 
@@ -247,7 +247,7 @@ En la respuesta, `size` es **string monetario** de pesos con 2 decimales (el mon
 
 ```bash
 curl -X POST http://localhost:3000/api/users/2/transfers \
-  -H 'Content-Type: application/json' -d '{"amountArs":123.45,"side":"CASH_IN"}'
+  -H 'Content-Type: application/json' -d '{"amountArs":"123.45","side":"CASH_IN"}'
 → 201 {"id":16,"instrumentId":66,"side":"CASH_IN","type":"MARKET","timeInForce":"GTC",
        "status":"FILLED","size":"123.45","price":"1.00","filledPrice":"1.00",...,"reason":null}
 

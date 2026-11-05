@@ -26,4 +26,3 @@ Orden sugerido (algunos ejemplos mutan estado y los idempotency keys se gastan):
 > `627500.00`, reservado `125500.00`, total `889756.00`). La corrida verificada en vivo previa a
 > esta feature se hizo contra el contrato anterior (dinero `number`): re-corregir la colección
 > contra la implementación queda para la verificación final de la feature, no se afirma acá.
-*** End Patch
