@@ -9,8 +9,9 @@
 // de asserts (pg) y el cliente Prisma.
 //
 // La app se compone con buildApp + TODOS los routers y repos Prisma REALES —
-// mismo cableado que src/http/server.ts (que no se importa para no congelar
-// el composition root de producción en el worker de test).
+// mismo cableado que src/http/server.ts. Única diferencia deliberada: la
+// fuente de cotizaciones es un FAKE (esta suite de dinero no pide
+// cotizaciones y nunca debe hacer fetch a Yahoo).
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -29,7 +30,10 @@ import { PrismaMarketdataRepository } from "../../../src/infra/prisma/marketdata
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
 import { PrismaPortfolioReadRepository } from "../../../src/infra/prisma/portfolio-read-repository.js";
 import { disconnectPrismaClient } from "../../../src/lib/prisma-client.js";
-import type { OrderRepository } from "../../../src/domain/ports/index.js";
+import type {
+  InstrumentQuoteSource,
+  OrderRepository,
+} from "../../../src/domain/ports/index.js";
 import type {
   CreateOrderResult,
   OrderDraft,
@@ -57,9 +61,18 @@ export const resetLargeMoneyDatabase = async (): Promise<void> => {
 };
 
 /**
+ * Cotizaciones deterministas de ESTA suite: los casos de aceptación son de
+ * dinero/cash y no piden cotizaciones; el fake evita cualquier fetch a Yahoo
+ * y el `null` es la política de "ticker sin cotización".
+ */
+const noQuotes: InstrumentQuoteSource = {
+  getCurrentQuote: async () => null,
+};
+
+/**
  * App con el MISMO cableado que el composition root (5 routers + 4 repos
- * Prisma reales). `orders` permite inyectar el repositorio envuelto del test
- * de rollback; por defecto es el real.
+ * Prisma reales + fuente de cotizaciones FAKE). `orders` permite inyectar el
+ * repositorio envuelto del test de rollback; por defecto es el real.
  */
 export const buildLargeMoneyTestApp = (
   orders: OrderRepository = new PrismaOrderRepository(),
@@ -69,7 +82,7 @@ export const buildLargeMoneyTestApp = (
   const marketdata = new PrismaMarketdataRepository();
   return buildApp([
     buildPortfolioRouter({ portfolioRead, marketdata, instruments }),
-    buildInstrumentsRouter({ instruments, marketdata }),
+    buildInstrumentsRouter({ instruments, quotes: noQuotes }),
     buildOrdersRouter({ orders, portfolioRead, instruments, marketdata }),
     buildCancelRouter({ orders }),
     buildTransfersRouter({ orders, portfolioRead, instruments }),
