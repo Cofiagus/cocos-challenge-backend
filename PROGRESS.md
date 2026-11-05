@@ -1,12 +1,38 @@
-# PROGRESS.md — bitácora del build
+# PROGRESS.md — ejecución por células
 
-> ⚠️ **ARTEFACTO HISTÓRICO. No es fuente de estado.** Describe el proceso de construcción por
-> fases y células, que ya terminó. Puede estar desactualizado (de hecho lo está: la tabla de
-> abajo marca la última fase como abierta mientras el repo está cerrado).
-> El estado real es `git log` y la topología real es `docs/CODEMAP.md`.
-> Glosario para leer el resto del archivo: Célula 0 = contratos · A = dominio puro · B = infra
-> Prisma · C = lectura UC-1/UC-2 · D = suite funcional UC-3 · E = UC-3 · F = UC-4 · G = UC-5 ·
-> H = documentación y entrega.
+## Build activo: grandes montos (firma humana 2026-11-05)
+
+- Spec inmutable: `specs/datos-financieros-grandes-montos.md` Rev. 2; D1–D5 aprobadas.
+- Rama integradora: `feature/large-money`; worktree `/home/cofi/repos/coccb-wt-large-money`.
+- Snapshot base: `b8006afbaaf8e8af3bfc7cf76a63bb557ae6f502` (`snapshot/large-money-20261105`), creado con índice Git alternativo. HEAD y staging originales de main se conservaron; sólo se registró la firma en la spec del árbol original.
+- Gate base medido sobre ese commit: **33 suites / 352 tests**, typecheck y lint verdes. PostgreSQL 18.6 nuevo, sólo loopback y puerto 55432, en scratch del perfil; ninguna conexión a DB de app.
+- El worktree original contiene trabajo previo del usuario que forma parte del snapshot, no del diff de esta feature. No cambiarlo ni mergear a main.
+- Gate final exige toda la spec, integración/funcionales con DB real, y revisión independiente. Las células iniciales tienen gates de alcance; ninguna declara verde global hasta adaptar todos los consumidores del contrato incompatible.
+
+| Célula | Alcance / ownership | Estado | Gate |
+|---|---|---|---|
+| LM-A | Constructor/contratos de dinero y tests monetarios; CODEMAP sólo sus filas | PREPARADA | unit monetarios + typecheck/lint |
+| LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | PREPARADA | PG real, migración sobre viejo/seed nuevo; no app DB |
+| LM-C | Tipos discriminados, dominio, casos de uso y HTTP; depende de LM-A | PENDIENTE | unit dominio/application/HTTP |
+| LM-D | Mappers, repos e idempotencia histórica; depende de seams LM-C y schema LM-B | PENDIENTE | integración PG real y concurrencia |
+| LM-E | OpenAPI, ejemplos, docs y adaptación funcional; depende de código estable | PENDIENTE | docs/funcionales |
+| LM-QA | Revisión independiente de diff e invariantes | PENDIENTE | no merge a main sin firma adicional |
+
+### Decisiones operativas
+
+- Sin recortes de aceptación. Rutas disjuntas y worktree por célula, con npm ci offline y Prisma Client generado antes del dispatch.
+- Sólo PostgreSQL de test aislado. LM-B tiene bases prefijadas `lm_b_`; las suites de integración finales usarán el cluster efímero, nunca el destino de la app.
+- La firma D5 permite personalizar la migración nueva aún no aplicada; no editar la inicial ni usar db push.
+- La preparación no actualiza dependencias: Node 26.12.1, npm 12.0.2 y Prisma 7.10.1 verificados. Avisos de npm sobre dependencias no se consideran una auditoría completa de seguridad.
+
+### QUESTIONs activas
+
+Ninguna. Si una decisión de diseño no está expresada en la spec firmada, detener esa parte y preguntar; no ampliar alcance.
+
+---
+
+## Histórico del build inicial (cerrado; no describe las células LM)
+
 
 ## Estado actual
 

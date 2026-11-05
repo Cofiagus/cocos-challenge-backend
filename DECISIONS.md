@@ -14,9 +14,15 @@
 - Rendimiento: P&L no realizado sobre costo promedio ponderado (las ventas no
   tocan el promedio). Posición con cantidad 0 no se lista. Posición negativa
   heredada del seed se lista tal cual y se documenta.
-- amountArs: `size = floor(amount / precio)`; size 0 => REJECTED `ZERO_SIZE`.
-- Dinero: nunca float. Interno Decimal/centavos. Entrada: número o string
-  parseado con Decimal. Salida: números con 2 decimales.
+- amountArs de BUY/SELL: `size = floor(amount / precio)`; size 0 => REJECTED `ZERO_SIZE`;
+  derivado fuera de INT4 => 400 sin escritura, validado antes de convertir a number.
+- Dinero: nunca float. Constructor Decimal financiero de precisión 64 desde strings.
+  Entrada monetaria string decimal estricto; salida string con 2 decimales. NUMERIC(24,2)
+  en precios/size. Cantidades agregadas bigint y quantity JSON string; acciones por orden INT4.
+- Transferencias nuevas: size almacena el monto exacto en pesos con centavos, price=1.00;
+  no floor. El dominio discrimina cash (amountArs Decimal) de trading (sizeShares entero).
+  Replays cash históricos y despliegue incompatible según la spec firmada
+  `specs/datos-financieros-grandes-montos.md` §5/§6: no reconstruir dinero descartado.
 - `orders.price` = límite enviado. `orders.filledPrice` = precio de ejecución.
 - Idempotencia: header `Idempotency-Key` opcional, `UNIQUE(userId, idempotencyKey)`,
   insert como PRIMERA escritura con ON CONFLICT DO NOTHING. Misma key + mismo

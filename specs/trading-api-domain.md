@@ -12,6 +12,8 @@
 > y arquitectura de matching estilo exchange real.
 > Rev. 3 — quita `instrument_symbol_map`: el símbolo Yahoo se deriva directo del
 > ticker (`ticker + ".BA"`); ticker expirado o renombrado = sin precio, no es error.
+> Rev. 4 — decisión del usuario: capacidad/precisión y contrato financiero según
+> `specs/datos-financieros-grandes-montos.md` Rev. 2 aprobada. No amplía matching ni identidad.
 
 ## Why
 
@@ -218,17 +220,19 @@ para LIMIT.
 
 ### UC-5 — Transferencia (`POST /api/users/:userId/transfers`)
 
-- `amountArs > 0`, `side` (`CASH_IN`/`CASH_OUT`).
+- `amountArs > 0` como string decimal estricto; `side` (`CASH_IN`/`CASH_OUT`).
+- Las transferencias nuevas representan el monto exacto con centavos en size, price 1.00;
+  no aplican floor. Las históricas y sus replays conservan el movimiento efectivamente persistido.
 - `CASH_IN` → FILLED inmediato.
-- `CASH_OUT`: si `amountArs > cashSettled` → `REJECTED` persistida; si no → FILLED.
-  (Las reservas de BUY comprometen cash disponible pero no el ya liquidado;
-  política a confirmar junto con D8.)
+- `CASH_OUT`: si `amountArs > cashSettled − cashReserved` → `REJECTED` persistida;
+  si no → FILLED. Validación del monto exacto dentro de la misma tx con lock por usuario.
 
 ## Constraints
 
-- Dinero **nunca en float**: centavos enteros (BigInt) o `Decimal` desde string,
-  también en el borde de ingesta de Yahoo (la fuente entrega floats → convertir
-  y validar antes de persistir).
+- Dinero **nunca en float**: Decimal financiero desde string con precisión 64;
+  entrada string decimal estricta y salida string con dos decimales; precios/size NUMERIC(24,2).
+  Quantities agregadas bigint y representación JSON entera string. Detalle, límites y
+  compatibilidad histórica: spec financiera firmada. No se activa la ingesta excluida del alcance.
 - Acciones enteras: sin fracciones, sin fills parciales (limitación documentada).
 - Toda multi-escritura (fill + evento + derivados) en una transacción DB.
 - Transición de estado siempre guardada por el estado actual

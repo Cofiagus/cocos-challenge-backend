@@ -23,8 +23,9 @@ Estado: 5 endpoints implementados; el estado de los tests lo da `npm test`.
 | ¿en qué orden corre un caso de uso? | el header del caso de uso en `src/application/` (el doc de casos de uso es P2) |
 | ¿esto que estoy leyendo sigue siendo verdad? | `docs/legacy.md` (qué está deprecado y qué usar en su lugar) |
 
-**No leas** `PROGRESS.md` ni `specs/**` para saber cómo está el código: son artefactos históricos del
-build (marcados como tales). La verdad del estado es `git log` + `docs/CODEMAP.md`.
+La topología vigente se consulta en `git log` + `docs/CODEMAP.md`. Durante la ejecución firmada
+de `specs/datos-financieros-grandes-montos.md`, `PROGRESS.md` registra el estado de células/gates;
+su sección histórica no describe el build activo. Los demás borradores no autorizan cambios.
 
 ## 2. Comandos (verificados)
 
@@ -79,9 +80,9 @@ eso, está desactualizado.
 
 ## 5. Reglas no negociables (el porqué está en `DECISIONS.md`)
 
-1. **Dinero nunca en float.** Cálculo y agregación SIEMPRE en `Decimal` (decimal.js), construido desde
-   string. Entrada: número o string, normalizado con `String(value)`, **nunca** `new Decimal(number)`.
-   Salida: **número JSON cuantizado a 2 decimales EN `Decimal` antes de serializar** (`serializeMoneyArs`).
+1. **Dinero nunca en float.** Cálculo y agregación SIEMPRE en el constructor Decimal financiero
+   de precisión 64, construido desde string. Entrada monetaria: string decimal estricto.
+   Salida: **string JSON con 2 decimales**, sin convertir dinero a number (`serializeMoneyArs`).
    Prohibido: `Float` en Prisma/Postgres, `parseFloat` sobre dinero, aritmética de plata en `number`.
 2. **Idempotencia en la DB, no en memoria.** `UNIQUE(userId, idempotencyKey)` en `orders` + `INSERT …
    ON CONFLICT DO NOTHING` como PRIMERA escritura de la transacción. Misma key + mismo payload → la
@@ -91,7 +92,8 @@ eso, está desactualizado.
 4. **Auditoría append-only** en `order_events`, escrita en la MISMA tx que la mutación.
 5. **Máquina de estados explícita**: transiciones válidas codificadas y guardadas por estado
    (`WHERE status='NEW'`). No hay `CHECK` en la migración — es deuda conocida, no una garantía.
-   El borde acota `size` (`MAX_ORDER_SIZE_SHARES`): un valor fuera de rango es 400, no 500.
+   El borde y el sizing derivado acotan acciones (`MAX_ORDER_SIZE_SHARES`): fuera de rango es
+   400 sin escribir, no 500. Cash usa monto Decimal exacto, no el floor de acciones.
 6. **Zod `strict()` en el borde.** Nunca confiar en `req.body`. Input inválido → 400 **sin escribir nada**.
 7. **Proyecciones, no tablas de saldo**: cash y posiciones se derivan de `orders FILLED`; las reservas,
    de las `NEW`. No agregar tablas de cash/posiciones.
@@ -119,7 +121,10 @@ constraints en DB, no sólo en la app; actualizar el doc dueño de lo que cambia
 reescribir tests existentes; cambiar un contrato HTTP (afecta `openapi.json` y clientes).
 
 🚫 **Nunca**: `any` (usar `unknown` + narrowing); `Float` para dinero; `prisma db push`; editar
-`migrations/` a mano; cargar la DB desde `db/schema.sql`; commitear secretos; saltarse tests.
+migraciones aplicadas; cargar la DB desde `db/schema.sql`; commitear secretos; saltarse tests.
+Excepción firmada D5: personalizar exclusivamente la nueva migración de grandes montos, aún no
+aplicada, generada con create-only, para CHECKs financieros. Ensayar sólo en DB de test aislada;
+la firma no autoriza migrar la DB de la app ni mergear PRs a main.
 
 ## 8. Estilo de código
 
