@@ -12,13 +12,13 @@
 | Célula | Alcance / ownership | Estado | Gate |
 |---|---|---|---|
 | LM-A | Constructor/contratos de dinero y tests monetarios; CODEMAP sólo sus filas | ACEPTADA e integrada hasta 1099fb4 | typecheck/lint/build + 48 tests re-corridos en integradora |
-| LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | ACEPTADA en afc5e5f; preparada en branch LM-D, integración junto a mappers | 22 tests PG y validate/lint re-corridos; CHECK NULL cerrado |
+| LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | INTEGRADA: 2bfcf26/e659a09 | 22 tests PG y CHECK NULL re-corridos; cliente nuevo generado |
 | LM-C0 | Tipos discriminados y schemas quantity/size | INTEGRADA: 8d1930c/c665109 | 28 tests de contratos/docs re-corridos; consumidores aún pendientes |
-| LM-C1-pure | Dominio puro y ports; cell/large-money-pure-final | PREPARADA (DeepSeek) | unit/domain; sizing conserva firma number y lanza RangeError fuera de rango antes de convertir |
+| LM-C1-pure | Dominio puro y ports; cell/large-money-pure-final | EN EJECUCIÓN (DeepSeek) | unit/domain; sizing conserva firma number y lanza RangeError fuera de rango antes de convertir |
 | LM-C1-app | Casos de uso, HTTP y fakes unitarios | PENDIENTE de dominio puro | unit/application + unit/http |
-| LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | PREPARADA (DeepSeek) | unit/infra + integration/infra; cluster de test separado para no colisionar con otras suites |
+| LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | EN EJECUCIÓN (DeepSeek) | unit/infra + integration/infra; DBs de test aisladas, sin otra corrida simultánea sobre sus mismas bases |
 | LM-E-docs | README/docs/colección del contrato aprobado | INTEGRADA: 4f9974f/e27f99a/ee5703f | correcciones revisadas; aún no afirma ejecución API final |
-| LM-E-wire-final | OpenAPI; cell/large-money-wire-final | PREPARADA (GLM) | tests/docs; reutiliza schemas monetarios de contracts |
+| LM-E-wire-final | OpenAPI; cell/large-money-wire-final | EN EJECUCIÓN (GLM) | tests/docs; reutiliza schemas monetarios de contracts |
 | LM-E-functional | Compatibilidad de suites y nuevos casos e2e | PENDIENTE de código estable | HTTP + PostgreSQL real, sin desactivar escenarios |
 | LM-QA | Revisión independiente de diff e invariantes | PENDIENTE | usuario autoriza integrar a main sólo tras pruebas y cierre de implementación |
 
