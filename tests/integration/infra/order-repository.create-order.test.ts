@@ -18,8 +18,11 @@ import { CorruptRowError } from "../../../src/infra/prisma/corrupt-row.error.js"
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
 import { createTestUser } from "../../helpers/factories.js";
+import { SEED_INSTRUMENT_ARS_ID } from "../../helpers/fixtures.js";
 import {
+  buildCashDraft,
   buildDraft,
+  expectCashRecord,
   expectConflict,
   expectCreated,
   expectReplay,
@@ -98,6 +101,88 @@ describe("PrismaOrderRepository.createOrder — caracterización (DB real)", () 
     const replayed = expectReplay(await submit(draft));
     expect(replayed.id).toBe(created.id);
     expect(replayed.priceArs).toBeNull();
+  });
+});
+
+describe("PrismaOrderRepository.createOrder — persistencia decimal cash (DB real)", () => {
+  const prisma = getPrismaClient();
+  const orderRepo = new PrismaOrderRepository();
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  const submit = (draft: OrderDraft) =>
+    orderRepo.withUserTransaction(draft.userId, (tx) =>
+      orderRepo.createOrder(draft, tx),
+    );
+
+  it.each(["0.01", "9999999999999999999999.99"])(
+    "monto cash %s: INSERT conserva el Decimal exacto con precio 1.00",
+    async (amount) => {
+      const user = await createTestUser(prisma);
+      const created = expectCashRecord(
+        expectCreated(
+          await submit(
+            buildCashDraft(user.id, {
+              amountArs: new Decimal(amount),
+              idempotencyKey: null,
+            }),
+          ),
+        ),
+      );
+      expect(created.amountArs.toFixed(2)).toBe(amount);
+      expect(created.priceArs?.toFixed(2)).toBe("1.00");
+
+      // Lectura DIRECTA de la columna física: mismo texto, sin Number de por medio.
+      const raw = await prisma.order.findUnique({ where: { id: created.id } });
+      expect(raw?.size?.toFixed(2)).toBe(amount);
+      expect(raw?.price?.toString()).toBe("1");
+      expect(raw?.side).toBe("CASH_IN");
+      expect(raw?.instrumentId).toBe(SEED_INSTRUMENT_ARS_ID);
+    },
+  );
+
+  it("ZERO_SIZE cash histórico (size 0 REJECTED) se mapea 0.00 sin regalar centavos", async () => {
+    const user = await createTestUser(prisma);
+    const row = await prisma.order.create({
+      data: {
+        userId: user.id,
+        instrumentId: SEED_INSTRUMENT_ARS_ID,
+        side: "CASH_IN",
+        type: "MARKET",
+        timeInForce: "GTC",
+        status: "REJECTED",
+        size: "0",
+        price: "1.00",
+        datetime: new Date(),
+      },
+    });
+    const found = expectCashRecord(
+      (await orderRepo.findById(row.id)) ?? (() => {
+        throw new Error("fila REJECTED no encontrada");
+      })(),
+    );
+    expect(found.amountArs.toFixed(2)).toBe("0.00");
+    expect(found.status).toBe("REJECTED");
+  });
+
+  it("cash con size NULL (columna legacy) ⇒ CorruptRowError ruidoso al leer", async () => {
+    const user = await createTestUser(prisma);
+    const row = await prisma.order.create({
+      data: {
+        userId: user.id,
+        instrumentId: SEED_INSTRUMENT_ARS_ID,
+        side: "CASH_IN",
+        type: "MARKET",
+        timeInForce: "GTC",
+        status: "FILLED",
+        size: null,
+        price: "1.00",
+        datetime: new Date(),
+      },
+    });
+    await expect(orderRepo.findById(row.id)).rejects.toThrow(CorruptRowError);
   });
 });
 

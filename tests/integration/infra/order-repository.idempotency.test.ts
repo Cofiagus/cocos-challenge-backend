@@ -5,24 +5,31 @@
 //
 // Prerequisito: `npm run test:db:reset` antes de la suite.
 
+import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
 
 config({ path: ".env.test" });
 
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { Decimal } from "decimal.js";
 import type { OrderDraft } from "../../../src/contracts/index.js";
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
 import { createTestUser } from "../../helpers/factories.js";
 import {
+  SEED_INSTRUMENT_ARS_ID,
   SEED_INSTRUMENT_METR_ID,
   SEED_INSTRUMENT_PAMP_ID,
 } from "../../helpers/fixtures.js";
 import {
+  buildCashDraft,
   buildDraft,
+  expectCashRecord,
   expectConflict,
   expectCreated,
   expectReplay,
+  expectTradingRecord,
+  type TradingDraftOverrides,
 } from "./support.js";
 
 describe("PrismaOrderRepository — idempotencia (DB real)", () => {
@@ -69,7 +76,7 @@ describe("PrismaOrderRepository — idempotencia (DB real)", () => {
 
     // Variantes que cambian el payload comparado (una por campo), todas
     // con la MISMA key del envío original.
-    const conflictingDrafts: readonly Partial<OrderDraft>[] = [
+    const conflictingDrafts: readonly Partial<TradingDraftOverrides>[] = [
       { instrumentId: SEED_INSTRUMENT_METR_ID },
       { side: "SELL" },
       { type: "MARKET" },
@@ -88,7 +95,7 @@ describe("PrismaOrderRepository — idempotencia (DB real)", () => {
       );
       // La orden devuelta es la ORIGINAL, campo por campo contra el envío.
       expect(conflict.id).toBe(created.id);
-      expect(conflict.sizeShares).toBe(10);
+      expect(expectTradingRecord(conflict).sizeShares).toBe(10);
       expect(conflict.priceArs?.toFixed(2)).toBe("930.00");
       expect(conflict.instrumentId).toBe(SEED_INSTRUMENT_PAMP_ID);
     }
@@ -97,7 +104,7 @@ describe("PrismaOrderRepository — idempotencia (DB real)", () => {
     const rows = await prisma.order.findMany({ where: { userId: user.id } });
     expect(rows).toHaveLength(1);
     expect(rows[0]?.idempotencyKey).toBe(draft.idempotencyKey);
-    expect(rows[0]?.size).toBe(10);
+    expect(rows[0]?.size?.toString()).toBe("10");
     // Prisma.Decimal.toString() normaliza ceros finales ("930.00" → "930"):
     // comparar con toFixed(2), que es la repr del contrato.
     expect(new Decimal(rows[0]?.price?.toString() ?? "0").toFixed(2)).toBe("930.00");
@@ -115,4 +122,261 @@ describe("PrismaOrderRepository — idempotencia (DB real)", () => {
     const rows = await prisma.order.count({ where: { userId: user.id } });
     expect(rows).toBe(2);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Cash: montos exactos y evidencia histórica (D4, spec §5)
+// ---------------------------------------------------------------------------
+
+/** Pedido cash RAW (como lo dejó una versión anterior): size entero + evento. */
+interface SeedCashOrderInput {
+  readonly size: string;
+  readonly idempotencyKey: string;
+  readonly price?: string;
+  readonly events?: readonly {
+    readonly eventType: "ACCEPTED" | "REJECTED";
+    readonly metadata: unknown;
+  }[];
+}
+
+const seedCashOrder = async (
+  client: PrismaClient,
+  userId: number,
+  input: SeedCashOrderInput,
+): Promise<number> => {
+  const row = await client.order.create({
+    data: {
+      userId,
+      instrumentId: SEED_INSTRUMENT_ARS_ID,
+      side: "CASH_IN",
+      type: "MARKET",
+      timeInForce: "GTC",
+      status: "FILLED",
+      size: input.size,
+      price: input.price ?? "1.00",
+      filledPrice: input.price ?? "1.00",
+      filledAt: new Date(),
+      datetime: new Date(),
+      idempotencyKey: input.idempotencyKey,
+    },
+  });
+  for (const event of input.events ?? []) {
+    await client.orderEvent.create({
+      data: {
+        orderId: row.id,
+        eventType: event.eventType,
+        metadata: event.metadata as Prisma.InputJsonValue,
+      },
+    });
+  }
+  return row.id;
+};
+
+describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
+  const prisma = getPrismaClient();
+  const orderRepo = new PrismaOrderRepository();
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  const submit = (draft: ReturnType<typeof buildCashDraft>) =>
+    orderRepo.withUserTransaction(draft.userId, (tx) =>
+      orderRepo.createOrder(draft, tx),
+    );
+
+  it("nueva key 123.01 persiste 123.01 exacto; replay idéntico no duplica fila", async () => {
+    const user = await createTestUser(prisma);
+    const draft = buildCashDraft(user.id, { amountArs: new Decimal("123.01") });
+
+    const created = expectCashRecord(expectCreated(await submit(draft)));
+    expect(created.amountArs.toFixed(2)).toBe("123.01");
+    expect(created.priceArs?.toFixed(2)).toBe("1.00");
+
+    const replayed = expectCashRecord(expectReplay(await submit(draft)));
+    expect(replayed.id).toBe(created.id);
+    expect(replayed.amountArs.toFixed(2)).toBe("123.01");
+    const rows = await prisma.order.count({
+      where: { userId: user.id, idempotencyKey: draft.idempotencyKey },
+    });
+    expect(rows).toBe(1);
+  });
+
+  it("misma key 123.01 vs 123.99 ⇒ CONFLICT (no colapsa por floor)", async () => {
+    const user = await createTestUser(prisma);
+    const draft = buildCashDraft(user.id, { amountArs: new Decimal("123.01") });
+    const created = expectCreated(await submit(draft));
+
+    const conflict = expectConflict(
+      await submit(
+        buildCashDraft(user.id, {
+          idempotencyKey: draft.idempotencyKey,
+          amountArs: new Decimal("123.99"),
+        }),
+      ),
+    );
+    expect(conflict.id).toBe(created.id);
+    expect(expectCashRecord(conflict).amountArs.toFixed(2)).toBe("123.01");
+  });
+
+  it("123.0 y 123.00 son el mismo monto ⇒ REPLAY", async () => {
+    const user = await createTestUser(prisma);
+    const draft = buildCashDraft(user.id, { amountArs: new Decimal("123.0") });
+    const created = expectCreated(await submit(draft));
+
+    const replayed = expectReplay(
+      await submit(
+        buildCashDraft(user.id, {
+          idempotencyKey: draft.idempotencyKey,
+          amountArs: new Decimal("123.00"),
+        }),
+      ),
+    );
+    expect(replayed.id).toBe(created.id);
+    expect(expectCashRecord(replayed).amountArs.toFixed(2)).toBe("123.00");
+  });
+
+  it("key histórica 123.45/123: retry 123.45 REPLAY fila 123.00 sin evento nuevo; 123.99 CONFLICT", async () => {
+    const user = await createTestUser(prisma);
+    const key = randomUUID();
+    const orderId = await seedCashOrder(prisma, user.id, {
+      size: "123",
+      idempotencyKey: key,
+      events: [{ eventType: "ACCEPTED", metadata: { amountArs: "123.45" } }],
+    });
+
+    const replayed = expectCashRecord(
+      expectReplay(
+        await submit(
+          buildCashDraft(user.id, {
+            idempotencyKey: key,
+            amountArs: new Decimal("123.45"),
+          }),
+        ),
+      ),
+    );
+    expect(replayed.id).toBe(orderId);
+    // El movimiento original sigue siendo 123.00: NO se regalan los 0.45.
+    expect(replayed.amountArs.toFixed(2)).toBe("123.00");
+    expect(await prisma.order.count({ where: { id: orderId } })).toBe(1);
+    expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(1);
+
+    const conflict = expectConflict(
+      await submit(
+        buildCashDraft(user.id, {
+          idempotencyKey: key,
+          amountArs: new Decimal("123.99"),
+        }),
+      ),
+    );
+    expect(conflict.id).toBe(orderId);
+    // El intento conflictivo tampoco escribió un evento.
+    expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(1);
+  });
+
+  it("nueva key por 123.45 persiste 123.45 (no hereda el floor histórico)", async () => {
+    const user = await createTestUser(prisma);
+    const created = expectCashRecord(
+      expectCreated(
+        await submit(
+          buildCashDraft(user.id, { amountArs: new Decimal("123.45") }),
+        ),
+      ),
+    );
+    expect(created.amountArs.toFixed(2)).toBe("123.45");
+  });
+
+  it.each([
+    ["sin evento de origen", []],
+    ["evento sin amountArs", [{ eventType: "ACCEPTED" as const, metadata: { ticker: "ARS" } }]],
+    ["amountArs number (no string)", [{ eventType: "ACCEPTED" as const, metadata: { amountArs: 123.45 } }]],
+    ["amountArs con 3 decimales", [{ eventType: "ACCEPTED" as const, metadata: { amountArs: "123.456" } }]],
+    ["amountArs no numérico", [{ eventType: "ACCEPTED" as const, metadata: { amountArs: "abc" } }]],
+    ["metadata array", [{ eventType: "ACCEPTED" as const, metadata: ["123.45"] }]],
+  ])(
+    "evidencia insuficiente/malformada (%s): retry 123.45 ⇒ CONFLICT conservador",
+    async (_label, events) => {
+      const user = await createTestUser(prisma);
+      const key = randomUUID();
+      await seedCashOrder(prisma, user.id, {
+        size: "123",
+        idempotencyKey: key,
+        events,
+      });
+
+      expectConflict(
+        await submit(
+          buildCashDraft(user.id, {
+            idempotencyKey: key,
+            amountArs: new Decimal("123.45"),
+          }),
+        ),
+      );
+    },
+  );
+
+  it("no toma un evento POSTERIOR como evidencia del pedido original", async () => {
+    const user = await createTestUser(prisma);
+    const key = randomUUID();
+    await seedCashOrder(prisma, user.id, {
+      size: "123",
+      idempotencyKey: key,
+      events: [
+        { eventType: "ACCEPTED", metadata: { ticker: "ARS" } },
+        { eventType: "REJECTED", metadata: { amountArs: "123.45" } },
+      ],
+    });
+    expectConflict(
+      await submit(
+        buildCashDraft(user.id, {
+          idempotencyKey: key,
+          amountArs: new Decimal("123.45"),
+        }),
+      ),
+    );
+  });
+
+  it("evidencia que no representa el floor guardado ⇒ CONFLICT", async () => {
+    const user = await createTestUser(prisma);
+    const key = randomUUID();
+    await seedCashOrder(prisma, user.id, {
+      size: "123",
+      idempotencyKey: key,
+      events: [{ eventType: "ACCEPTED", metadata: { amountArs: "200.00" } }],
+    });
+    expectConflict(
+      await submit(
+        buildCashDraft(user.id, {
+          idempotencyKey: key,
+          amountArs: new Decimal("200.00"),
+        }),
+      ),
+    );
+  });
+
+  it.each([
+    ["side", { side: "CASH_OUT" as const }],
+    ["instrumento", { instrumentId: SEED_INSTRUMENT_PAMP_ID }],
+    ["precio", { priceArs: new Decimal("2.00") }],
+  ])(
+    "cambio de %s en una key histórica ⇒ CONFLICT (aunque el monto coincida)",
+    async (_label, overrides) => {
+      const user = await createTestUser(prisma);
+      const key = randomUUID();
+      await seedCashOrder(prisma, user.id, {
+        size: "123",
+        idempotencyKey: key,
+        events: [{ eventType: "ACCEPTED", metadata: { amountArs: "123.45" } }],
+      });
+      expectConflict(
+        await submit(
+          buildCashDraft(user.id, {
+            idempotencyKey: key,
+            amountArs: new Decimal("123.45"),
+            ...overrides,
+          }),
+        ),
+      );
+    },
+  );
 });

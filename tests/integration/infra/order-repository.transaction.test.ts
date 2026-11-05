@@ -15,7 +15,7 @@ import { PrismaPortfolioReadRepository } from "../../../src/infra/prisma/portfol
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
 import { createTestOrder, createTestUser } from "../../helpers/factories.js";
 import { SEED_INSTRUMENT_PAMP_ID } from "../../helpers/fixtures.js";
-import { buildDraft, expectCreated, sleep } from "./support.js";
+import { buildCashDraft, buildDraft, expectCreated, sleep } from "./support.js";
 
 describe("PrismaOrderRepository — transacción de envío (DB real)", () => {
   const prisma = getPrismaClient();
@@ -227,5 +227,39 @@ describe("PrismaOrderRepository — transacción de envío (DB real)", () => {
     expect(found?.timeInForce).toBe("GTC");
     expect(found?.filledPriceArs?.toFixed(2)).toBe("925.85");
     expect(await orderRepo.findById(999999999)).toBeNull();
+  });
+
+  it("rollback de una multi-escritura cash no deja orden ni evento", async () => {
+    const user = await createTestUser(prisma);
+    const key = `rollback-${user.id}`;
+
+    await expect(
+      orderRepo.withUserTransaction(user.id, async (tx) => {
+        const created = expectCreated(
+          await orderRepo.createOrder(
+            buildCashDraft(user.id, {
+              amountArs: new Decimal("10.01"),
+              idempotencyKey: key,
+            }),
+            tx,
+          ),
+        );
+        await orderRepo.appendOrderEvent(
+          {
+            orderId: created.id,
+            eventType: "ACCEPTED",
+            reason: null,
+            metadata: { amountArs: "10.01" },
+          },
+          tx,
+        );
+        throw new Error("falla simulada después de escribir");
+      }),
+    ).rejects.toThrow("falla simulada después de escribir");
+
+    expect(
+      await prisma.order.count({ where: { userId: user.id, idempotencyKey: key } }),
+    ).toBe(0);
+    expect(await prisma.orderEvent.count({ where: { order: { userId: user.id } } })).toBe(0);
   });
 });
