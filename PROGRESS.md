@@ -1,13 +1,14 @@
 # PROGRESS.md — ejecución por células
 
-## Grandes montos: gate completo cerrado, integración local pendiente (firma humana 2026-11-05)
+## Grandes montos: DONE — integrado y verificado en main (firma humana 2026-11-05)
 
 - Spec inmutable: `specs/datos-financieros-grandes-montos.md` Rev. 2; D1–D5 aprobadas.
 - Rama integradora: `feature/large-money`; worktree `/home/cofi/repos/coccb-wt-large-money`.
 - Snapshot base: `b8006afbaaf8e8af3bfc7cf76a63bb557ae6f502` (`snapshot/large-money-20261105`), creado con índice Git alternativo. HEAD y staging originales de main se conservaron; sólo se registró la firma en la spec del árbol original.
 - Gate base medido sobre ese commit: **33 suites / 352 tests**, typecheck y lint verdes. PostgreSQL 18.6 nuevo, sólo loopback y puerto 55432, en scratch del perfil; ninguna conexión a DB de app.
 - El worktree original contiene trabajo previo del usuario que forma parte del snapshot, no del diff de esta feature. Preservar árbol e índice. El usuario autorizó posteriormente integrar a main tras terminar la implementación, revisión independiente y pruebas completas verdes; no autorizó migrar la DB de la app.
-- Gate completo de feature verificado: typecheck/lint/build/OpenAPI determinista y 37 suites / 515 tests con PostgreSQL real, sin open handles; revisión independiente final ACCEPT9.0/10. Resta el fast-forward autorizado a main y repetir el gate desde su worktree.
+- Integración local realizada por fast-forward en 24bca18. Gate completo repetido desde main: cliente Prisma regenerado, typecheck/lint/build/OpenAPI determinista verdes y 37 suites / 515 tests con PostgreSQL real, sin open handles; revisión independiente final ACCEPT9.0/10. No se hizo push ni se migró la DB de la app.
+- Main quedó limpio tras integrar. Los cambios previos ya incorporados en snapshot se preservaron además en stash58d23a8 y backup/main-pre-large-money-60b3764; no se hizo stash pop. Las copias locales de .env y .env.test permanecen byte a byte intactas e ignoradas. Respaldo privado durable: /home/cofi/.hermes/profiles/cocos-backend/backups/large-money-main-integration-60b3764 (33 archivos verificados, permisos privados; contiene índice y patches originales).
 
 | Célula | Alcance / ownership | Estado | Gate |
 |---|---|---|---|
@@ -27,6 +28,7 @@
 | LM-env-hygiene | Exclusión del archivo real .env.test; cell/large-money-env-final | INTEGRADA desde 7a76046 en este merge | copia local preservada byte a byte y ahora ignorada; sólo ejemplo versionado; sin rewrite |
 | LM-docs-close | README/API/colección y evidencia única de ejecución; cell/large-money-docs-close | INTEGRADA desde 9400fe5 en este merge | correcciones leídas/aceptadas; gate completo37/515 re-corrido, sólo diff documental |
 | LM-QA-final | Revisión independiente del candidato completo 1bd02e4 | ACCEPT, 9.0/10 (DeepSeek) | revisor re-corre19E2E +79domain/docs; coteja JSON37/515 yopenHandles=[]; sin blocker |
+| Integración main | Fast-forward autorizado + verificación en worktree original | DONE, integración24bca18 | 37 suites / 515 tests repetidos en main; 0 handles; entorno local intacto; sin push ni migración app |
 
 ### Decisiones operativas
 
@@ -74,6 +76,7 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 - QA final independiente acepta1bd02e4 con9.0/10, sin findings bloqueantes; re-ejecuta19E2E+79domain/docs y verifica515tests/openHandles[] del log. Se verificó que cambios posteriores propios sólo afectanPROGRESS (ya commiteado, árbol limpio), sin drift de runtime/tests/schema. Los2 gaps de cobertura E2E secundarios se aceptan como no bloqueantes por cobertura existente de eventoACCEPTED y guardas de evidencia/precio en integración; no ampliar diseño para perseguir10/10.
 - Cierre documental105b623 devuelto por precisión: CHECKs de precios de orden son positivos, marketdata permite0; concurrencia asegura un débito no una sola escritura; evidencia no debe quedar desactualizada diciendo main pendiente; DBapp no fue consultada ni migrada por esta tarea. Se delegó corrección sólo documental antes del merge.
 - Cierre documental9400fe5 aceptado por diff y lectura real: cinco precisiones resueltas. Gate completo posterior a integrar docs re-corrido: 37/515, openHandles=[], typecheck/lint/build verdes, OpenAPI sin diff. Evidencia única versionada en docs/references/large-money-verification.md. Árbol fuente/schema/tests idéntico al candidato core revisado1bd02e4.
+- Cierre definitivo: main recibió24bca18 por fast-forward tras respaldo recuperable y comparación exacta del estado original. Gate post-merge ejecutado desde /home/cofi/repos/cocos-challenge-backend: 37/515 y openHandles=[], cliente Prisma7.10.1 regenerado, typecheck/lint/build/OpenAPI verdes. Código de instrumentos-current-quotes sigue fuera; sólo su spec preexistente del snapshot forma parte del árbol. Esta anotación final sólo cambia estado documental, no el runtime ya probado.
 - Aceptadas las decisiones del dominio: builders cash/trading separados; cantidades acumuladas bigint probadas con órdenes INT4 válidas; matching conserva reglas y sigue sin disparador. No hay ampliación de diseño.
 
 ### Revisión intermedia del orquestador
