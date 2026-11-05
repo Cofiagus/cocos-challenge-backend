@@ -162,7 +162,9 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
       "`totalAccountValue` = `cash` + `reservedCash` + Σ `marketValue` de las posiciones con " +
       "precio (abrir o cancelar una orden no lo mueve). Posiciones con cantidad 0 no se " +
       "listan; sin precio de referencia `marketValue` es `null` y la posición no suma al " +
-      "total. `MONEDA` nunca aparece.",
+      "total. `MONEDA` nunca aparece. El dinero viaja como string con exactamente 2 decimales " +
+      "y `quantity` como string entero canónico (D3; los agregados pueden superar el máximo " +
+      "de una fila).",
     params: PortfolioParamsSchema,
     responses: [
       {
@@ -170,31 +172,31 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
         description: "Portfolio derivado (usuario 1 del seed).",
         schema: PortfolioResponseSchema,
         example: {
-          cash: 627500,
-          reservedCash: 125500,
-          totalAccountValue: 889756,
+          cash: "627500.00",
+          reservedCash: "125500.00",
+          totalAccountValue: "889756.00",
           positions: [
             {
               ticker: "BMA",
               name: "Banco Macro S.A.",
-              quantity: -10,
-              marketValue: -15028,
+              quantity: "-10",
+              marketValue: "-15028.00",
               priceAvailable: true,
               totalReturnPct: -2.42,
             },
             {
               ticker: "PAMP",
               name: "Pampa Holding S.A.",
-              quantity: 40,
-              marketValue: 37034,
+              quantity: "40",
+              marketValue: "37034.00",
               priceAvailable: true,
               totalReturnPct: -0.45,
             },
             {
               ticker: "METR",
               name: "MetroGAS S.A.",
-              quantity: 500,
-              marketValue: 114750,
+              quantity: "500",
+              marketValue: "114750.00",
               priceAvailable: true,
               totalReturnPct: -8.2,
             },
@@ -235,8 +237,8 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
             ticker: "METR",
             name: "MetroGAS S.A.",
             type: "ACCIONES",
-            price: 229.5,
-            previousClose: 232,
+            price: "229.50",
+            previousClose: "232.00",
             dailyVariationPct: -1.08,
           },
         ],
@@ -277,7 +279,7 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
           timeInForce: "GTC",
           status: "REJECTED",
           size: 1000000,
-          price: 100,
+          price: "100.00",
           filledPrice: null,
           filledAt: null,
           datetime: "2026-11-04T10:27:18",
@@ -344,7 +346,7 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
           timeInForce: "GTC",
           status: "CANCELLED",
           size: 1,
-          price: 100,
+          price: "100.00",
           filledPrice: null,
           filledAt: null,
           datetime: "2026-11-04T10:27:08",
@@ -379,7 +381,10 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
     description:
       "Transferencia = orden del instrumento `ARS` (`price` 1.00, `size` = pesos). `CASH_IN` → " +
       "`FILLED` inmediata; `CASH_OUT` valida contra el disponible (`settled − reservas`) y si no " +
-      "alcanza persiste `REJECTED INSUFFICIENT_FUNDS` con 201. `size` es entero: 123.45 acredita 123.",
+      "alcanza persiste `REJECTED INSUFFICIENT_FUNDS` con 201. Cambio incompatible (D3/D4): el monto " +
+      "se mueve EXACTO con centavos (sin floor: 123.45 acredita 123.45); `amountArs` de entrada es " +
+      "string decimal canónico (los números JSON se rechazan) y `size` de la respuesta es el monto " +
+      "como string de 2 decimales (\"123.00\" para un cash histórico de 123).",
     params: CreateTransferParamsSchema,
     idempotencyHeader: true,
     body: CreateTransferBodySchema,
@@ -395,9 +400,9 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
           type: "MARKET",
           timeInForce: "GTC",
           status: "FILLED",
-          size: 123,
-          price: 1,
-          filledPrice: 1,
+          size: "123.00",
+          price: "1.00",
+          filledPrice: "1.00",
           filledAt: "2026-11-04T10:27:08",
           datetime: "2026-11-04T10:27:08",
           reason: null,

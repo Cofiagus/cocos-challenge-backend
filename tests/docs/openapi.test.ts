@@ -6,7 +6,12 @@
 //  D5  — los códigos de error documentados == los que el contrato puede emitir.
 //  D5b — la atribución es por operación: SUS responses documentan SUS errorCodes.
 //  D6  — los campos de los bodies documentados == los del contrato real (drift de shape).
-//  D7  — el espejo de wire de dinero acepta/rechaza EXACTAMENTE lo mismo que el schema real.
+//  D7  — el wire de dinero reutilizado del contrato acepta/rechaza EXACTAMENTE lo mismo
+//        que el schema real de entrada, en la frontera completa de D1/D3.
+//  D8  — el body de la orden equivale al schema real campo por campo.
+//  D9  — la cota de columna (MAX_STORED_ARSS) es de ENTRADA: la salida admite agregados mayores.
+//  D10 — `quantity` de portfolio es string entero canónico (con negativos legacy).
+//  D11 — `OrderResponse.size` discriminado por side: number en trading, string monetario en cash.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,6 +20,9 @@ import {
   ArsInputSchema,
   CreateOrderRequestSchema,
   CreateTransferRequestSchema,
+  MoneyArsSchema,
+  OrderResponseSchema,
+  PortfolioPositionSchema,
   PositiveArsInputSchema,
 } from "../../src/contracts/index.js";
 import { serializeOpenApiDocument } from "../../scripts/openapi/build.js";
@@ -134,21 +142,153 @@ const documentedCodesOf = (operation: OperationDoc): readonly string[] =>
     expect(divergences).toEqual([]);
   });
 
-  it("D7 — el espejo de wire de dinero equivale al schema real", () => {
-    const samples: readonly unknown[] = [
-      0, 0.25, 100, -5, 1.005, 100.005, "0.1", "100.50", " 7 ", "0", "-3", "1e3", "abc", "",
-      "  ", null, true, [1], { a: 1 }, NaN, Infinity, "NaN", "Infinity", "-Infinity", "12,5",
+  it("D7 — el wire de dinero equivale al schema real y aplica la frontera D1/D3", () => {
+    // D3: la ENTRADA monetaria es string decimal canónico; el número JSON se
+    // rechaza AUNQUE sea pequeño (el parser ya perdió cifras antes del
+    // contrato). D1: el máximo es el único definido (`MAX_STORED_ARSS`,
+    // NUMERIC(24,2)): max pasa y max + 0.01 no. La gramática rechaza
+    // exponente, tercer decimal, ceros iniciales, `+`, espacios y separadores.
+    const MAX_STORED = "9999999999999999999999.99";
+    const MAX_PLUS_CENT = "10000000000000000000000.00";
+    const samples: readonly {
+      readonly value: unknown;
+      readonly ars: boolean;
+      readonly positive: boolean;
+    }[] = [
+      { value: 0, ars: false, positive: false },
+      { value: 1, ars: false, positive: false },
+      { value: 0.25, ars: false, positive: false },
+      { value: 1.005, ars: false, positive: false },
+      { value: 100.005, ars: false, positive: false },
+      { value: NaN, ars: false, positive: false },
+      { value: Infinity, ars: false, positive: false },
+      { value: "0", ars: true, positive: false },
+      { value: "0.0", ars: true, positive: false },
+      { value: "0.01", ars: true, positive: true },
+      { value: "0.1", ars: true, positive: true },
+      { value: "100.50", ars: true, positive: true },
+      { value: "-5", ars: true, positive: false },
+      { value: "-0.01", ars: true, positive: false },
+      { value: MAX_STORED, ars: true, positive: true },
+      { value: "-9999999999999999999999.99", ars: true, positive: false },
+      { value: MAX_PLUS_CENT, ars: false, positive: false },
+      { value: "-10000000000000000000000.00", ars: false, positive: false },
+      { value: "1e3", ars: false, positive: false },
+      { value: "1E3", ars: false, positive: false },
+      { value: "1.005", ars: false, positive: false },
+      { value: "0.123", ars: false, positive: false },
+      { value: "007", ars: false, positive: false },
+      { value: "+5", ars: false, positive: false },
+      { value: " 7 ", ars: false, positive: false },
+      { value: "12,5", ars: false, positive: false },
+      { value: "", ars: false, positive: false },
+      { value: "  ", ars: false, positive: false },
+      { value: "abc", ars: false, positive: false },
+      { value: "NaN", ars: false, positive: false },
+      { value: "Infinity", ars: false, positive: false },
+      { value: "-Infinity", ars: false, positive: false },
+      { value: null, ars: false, positive: false },
+      { value: true, ars: false, positive: false },
+      { value: [1], ars: false, positive: false },
+      { value: { a: 1 }, ars: false, positive: false },
     ];
     for (const sample of samples) {
       expect({
-        value: sample,
-        ars: ArsInputSchema.safeParse(sample).success,
-        positive: PositiveArsInputSchema.safeParse(sample).success,
+        value: sample.value,
+        ars: ArsInputSchema.safeParse(sample.value).success,
+        positive: PositiveArsInputSchema.safeParse(sample.value).success,
       }).toEqual({
-        value: sample,
-        ars: ArsWireSchema.safeParse(sample).success,
-        positive: PositiveArsWireSchema.safeParse(sample).success,
+        value: sample.value,
+        ars: ArsWireSchema.safeParse(sample.value).success,
+        positive: PositiveArsWireSchema.safeParse(sample.value).success,
       });
+      expect({
+        value: sample.value,
+        ars: ArsWireSchema.safeParse(sample.value).success,
+        positive: PositiveArsWireSchema.safeParse(sample.value).success,
+      }).toEqual({ value: sample.value, ars: sample.ars, positive: sample.positive });
     }
+  });
+
+  it("D9 — la cota de columna es de ENTRADA: la salida admite agregados mayores al máximo", () => {
+    const MAX_STORED = "9999999999999999999999.99";
+    const AGGREGATE_BEYOND_MAX = "100000000000000000000000.00";
+    // El máximo de una fila es válido en salida…
+    expect(MoneyArsSchema.safeParse(MAX_STORED).success).toBe(true);
+    // …y un agregado (cash/patrimonio) puede superarlo SIN ser inválido.
+    expect(MoneyArsSchema.safeParse(AGGREGATE_BEYOND_MAX).success).toBe(true);
+    // La ENTRADA sí aplica la cota de columna.
+    expect(ArsWireSchema.safeParse(AGGREGATE_BEYOND_MAX).success).toBe(false);
+    expect(PositiveArsWireSchema.safeParse(AGGREGATE_BEYOND_MAX).success).toBe(false);
+    // La salida exige la misma gramática: exactamente 2 decimales, sin -0.00.
+    expect(MoneyArsSchema.safeParse("0.00").success).toBe(true);
+    expect(MoneyArsSchema.safeParse("-0.00").success).toBe(false);
+    expect(MoneyArsSchema.safeParse("123").success).toBe(false);
+    expect(MoneyArsSchema.safeParse("123.0").success).toBe(false);
+  });
+
+  it("D10 — quantity de portfolio es string entero canónico (con negativos legacy)", () => {
+    const quantity = PortfolioPositionSchema.shape.quantity;
+    const samples: readonly { readonly value: unknown; readonly ok: boolean }[] = [
+      { value: "0", ok: true },
+      { value: "10", ok: true },
+      { value: "-10", ok: true },
+      { value: "2147483648", ok: true },
+      { value: "9223372036854775807", ok: true },
+      { value: "007", ok: false },
+      { value: "+10", ok: false },
+      { value: "1e3", ok: false },
+      { value: "1.0", ok: false },
+      { value: "10 ", ok: false },
+      { value: "-0", ok: false },
+      { value: "", ok: false },
+      { value: 10, ok: false },
+      { value: null, ok: false },
+    ];
+    for (const sample of samples) {
+      expect(quantity.safeParse(sample.value).success).toBe(sample.ok);
+    }
+  });
+
+  it("D11 — OrderResponse.size discriminado por side: number en trading, string monetario en cash", () => {
+    const base = {
+      id: 1,
+      instrumentId: 2,
+      type: "MARKET",
+      timeInForce: "GTC",
+      status: "FILLED",
+      price: null,
+      filledPrice: null,
+      filledAt: null,
+      datetime: "2026-11-04T10:27:08",
+      reason: null,
+    } as const;
+    // BUY/SELL: acciones enteras (number) o null.
+    expect(OrderResponseSchema.safeParse({ ...base, side: "BUY", size: 5 }).success).toBe(true);
+    expect(
+      OrderResponseSchema.safeParse({ ...base, side: "SELL", size: null }).success,
+    ).toBe(true);
+    expect(
+      OrderResponseSchema.safeParse({ ...base, side: "BUY", size: "5" }).success,
+    ).toBe(false);
+    expect(
+      OrderResponseSchema.safeParse({ ...base, side: "BUY", size: 1.5 }).success,
+    ).toBe(false);
+    // CASH_IN/CASH_OUT: monto en pesos como string de EXACTAMENTE 2 decimales.
+    expect(
+      OrderResponseSchema.safeParse({ ...base, side: "CASH_IN", size: "123.00" }).success,
+    ).toBe(true);
+    expect(
+      OrderResponseSchema.safeParse({ ...base, side: "CASH_OUT", size: "0.01" }).success,
+    ).toBe(true);
+    expect(
+      OrderResponseSchema.safeParse({ ...base, side: "CASH_IN", size: 123 }).success,
+    ).toBe(false);
+    expect(
+      OrderResponseSchema.safeParse({ ...base, side: "CASH_IN", size: "123" }).success,
+    ).toBe(false);
+    expect(
+      OrderResponseSchema.safeParse({ ...base, side: "CASH_IN", size: "123.0" }).success,
+    ).toBe(false);
   });
 });
