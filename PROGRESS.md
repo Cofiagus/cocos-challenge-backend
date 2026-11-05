@@ -1,6 +1,8 @@
 # PROGRESS.md — ejecución por células
 
-## Activo — instrumentos sobre grandes montos: CÓDIGO INTEGRADO; G0/G1/G2 CERRADOS; diagrama de esquema en preparación
+## Activo — PAUSADO POR CORTE HUMANO; código integrado y G0/G1/G2 cerrados
+
+**Corte 2026-11-05 20:45 (-03):** el usuario pidió handoff para seguir las pruebas en otra sesión. No continuar pruebas, migraciones, runtime ni diagrama por notificaciones tardías. Punto de entrada: `docs/references/handoff-local-rollout.md`. Detención solicitada a la única célula activa; sus borradores se preservaron sin integrarlos ni certificarlos.
 
 - Firma humana 2026-11-05: «SI APRUEBO» al plan Rev. 3 y sus cuatro puntos. Fuente inmutable: `specs/integracion-instrumentos-despliegue-local.md`; firma registrada en `e967050`, ya integrado en main.
 - Base financiera preservada: `8d1475f`; UC-2 origen `4541d1c`, ancestro común `60b3764`. Revisión integrada en main: `63e65ac`; el commit que cierra G2 incorpora este registro y el merge (SHA final en `git log -1`). Snapshots recuperables: `backup/pre-instruments-rollout-20261105` y `backup/pre-uc2-main-integration-20261105` (`1ef6549`). No se ejecutó la migración de la DB app.
@@ -30,7 +32,7 @@
 | QA independiente / G2 | SHA `63e65ac`, candidato completo y contratos financieros | DONE ACCEPT 9.5/10; G2 CERRADO (`deleg_110d92c5`) | Padre verificó JSON/log de QA (42/581/0 handles y gates exit0), luego merge local y repetición completa en main; fuentes idénticas al SHA revisado |
 | A3 / G3 migración app | Único operador DB sobre main integrado | NO INICIADA; G0/G2 cerrados | Siguiente operación del plan firmado; revalidar backup/destino justo antes de deploy. El control/diagrama actual no aplica DDL en app |
 | A4–A6 / G4–G5 | Runtime persistente, HTTP real, Yahoo y fixes reproducidos | NO INICIADAS | Requieren migración verificada; escrituras HTTP sólo en test |
-| Diagrama DB (GLM) | docs/references/db-schema-before-after.{html,md} | DESPACHADA (`deleg_1c3ab612`) | Dos ERDs basados en catálogos reales: antes app5433; después esquema aplicado a DB test55432, no a app; 8 columnas y 6 CHECK |
+| Diagrama DB (GLM) | docs/references/db-schema-before-after.{html,md} | PAUSADA; detención solicitada (`deleg_1c3ab612`, `sa-0-02723e3e`) | Dos borradores untracked observados en rama docs/db-schema-before-after, sin QA/render; snapshot privado durable y rutas en el handoff; no merge |
 
 ### Decisiones y paradas vigentes
 
