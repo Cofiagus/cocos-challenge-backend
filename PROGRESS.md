@@ -11,9 +11,10 @@
 
 | Célula | Alcance / ownership | Estado | Gate |
 |---|---|---|---|
-| LM-A | Constructor/contratos de dinero y tests monetarios; CODEMAP sólo sus filas | EN EJECUCIÓN (ds_flash, rama cell/large-money-contracts) | unit monetarios + typecheck/lint |
-| LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | EN EJECUCIÓN (ds_flash, rama cell/large-money-database) | PG real, migración sobre viejo/seed nuevo; no app DB |
-| LM-C | Tipos discriminados, dominio, casos de uso y HTTP; depende de LM-A | PENDIENTE | unit dominio/application/HTTP |
+| LM-A | Constructor/contratos de dinero y tests monetarios; CODEMAP sólo sus filas | REVISIÓN: 47 tests/build/lint re-corridos; corrección de overflow pct y consumidor test en ejecución | No integrado aún |
+| LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | REVISIÓN: 21 tests PG re-corridos; corrección CHECK cero/status NULL y configuración suite en ejecución | No integrado aún |
+| LM-C0 | Tipos discriminados y schemas quantity/size (base LM-A 607c138) | EN EJECUCIÓN (ds_flash, cell/large-money-domain) | contratos aislados; consumidores pendientes |
+| LM-C1 | Dominio, casos de uso y HTTP; depende de seams LM-C0 | PENDIENTE | unit dominio/application/HTTP |
 | LM-D | Mappers, repos e idempotencia histórica; depende de seams LM-C y schema LM-B | PENDIENTE | integración PG real y concurrencia |
 | LM-E-docs | README/docs/colección del contrato aprobado; rama cell/large-money-docs | EN EJECUCIÓN (glm_flash) | docs/typecheck/lint; integración tras código |
 | LM-E-wire | OpenAPI y adaptación funcional; depende de código estable | PENDIENTE | docs/funcionales |
@@ -29,6 +30,13 @@
 ### QUESTIONs activas
 
 Ninguna. Si una decisión de diseño no está expresada en la spec firmada, detener esa parte y preguntar; no ampliar alcance.
+
+### Revisión intermedia del orquestador
+
+- LM-A verificada sobre 607c138: 4 suites / 47 tests (incluye CODEMAP), build y lint verdes. Se devuelve para validar finitud también después de Number en serializePct y adaptar las dos operaciones monetarias de un test al string. El resto de consumidores se adapta en fases posteriores, no se afirma typecheck global verde.
+- LM-B verificada sobre 11eb26d: 21 pruebas PostgreSQL reales; ALTER observado 95 ms en tabla chica. Se devuelve porque un CHECK debe tratar NULL explícitamente para que size=0 sólo permita REJECTED, y la suite no debe rechazar el nombre cocos_* del URL fuente global si sólo crea destinos propios lm_b_*.
+- Resolución LM-A: no inventar prohibición de cero negativo en el schema firmado genérico de entrada; Positive lo rechaza y la salida lo normaliza. No requiere cambiar el diseño ni consultar un nuevo default.
+- Seams de tipos se preparan en célula separada antes de paralelizar dominio/aplicación e infra; no se mezclan unidades mediante casts.
 
 ---
 
