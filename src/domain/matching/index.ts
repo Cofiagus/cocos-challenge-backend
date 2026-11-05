@@ -4,7 +4,7 @@
 // queda documentada como punto de enchufe para la evolución, SIN disparador
 // automático. Dinero siempre Decimal.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../contracts/index.js";
 import type {
   RestingOrder,
   TimeInForce,
@@ -20,13 +20,13 @@ export interface PriceSource {
   /** Close de la última fila por date; null si no hay marketdata (NO_PRICE). */
   readonly getReferencePriceArs: (
     instrumentId: number,
-  ) => Promise<Decimal | null>;
+  ) => Promise<FinancialDecimal | null>;
 }
 
 /** Orden LIMIT a evaluar contra el precio de referencia. */
 export interface EvaluateCrossInput {
   readonly side: TradingSide;
-  readonly limitPriceArs: Decimal;
+  readonly limitPriceArs: FinancialDecimal;
   /** GTC/IOC/FOK (DAY fuera de alcance). */
   readonly timeInForce: TimeInForce;
   /**
@@ -34,7 +34,7 @@ export interface EvaluateCrossInput {
    * decide ANTES, en la capa de aplicación, para MARKET/IOC/FOK — evaluateCross
    * no lo resuelve.
    */
-  readonly referencePriceArs: Decimal;
+  readonly referencePriceArs: FinancialDecimal;
 }
 
 /**
@@ -46,7 +46,7 @@ export interface EvaluateCrossInput {
  *  - NEW si GTC (GTC nunca se llena al enviar: siempre queda resting).
  */
 export type CrossDecision =
-  | { readonly outcome: "FILLED"; readonly filledPriceArs: Decimal }
+  | { readonly outcome: "FILLED"; readonly filledPriceArs: FinancialDecimal }
   | {
       readonly outcome: "CANCELLED";
       readonly reason: "NO_IMMEDIATE_MATCH";
@@ -56,8 +56,8 @@ export type CrossDecision =
 /** Regla de cruce (DECISIONS.md): BUY cruza si ref ≤ límite; SELL si ref ≥ límite. */
 const crosses = (
   side: TradingSide,
-  limitPriceArs: Decimal,
-  referencePriceArs: Decimal,
+  limitPriceArs: FinancialDecimal,
+  referencePriceArs: FinancialDecimal,
 ): boolean =>
   side === "BUY"
     ? referencePriceArs.lessThanOrEqualTo(limitPriceArs)
@@ -70,12 +70,12 @@ const crosses = (
  */
 const filledPriceWithImprovement = (
   side: TradingSide,
-  limitPriceArs: Decimal,
-  referencePriceArs: Decimal,
-): Decimal =>
+  limitPriceArs: FinancialDecimal,
+  referencePriceArs: FinancialDecimal,
+): FinancialDecimal =>
   side === "BUY"
-    ? Decimal.min(limitPriceArs, referencePriceArs)
-    : Decimal.max(limitPriceArs, referencePriceArs);
+    ? FinancialDecimal.min(limitPriceArs, referencePriceArs)
+    : FinancialDecimal.max(limitPriceArs, referencePriceArs);
 
 export const evaluateCross = (input: EvaluateCrossInput): CrossDecision => {
   // GTC nunca se llena al enviar (DECISIONS.md): siempre NEW, sin importar
@@ -102,7 +102,7 @@ export const evaluateCross = (input: EvaluateCrossInput): CrossDecision => {
 /** Orden resting que llena, con su precio de ejecución mejorado. */
 export interface RestingOrderFill {
   readonly orderId: number;
-  readonly filledPriceArs: Decimal;
+  readonly filledPriceArs: FinancialDecimal;
 }
 
 /**
@@ -117,7 +117,7 @@ export interface RestingOrderFill {
  * MISMO orden de entrada; no muta ni la lista ni las órdenes.
  */
 export const matchRestingOrders = (
-  referencePriceArs: Decimal,
+  referencePriceArs: FinancialDecimal,
   restingOrders: readonly RestingOrder[],
 ): readonly RestingOrderFill[] => {
   const fills: RestingOrderFill[] = [];

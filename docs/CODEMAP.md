@@ -61,8 +61,8 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 |---|---|---|---|---|
 | `src/domain/index.ts` | barrel del dominio puro | (barrel) | `application` · `http/portfolio` | — |
 | `src/domain/matching/index.ts` | evaluación pura del cruce (`evaluateCross`) y `matchRestingOrders` como punto de enchufe SIN disparador | `PriceSource`, `EvaluateCrossInput`, `CrossDecision`, `evaluateCross`, `RestingOrderFill`, `matchRestingOrders` | `domain/index.ts` · `infra/marketdata-price-source.ts` | `unit/domain/matching` |
-| `src/domain/portfolio/index.ts` | derivaciones puras: cash, reservas, costo promedio ponderado, posiciones, P&L y patrimonio (`deriveTotalAccountValue`) | `deriveCash`, `deriveReservations`, `weightedAverageCost`, `derivePositions`, `deriveTotalAccountValue` | `domain/index.ts` | `unit/domain/portfolio*` |
-| `src/domain/sizing/index.ts` | `size = floor(amountArs / precio)` — nunca compromete más que el monto | `sizeSharesFromAmountArs` | `domain/index.ts` | `unit/domain/sizing` |
+| `src/domain/portfolio/index.ts` | derivaciones puras: cash exacto, reservas bigint, costo promedio ponderado, posiciones, P&L y patrimonio (`deriveTotalAccountValue`) — agregados pueden superar el máximo de una fila | `deriveCash`, `deriveReservations`, `weightedAverageCost`, `derivePositions`, `deriveTotalAccountValue` | `domain/index.ts` | `unit/domain/portfolio*` |
+| `src/domain/sizing/index.ts` | `size = floor(amountArs / precio)` en Decimal — nunca compromete más que el monto; rango INT4 validado antes de `number` | `sizeSharesFromAmountArs` | `domain/index.ts` | `unit/domain/sizing` |
 
 ## 5. domain/ports — las interfaces (DIP)
 
@@ -114,14 +114,14 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 
 | función | firma | invariante |
 |---|---|---|
-| `deriveCash` | `(movements: readonly SettledOrderMovement[]) => Decimal` | sólo FILLED; CASH_IN/SELL suman, CASH_OUT/BUY restan |
-| `deriveReservations` | `(resting: readonly RestingOrder[]) => Reservations` | BUY reserva `price × size`; SELL reserva `size` acciones |
-| `weightedAverageCost` | `(movements) => Decimal \| null` | las ventas no tocan el promedio; `null` si no hay compras |
-| `derivePositions` | `(movements, snapshots) => readonly PositionPnl[]` | cantidad 0 no se lista; sin precio ⇒ `marketValueArs: null` |
-| `deriveTotalAccountValue` | `(cashSettledArs: Decimal, positions: readonly PositionPnl[]) => Decimal` | cash liquidado + Σ marketValue de las posiciones CON precio; las negativas restan |
+| `deriveCash` | `(movements: readonly SettledOrderMovement[]) => FinancialDecimal` | sólo FILLED; CASH_IN/SELL suman su monto exacto, CASH_OUT/BUY restan; el agregado puede superar el máximo de fila |
+| `deriveReservations` | `(resting: readonly RestingOrder[]) => Reservations` | BUY reserva `price × size` en Decimal; SELL acumula `size` en bigint por instrumento |
+| `weightedAverageCost` | `(movements) => FinancialDecimal` | las ventas no tocan el promedio; 0 si no hay compras |
+| `derivePositions` | `(movements, snapshots) => readonly PositionPnl[]` | cantidad bigint 0 no se lista; cash ignorado antes del narrowing; sin precio ⇒ `marketValueArs: null` |
+| `deriveTotalAccountValue` | `(cashSettledArs: FinancialDecimal, positions: readonly PositionPnl[]) => FinancialDecimal` | cash liquidado + Σ marketValue de las posiciones CON precio; las negativas restan |
 | `evaluateCross` | `(input: EvaluateCrossInput) => CrossDecision` | BUY llena a `min(límite, ref)`, SELL a `max(límite, ref)`; IOC/FOK todo-o-nada |
 | `matchRestingOrders` | `(refPrice, orders) => readonly RestingOrderFill[]` | **sin disparador en producción** (punto de enchufe) |
-| `sizeSharesFromAmountArs` | `(amountArs: Decimal, priceArs: Decimal) => number` | `floor`; nunca se compromete más que el monto |
+| `sizeSharesFromAmountArs` | `(amountArs: FinancialDecimal, priceArs: FinancialDecimal) => number` | `floor` en Decimal; valida entero 0..`MAX_ORDER_SIZE_SHARES` antes de `toNumber` y lanza `RangeError` fuera de rango |
 | `serializeMoneyArs` | `(value: Decimal) => MoneyArs` | cuantiza a 2 decimales EN `Decimal` antes de serializar |
 
 ## 10. Trampas (caras de redescubrir)

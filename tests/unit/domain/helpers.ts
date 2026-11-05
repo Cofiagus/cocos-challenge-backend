@@ -1,12 +1,15 @@
 // Builders de filas tipadas para los tests unitarios del dominio: SIN DB,
 // importan sólo los tipos de src/contracts y defaults del seed
 // (tests/helpers/fixtures.ts). Dinero entra como STRING y sale como
-// Decimal construido desde string (AGENTS.md: jamás desde number).
+// FinancialDecimal construido desde string (AGENTS.md: jamás desde number).
+//
+// El vocabulario está discriminado por side (spec grandes montos, D2/D3):
+// BUY/SELL traen `sizeShares` (acciones) y CASH_IN/CASH_OUT traen
+// `amountArs` (monto exacto). No hay builder que mezcle las dos unidades.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import type {
   MarketdataSnapshot,
-  OrderSide,
   PositionPnl,
   RestingOrder,
   SettledOrderMovement,
@@ -17,23 +20,41 @@ import {
   SEED_LATEST_MARKETDATA_DATE,
 } from "../../helpers/fixtures.js";
 
-export interface MovementOverrides {
+export interface TradingMovementOverrides {
   readonly instrumentId?: number;
-  readonly side?: OrderSide;
+  readonly side?: TradingSide;
   readonly sizeShares?: number;
   /** Precio como string (regla de dinero del repo). */
   readonly priceArs?: string;
 }
 
-/** Movimiento FILLED default: BUY 10 @ "100.00" del PAMP del seed (id 47). */
-export const buildMovement = (
-  overrides: MovementOverrides = {},
-): SettledOrderMovement => ({
-  instrumentId: overrides.instrumentId ?? SEED_INSTRUMENT_PAMP_ID,
-  side: overrides.side ?? "BUY",
-  sizeShares: overrides.sizeShares ?? 10,
-  priceArs: new Decimal(overrides.priceArs ?? "100.00"),
-});
+/** Movimiento FILLED de TRADING default: BUY 10 @ "100.00" del PAMP (id 47). */
+export const buildTradingMovement = (
+  overrides: TradingMovementOverrides = {},
+): SettledOrderMovement => {
+  const instrumentId = overrides.instrumentId ?? SEED_INSTRUMENT_PAMP_ID;
+  const sizeShares = overrides.sizeShares ?? 10;
+  const priceArs = new FinancialDecimal(overrides.priceArs ?? "100.00");
+  return overrides.side === "SELL"
+    ? { instrumentId, sizeShares, priceArs, side: "SELL" }
+    : { instrumentId, sizeShares, priceArs, side: "BUY" };
+};
+
+export interface CashMovementOverrides {
+  readonly side?: "CASH_IN" | "CASH_OUT";
+  /** Monto exacto en ARS como string (con centavos). */
+  readonly amountArs?: string;
+}
+
+/** Movimiento FILLED de CASH default: CASH_IN "100.00" (sin instrumento). */
+export const buildCashMovement = (
+  overrides: CashMovementOverrides = {},
+): SettledOrderMovement => {
+  const amountArs = new FinancialDecimal(overrides.amountArs ?? "100.00");
+  return overrides.side === "CASH_OUT"
+    ? { amountArs, side: "CASH_OUT" }
+    : { amountArs, side: "CASH_IN" };
+};
 
 export interface RestingOrderOverrides {
   readonly id?: number;
@@ -52,7 +73,7 @@ export const buildRestingOrder = (
   instrumentId: overrides.instrumentId ?? SEED_INSTRUMENT_PAMP_ID,
   side: overrides.side ?? "BUY",
   sizeShares: overrides.sizeShares ?? 10,
-  limitPriceArs: new Decimal(overrides.limitPriceArs ?? "100.00"),
+  limitPriceArs: new FinancialDecimal(overrides.limitPriceArs ?? "100.00"),
 });
 
 export interface SnapshotOverrides {
@@ -69,8 +90,8 @@ export const buildSnapshot = (
 ): MarketdataSnapshot => ({
   instrumentId: overrides.instrumentId ?? SEED_INSTRUMENT_PAMP_ID,
   date: overrides.date ?? SEED_LATEST_MARKETDATA_DATE,
-  closeArs: new Decimal(overrides.closeArs ?? "100.00"),
-  previousCloseArs: new Decimal(overrides.previousCloseArs ?? "100.00"),
+  closeArs: new FinancialDecimal(overrides.closeArs ?? "100.00"),
+  previousCloseArs: new FinancialDecimal(overrides.previousCloseArs ?? "100.00"),
 });
 
 /** Posición de un instrumento, con fail ruidoso si no está (evita el `!`). */

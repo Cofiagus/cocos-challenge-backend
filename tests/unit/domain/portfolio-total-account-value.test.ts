@@ -2,7 +2,7 @@
 // liquidado + Σ marketValue de las posiciones CON precio. Sin DB ni Express;
 // dinero en Decimal desde string.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import type { PositionPnl } from "../../../src/contracts/index.js";
 import { deriveTotalAccountValue } from "../../../src/domain/portfolio/index.js";
 import { SEED_USER_1_PORTFOLIO } from "../../helpers/fixtures.js";
@@ -10,22 +10,22 @@ import { SEED_USER_1_PORTFOLIO } from "../../helpers/fixtures.js";
 /** Posición mínima: sólo importa su marketValue (null = sin precio). */
 const position = (marketValueArs: string | null): PositionPnl => ({
   instrumentId: 1,
-  quantityShares: 10,
-  weightedAverageCostArs: new Decimal("100.00"),
-  marketValueArs: marketValueArs === null ? null : new Decimal(marketValueArs),
+  quantityShares: 10n,
+  weightedAverageCostArs: new FinancialDecimal("100.00"),
+  marketValueArs: marketValueArs === null ? null : new FinancialDecimal(marketValueArs),
   priceAvailable: marketValueArs !== null,
   totalReturnPctX100: null,
 });
 
 describe("deriveTotalAccountValue — patrimonio de la cuenta", () => {
   it("sin posiciones ⇒ devuelve el cash liquidado", () => {
-    expect(deriveTotalAccountValue(new Decimal("1000.00"), []).toFixed(2)).toBe(
+    expect(deriveTotalAccountValue(new FinancialDecimal("1000.00"), []).toFixed(2)).toBe(
       "1000.00",
     );
   });
 
   it("suma el marketValue de las posiciones con precio", () => {
-    const total = deriveTotalAccountValue(new Decimal("1000.00"), [
+    const total = deriveTotalAccountValue(new FinancialDecimal("1000.00"), [
       position("250.50"),
       position("100.25"),
     ]);
@@ -33,7 +33,7 @@ describe("deriveTotalAccountValue — patrimonio de la cuenta", () => {
   });
 
   it("la posición sin precio no suma (sin fallback a costo)", () => {
-    const total = deriveTotalAccountValue(new Decimal("1000.00"), [
+    const total = deriveTotalAccountValue(new FinancialDecimal("1000.00"), [
       position("250.50"),
       position(null),
     ]);
@@ -41,7 +41,7 @@ describe("deriveTotalAccountValue — patrimonio de la cuenta", () => {
   });
 
   it("la posición negativa resta", () => {
-    const total = deriveTotalAccountValue(new Decimal("1000.00"), [
+    const total = deriveTotalAccountValue(new FinancialDecimal("1000.00"), [
       position("250.50"),
       position("-400.00"),
     ]);
@@ -50,7 +50,7 @@ describe("deriveTotalAccountValue — patrimonio de la cuenta", () => {
 
   it("reproduce el golden del seed: 753000 + 37034 + 114750 − 15028 = 889756", () => {
     const total = deriveTotalAccountValue(
-      new Decimal(SEED_USER_1_PORTFOLIO.cashSettledArs),
+      new FinancialDecimal(SEED_USER_1_PORTFOLIO.cashSettledArs),
       [position("37034.00"), position("114750.00"), position("-15028.00")],
     );
     expect(total.toFixed(2)).toBe("889756.00");
@@ -62,8 +62,8 @@ describe("deriveTotalAccountValue — patrimonio de la cuenta", () => {
       position("114750.00"),
       position("-15028.00"),
     ];
-    const cashSettled = new Decimal(SEED_USER_1_PORTFOLIO.cashSettledArs);
-    const cashReserved = new Decimal(SEED_USER_1_PORTFOLIO.cashReservedArs);
+    const cashSettled = new FinancialDecimal(SEED_USER_1_PORTFOLIO.cashSettledArs);
+    const cashReserved = new FinancialDecimal(SEED_USER_1_PORTFOLIO.cashReservedArs);
     const cashAvailable = cashSettled.minus(cashReserved);
 
     const fromSettled = deriveTotalAccountValue(cashSettled, positions);

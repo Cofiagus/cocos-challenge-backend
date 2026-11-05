@@ -1,12 +1,25 @@
-// Tests unitarios del dominio de portfolio (FASE 2 — Célula A): escenarios
-// EXACTOS A CENTAVOS con Decimal, sin DB. Los valores del seed salen de
-// tests/helpers/fixtures.ts (golden values verificados en
+// Tests unitarios del dominio de portfolio (T8a): escenarios EXACTOS A
+// CENTAVOS en el constructor financiero, sin DB. Los valores del seed salen
+// de tests/helpers/fixtures.ts (golden values verificados en
 // docs/database.md §3) — no se hardcodean sueltos.
+//
+// D2/D3 (spec grandes montos): cash entra como monto exacto (CASH_IN/
+// CASH_OUT), las cantidades agregadas y las reservas son bigint, y los
+// agregados pueden superar el máximo de una columna sin redondear.
 
+import type {
+  RestingOrder,
+  SettledOrderMovement,
+} from "../../../src/contracts/index.js";
+import {
+  FinancialDecimal,
+  MAX_ORDER_SIZE_SHARES,
+} from "../../../src/contracts/index.js";
 import {
   deriveCash,
   derivePositions,
   deriveReservations,
+  deriveTotalAccountValue,
   weightedAverageCost,
 } from "../../../src/domain/portfolio/index.js";
 import {
@@ -19,9 +32,10 @@ import {
   SEED_USER_1_PORTFOLIO,
 } from "../../helpers/fixtures.js";
 import {
-  buildMovement,
+  buildCashMovement,
   buildRestingOrder,
   buildSnapshot,
+  buildTradingMovement,
   positionOfInstrument,
 } from "./helpers.js";
 
@@ -30,43 +44,33 @@ import {
  * la transferencia entra, se compra/vende entrelazado, y sale cash.
  */
 const seedSettledMovements = [
-  buildMovement({
-    instrumentId: SEED_INSTRUMENT_ARS_ID,
-    side: "CASH_IN",
-    sizeShares: 1_000_000,
-    priceArs: "1.00",
-  }),
-  buildMovement({
+  buildCashMovement({ side: "CASH_IN", amountArs: "1000000.00" }),
+  buildTradingMovement({
     instrumentId: SEED_INSTRUMENT_PAMP_ID,
     side: "BUY",
     sizeShares: 50,
     priceArs: "930.00",
   }),
-  buildMovement({
+  buildTradingMovement({
     instrumentId: SEED_INSTRUMENT_PAMP_ID,
     side: "SELL",
     sizeShares: 10,
     priceArs: "940.00",
   }),
-  buildMovement({
-    instrumentId: SEED_INSTRUMENT_ARS_ID,
-    side: "CASH_OUT",
-    sizeShares: 100_000,
-    priceArs: "1.00",
-  }),
-  buildMovement({
+  buildCashMovement({ side: "CASH_OUT", amountArs: "100000.00" }),
+  buildTradingMovement({
     instrumentId: SEED_INSTRUMENT_BMA_ID,
     side: "BUY",
     sizeShares: 20,
     priceArs: "1540.00",
   }),
-  buildMovement({
+  buildTradingMovement({
     instrumentId: SEED_INSTRUMENT_METR_ID,
     side: "BUY",
     sizeShares: 500,
     priceArs: "250.00",
   }),
-  buildMovement({
+  buildTradingMovement({
     instrumentId: SEED_INSTRUMENT_BMA_ID,
     side: "SELL",
     sizeShares: 30,
@@ -103,14 +107,39 @@ describe("deriveCash — cash liquidado de movimientos FILLED", () => {
   });
 
   it("centavos exactos con precios no redondos", () => {
-    // 3×33.50 − 1×0.25 − 3×33.33 + 1×10.10 = 100.50 − 0.25 − 99.99 + 10.10
+    // 100.50 − 0.25 − 3×33.33 + 1×10.10 = 100.50 − 0.25 − 99.99 + 10.10
     const movements = [
-      buildMovement({ side: "CASH_IN", sizeShares: 3, priceArs: "33.50" }),
-      buildMovement({ side: "CASH_OUT", sizeShares: 1, priceArs: "0.25" }),
-      buildMovement({ side: "BUY", sizeShares: 3, priceArs: "33.33" }),
-      buildMovement({ side: "SELL", sizeShares: 1, priceArs: "10.10" }),
+      buildCashMovement({ side: "CASH_IN", amountArs: "100.50" }),
+      buildCashMovement({ side: "CASH_OUT", amountArs: "0.25" }),
+      buildTradingMovement({ side: "BUY", sizeShares: 3, priceArs: "33.33" }),
+      buildTradingMovement({ side: "SELL", sizeShares: 1, priceArs: "10.10" }),
     ];
     expect(deriveCash(movements).toFixed(2)).toBe("10.36");
+  });
+
+  it("cash con centavos no pasa por floor: 0.01 acreditado, 0.02 debitado", () => {
+    const movements = [
+      buildCashMovement({ side: "CASH_IN", amountArs: "0.01" }),
+      buildCashMovement({ side: "CASH_OUT", amountArs: "0.02" }),
+    ];
+    expect(deriveCash(movements).toFixed(2)).toBe("-0.01");
+  });
+
+  it("agregado de dos montos máximos D1 supera el máximo de una fila y sigue exacto", () => {
+    // 2 × 9999999999999999999999.99 = 19999999999999999999999.98
+    const movements = [
+      buildCashMovement({
+        side: "CASH_IN",
+        amountArs: "9999999999999999999999.99",
+      }),
+      buildCashMovement({
+        side: "CASH_IN",
+        amountArs: "9999999999999999999999.99",
+      }),
+    ];
+    const cash = deriveCash(movements);
+    expect(cash.toFixed(2)).toBe("19999999999999999999999.98");
+    expect(cash.isFinite()).toBe(true);
   });
 });
 
@@ -159,10 +188,10 @@ describe("deriveReservations — reservas derivadas de órdenes NEW", () => {
     expect(reservations.cashReservedArs.toFixed(2)).toBe(
       SEED_USER_1_PORTFOLIO.cashReservedArs, // "125500.00"
     );
-    // Sólo SELL NEW reserva acciones, acumuladas por instrumento (47 → 140);
+    // Sólo SELL NEW reserva acciones, acumuladas por instrumento (47 → 140n);
     // los BUY no crean entrada en el mapa.
     expect(reservations.sharesReservedByInstrument).toEqual(
-      new Map([[SEED_INSTRUMENT_PAMP_ID, 140]]),
+      new Map([[SEED_INSTRUMENT_PAMP_ID, 140n]]),
     );
   });
 
@@ -182,8 +211,52 @@ describe("deriveReservations — reservas derivadas de órdenes NEW", () => {
     const reservations = deriveReservations(restingOrders);
     expect(reservations.cashReservedArs.toFixed(2)).toBe("0.00");
     expect(reservations.sharesReservedByInstrument).toEqual(
-      new Map([[SEED_INSTRUMENT_PAMP_ID, 26]]),
+      new Map([[SEED_INSTRUMENT_PAMP_ID, 26n]]),
     );
+  });
+
+  it("reserva de BUY puede superar el máximo de fila: dos límites máximos suman exacto", () => {
+    const restingOrders = [
+      buildRestingOrder({
+        id: 21,
+        side: "BUY",
+        sizeShares: 1,
+        limitPriceArs: "9999999999999999999999.99",
+      }),
+      buildRestingOrder({
+        id: 22,
+        side: "BUY",
+        sizeShares: 1,
+        limitPriceArs: "9999999999999999999999.99",
+      }),
+    ];
+    expect(deriveReservations(restingOrders).cashReservedArs.toFixed(2)).toBe(
+      "19999999999999999999999.98",
+    );
+  });
+
+  it("reserva de acciones por encima de MAX_SAFE_INTEGER sigue exacta (bigint)", () => {
+    // Cada orden es válida (INT4 acciones). La acumulación es bigint: 4.194.306
+    // órdenes compartidas (sin crear filas de DB) superan 2^53 y no redondean.
+    const ordersOverSafeInteger =
+      Math.ceil(Number.MAX_SAFE_INTEGER / MAX_ORDER_SIZE_SHARES) + 1;
+    const oneSellOrder = buildRestingOrder({
+      id: 1,
+      side: "SELL",
+      sizeShares: MAX_ORDER_SIZE_SHARES,
+      limitPriceArs: "1.00",
+    });
+    const restingOrders = new Array<RestingOrder>(ordersOverSafeInteger).fill(
+      oneSellOrder,
+    );
+
+    const reserved = deriveReservations(restingOrders)
+      .sharesReservedByInstrument.get(SEED_INSTRUMENT_PAMP_ID);
+
+    const expected = BigInt(ordersOverSafeInteger) * BigInt(MAX_ORDER_SIZE_SHARES);
+    expect(typeof reserved).toBe("bigint");
+    expect(reserved).toBe(expected);
+    expect(expected > BigInt(Number.MAX_SAFE_INTEGER)).toBe(true);
   });
 });
 
@@ -192,20 +265,20 @@ describe("weightedAverageCost — costo promedio ponderado de un instrumento", (
     expect(weightedAverageCost([]).toFixed(2)).toBe("0.00");
     expect(
       weightedAverageCost([
-        buildMovement({ side: "SELL", sizeShares: 5, priceArs: "940.00" }),
+        buildTradingMovement({ side: "SELL", sizeShares: 5, priceArs: "940.00" }),
       ]).toFixed(2),
     ).toBe("0.00");
   });
 
   it("dos compras a distinto precio: Σ(size×price)/Σsize exacto a centavos", () => {
     const buys = [
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_METR_ID,
         side: "BUY",
         sizeShares: 10,
         priceArs: "260.00",
       }),
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_METR_ID,
         side: "BUY",
         sizeShares: 30,
@@ -218,19 +291,19 @@ describe("weightedAverageCost — costo promedio ponderado de un instrumento", (
 
   it("una venta intercalada NO toca el promedio (sólo se miran las compras)", () => {
     const withSell = [
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_METR_ID,
         side: "BUY",
         sizeShares: 10,
         priceArs: "260.00",
       }),
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_METR_ID,
         side: "SELL",
         sizeShares: 25,
         priceArs: "240.00",
       }),
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_METR_ID,
         side: "BUY",
         sizeShares: 30,
@@ -238,6 +311,14 @@ describe("weightedAverageCost — costo promedio ponderado de un instrumento", (
       }),
     ];
     expect(weightedAverageCost(withSell).toFixed(2)).toBe("248.75");
+  });
+
+  it("centavos en la división no se pierden: (3.333,33 + 3.333,34) / 2 = 3.333,335…", () => {
+    const buys = [
+      buildTradingMovement({ side: "BUY", sizeShares: 1, priceArs: "3333.33" }),
+      buildTradingMovement({ side: "BUY", sizeShares: 1, priceArs: "3333.34" }),
+    ];
+    expect(weightedAverageCost(buys).toFixed(3)).toBe("3333.335");
   });
 });
 
@@ -254,7 +335,7 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
 
     // BMA: 20 compradas − 30 vendidas = −10 (negativa del seed, se lista tal cual).
     const bma = positionOfInstrument(positions, SEED_INSTRUMENT_BMA_ID);
-    expect(bma.quantityShares).toBe(-10);
+    expect(bma.quantityShares).toBe(-10n);
     expect(bma.weightedAverageCostArs.toFixed(2)).toBe("1540.00");
     expect(bma.marketValueArs?.toFixed(2)).toBe("-15028.00"); // −10 × 1502.80
     expect(bma.priceAvailable).toBe(true);
@@ -263,14 +344,14 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
 
     // PAMP: 50 − 10 = 40 @ 930 de promedio (una sola compra).
     const pamp = positionOfInstrument(positions, SEED_INSTRUMENT_PAMP_ID);
-    expect(pamp.quantityShares).toBe(40);
+    expect(pamp.quantityShares).toBe(40n);
     expect(pamp.weightedAverageCostArs.toFixed(2)).toBe("930.00");
     expect(pamp.marketValueArs?.toFixed(2)).toBe("37034.00"); // 40 × 925.85
     expect(pamp.totalReturnPctX100?.toFixed(2)).toBe("-0.45"); // −166/37.200×100
 
     // METR: 500 @ 250, mark 229.50 → −8.20% exacto.
     const metr = positionOfInstrument(positions, SEED_INSTRUMENT_METR_ID);
-    expect(metr.quantityShares).toBe(500);
+    expect(metr.quantityShares).toBe(500n);
     expect(metr.weightedAverageCostArs.toFixed(2)).toBe("250.00");
     expect(metr.marketValueArs?.toFixed(2)).toBe("114750.00");
     expect(metr.totalReturnPctX100?.toFixed(2)).toBe("-8.20");
@@ -278,9 +359,9 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
 
   it("el promedio queda sobre las COMPRAS aunque haya ventas después (la venta no lo toca)", () => {
     const movements = [
-      buildMovement({ side: "BUY", sizeShares: 10, priceArs: "260.00" }),
-      buildMovement({ side: "BUY", sizeShares: 30, priceArs: "240.00" }),
-      buildMovement({ side: "SELL", sizeShares: 25, priceArs: "240.00" }),
+      buildTradingMovement({ side: "BUY", sizeShares: 10, priceArs: "260.00" }),
+      buildTradingMovement({ side: "BUY", sizeShares: 30, priceArs: "240.00" }),
+      buildTradingMovement({ side: "SELL", sizeShares: 25, priceArs: "240.00" }),
     ];
     const positions = derivePositions(
       movements,
@@ -291,7 +372,7 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
       positions,
       SEED_INSTRUMENT_PAMP_ID,
     );
-    expect(position.quantityShares).toBe(15);
+    expect(position.quantityShares).toBe(15n);
     expect(position.weightedAverageCostArs.toFixed(2)).toBe("245.00"); // 9.800/40
     expect(position.marketValueArs?.toFixed(2)).toBe("4410.00"); // 15 × 294
     // (4.410 − 3.675) / 3.675 × 100 = 20.00 exacto.
@@ -300,21 +381,21 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
 
   it("posición con cantidad 0 (compra y venta completas) NO se lista", () => {
     const movements = [
-      buildMovement({ side: "BUY", sizeShares: 10, priceArs: "100.00" }),
-      buildMovement({ side: "SELL", sizeShares: 10, priceArs: "101.00" }),
+      buildTradingMovement({ side: "BUY", sizeShares: 10, priceArs: "100.00" }),
+      buildTradingMovement({ side: "SELL", sizeShares: 10, priceArs: "101.00" }),
     ];
     expect(derivePositions(movements, [buildSnapshot()])).toEqual([]);
   });
 
   it("posición negativa se devuelve tal cual, con retorno exacto negativo", () => {
     const movements = [
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_BMA_ID,
         side: "BUY",
         sizeShares: 20,
         priceArs: "150.00",
       }),
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_BMA_ID,
         side: "SELL",
         sizeShares: 30,
@@ -327,27 +408,17 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
     );
 
     const bma = positionOfInstrument(positions, SEED_INSTRUMENT_BMA_ID);
-    expect(bma.quantityShares).toBe(-10);
+    expect(bma.quantityShares).toBe(-10n);
     expect(bma.weightedAverageCostArs.toFixed(2)).toBe("150.00");
     expect(bma.marketValueArs?.toFixed(2)).toBe("-1350.00");
     // (−1.350 − (−1.500)) / (−1.500) × 100 = −10.00 exacto.
     expect(bma.totalReturnPctX100?.toFixed(2)).toBe("-10.00");
   });
 
-  it("CASH_IN/CASH_OUT no son posiciones: se ignoran aunque tengan instrumentId", () => {
+  it("CASH_IN/CASH_OUT no son posiciones: se ignoran sin tocar campos de acciones", () => {
     const movements = [
-      buildMovement({
-        instrumentId: SEED_INSTRUMENT_ARS_ID,
-        side: "CASH_IN",
-        sizeShares: 100,
-        priceArs: "1.00",
-      }),
-      buildMovement({
-        instrumentId: SEED_INSTRUMENT_ARS_ID,
-        side: "CASH_OUT",
-        sizeShares: 50,
-        priceArs: "1.00",
-      }),
+      buildCashMovement({ side: "CASH_IN", amountArs: "100.00" }),
+      buildCashMovement({ side: "CASH_OUT", amountArs: "50.00" }),
     ];
     // Snapshot de ARS presente y todo: no aparece posición de la MONEDA.
     expect(
@@ -360,7 +431,7 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
   it("sin snapshot del instrumento: marketValue null, priceAvailable false, totalReturn null", () => {
     // Instrumento 3: sin marketdata en el seed (SEED_INSTRUMENTS_WITHOUT_MARKETDATA).
     const movements = [
-      buildMovement({ instrumentId: 3, side: "BUY", sizeShares: 10, priceArs: "100.00" }),
+      buildTradingMovement({ instrumentId: 3, side: "BUY", sizeShares: 10, priceArs: "100.00" }),
     ];
     const positions = derivePositions(
       movements,
@@ -368,7 +439,7 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
     );
 
     const position = positionOfInstrument(positions, 3);
-    expect(position.quantityShares).toBe(10);
+    expect(position.quantityShares).toBe(10n);
     expect(position.weightedAverageCostArs.toFixed(2)).toBe("100.00");
     expect(position.marketValueArs).toBeNull(); // NO_PRICE: no suma al total
     expect(position.priceAvailable).toBe(false);
@@ -377,7 +448,7 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
 
   it("costo 0 (posición con sólo ventas, sin compras): totalReturn null aunque haya precio", () => {
     const movements = [
-      buildMovement({
+      buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_PAMP_ID,
         side: "SELL",
         sizeShares: 5,
@@ -390,7 +461,7 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
     );
 
     const position = positionOfInstrument(positions, SEED_INSTRUMENT_PAMP_ID);
-    expect(position.quantityShares).toBe(-5);
+    expect(position.quantityShares).toBe(-5n);
     expect(position.weightedAverageCostArs.toFixed(2)).toBe("0.00");
     expect(position.marketValueArs?.toFixed(2)).toBe("-250.00");
     expect(position.priceAvailable).toBe(true);
@@ -399,12 +470,60 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
 
   it("orden determinístico por instrumentId aunque las filas vengan desordenadas", () => {
     const movements = [
-      buildMovement({ instrumentId: 54, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
-      buildMovement({ instrumentId: 31, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
-      buildMovement({ instrumentId: 47, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
+      buildTradingMovement({ instrumentId: 54, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
+      buildTradingMovement({ instrumentId: 31, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
+      buildTradingMovement({ instrumentId: 47, side: "BUY", sizeShares: 1, priceArs: "1.00" }),
     ];
     expect(
       derivePositions(movements, []).map((position) => position.instrumentId),
     ).toEqual([31, 47, 54]);
+  });
+
+  it("cantidad agregada por encima de MAX_SAFE_INTEGER sigue exacta y no contamina marketValue", () => {
+    const quantitiesOverSafeInteger =
+      Math.ceil(Number.MAX_SAFE_INTEGER / MAX_ORDER_SIZE_SHARES) + 1;
+    const oneSell = buildTradingMovement({
+      side: "SELL",
+      sizeShares: MAX_ORDER_SIZE_SHARES,
+      priceArs: "1.00",
+    });
+    const movements = new Array<SettledOrderMovement>(quantitiesOverSafeInteger).fill(
+      oneSell,
+    );
+
+    const position = positionOfInstrument(
+      derivePositions(movements, [buildSnapshot({ closeArs: "1.00" })]),
+      SEED_INSTRUMENT_PAMP_ID,
+    );
+
+    const expectedQuantity =
+      -BigInt(quantitiesOverSafeInteger) * BigInt(MAX_ORDER_SIZE_SHARES);
+    expect(typeof position.quantityShares).toBe("bigint");
+    expect(position.quantityShares).toBe(expectedQuantity);
+    expect(expectedQuantity < BigInt(Number.MAX_SAFE_INTEGER) * -1n).toBe(true);
+    // marketValue = cantidad × 1.00: mismo valor exacto, sin pasar por number.
+    expect(position.marketValueArs?.toFixed(0)).toBe(
+      expectedQuantity.toString(),
+    );
+    // Sin compras: costo 0 y retorno indefinido (no divide por cero grande).
+    expect(position.weightedAverageCostArs.isZero()).toBe(true);
+    expect(position.totalReturnPctX100).toBeNull();
+  });
+});
+
+describe("deriveTotalAccountValue — patrimonio saneado con Decimal financiero", () => {
+  it("suma agregados por encima del máximo de fila sin perder centavos", () => {
+    const cash = new FinancialDecimal("19999999999999999999999.98");
+    const position = {
+      instrumentId: 1,
+      quantityShares: 1n,
+      weightedAverageCostArs: new FinancialDecimal("0.01"),
+      marketValueArs: new FinancialDecimal("0.01"),
+      priceAvailable: true,
+      totalReturnPctX100: null,
+    } as const;
+    expect(
+      deriveTotalAccountValue(cash, [position]).toFixed(2),
+    ).toBe("19999999999999999999999.99");
   });
 });
