@@ -25,6 +25,8 @@
 | LM-QA | Revisión independiente de diff e invariantes del runtime b55a8db | ACCEPT runtime, 8.5/10 (DeepSeek); cierre global PENDIENTE | matriz invariante → implementación → test entregada; sin bug de fuente confirmado; falta e2e final |
 | LM-QA-polish | Precisión docs CHECK y tipos financieros de price-source/support | INTEGRADA desde 046442a en este merge | 96 tests infra/docs re-corridos + typecheck/lint verdes; sin cambio de lógica |
 | LM-env-hygiene | Exclusión del archivo real .env.test; cell/large-money-env-final | INTEGRADA desde 7a76046 en este merge | copia local preservada byte a byte y ahora ignorada; sólo ejemplo versionado; sin rewrite |
+| LM-docs-close | README/API/colección y evidencia única de ejecución; cell/large-money-docs-close | EN EJECUCIÓN (GLM), base 1bd02e4 | sólo docs; no afirmar corrida manual íntegra de colección ni despliegue app |
+| LM-QA-final | Revisión independiente del candidato completo 1bd02e4 | EN EJECUCIÓN (DeepSeek, sólo lectura) | cotejar 37/515 y nuevos E2E; recomendación ACCEPT/REJECT antes de main |
 
 ### Decisiones operativas
 
@@ -50,6 +52,7 @@
 - Preservar el índice original: `.env.test` tiene eliminación staged en main pero sigue rastreado en el snapshot/feature. El cierre debe excluirlo del árbol versionado sin perder su copia local; no leer ni imprimir contenido ni credenciales. La historia local ya existente no se reescribe sin permiso y no hay push autorizado.
 - Se acepta respaldo recuperable antes del fast-forward; se rechaza asumir que `stash -u` preserva por sí solo el archivo local en todos los estados, o que eliminar `.env.test` del índice deja un diff vacío contra una feature que aún lo rastrea. Revalidar rutas, archivos ignorados y tip final antes de integrar. No aplicar stash automáticamente si sus cambios ya están incorporados.
 - La migración de la DB de la app sigue FUERA de alcance. Los gates usan exclusivamente el cluster efímero de test; no equivalen a despliegue sobre el esquema viejo de la app.
+- Respaldo previo al merge creado en scratch privado del perfil: lm-main-before-integration, con índice original, patches staged/unstaged y 27 archivos (incluye env local sin imprimir contenido). Revalidación: las26 rutas del snapshot siguen coincidiendo, drift vacío; main sigue60b3764. Stash recuperable se hará sólo al integrar, sin pop automático porque cambios previos ya están en snapshot.
 
 ### QUESTIONs activas
 
