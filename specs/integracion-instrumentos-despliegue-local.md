@@ -1,8 +1,9 @@
 # Spec — plan de delegación: integrar UC-2 (cotizaciones Yahoo) sobre grandes montos, migrar sólo la DB local, dejar la API arriba y verificar con supervisión estricta
 
-> **Rev. 3 — BORRADOR pendiente de validación humana.** Re-escrito tras revisión por hallazgos contrastados del
+> **Rev. 3 — VALIDADA por el usuario el 2026-11-05: «SI APRUEBO».** Aprobación explícita del plan y sus cuatro puntos pendientes.
+> Re-escrito tras revisión por hallazgos contrastados del
 > supervisor (semántica Git, scopes reales, gates supervisados, writers de DB, preflight y runtime). Sigue siendo un PLAN:
-> esta fase no ejecuta nada. Hay UNA validación humana de este plan y su topología; después los gates G0–G5 los corre y
+> la fase de planificación no ejecutó cambios operativos. Cumplida la validación única del plan y su topología, los gates G0–G5 los corre y
 > verifica el supervisor (padre orquestador), único que mergea a main, con read-back de outputs reales. UC-2 Rev. 2 y
 > D1–D5 están firmadas y se toman como dado: ninguna decisión firmada se reabre.
 >
@@ -231,12 +232,12 @@ aplicadas + host/puerto/db de la DB app, PID/puerto/log de la API, gates con out
 5. Smoke HTTP real: read-only sobre DB app; escrituras en copia de test; Yahoo en vivo con cobertura medida (N/total del catálogo) o BLOQUEO declarado.
 6. Gates G0–G5 con outputs reales pegados; QA independiente ACCEPT antes de cada merge; main limpio; sin push sin pedido.
 
-## Pendientes de humano (una validación inicial; hechos nuevos o cambios de alcance vuelven al humano)
+## Validación humana registrada (hechos nuevos o cambios de alcance vuelven al humano)
 
-- Validar este plan Rev. 3 y su topología: cluster `~/.pg/cocos` en 5433, DB app `cocos_challenge`, HTTP loopback 3000,
+- Aprobados este plan Rev. 3 y su topología: cluster `~/.pg/cocos` en 5433, DB app `cocos_challenge`, HTTP loopback 3000,
   rutas/ramas de worktree (detalles operativos: responsabilidad del orq, no exigen firma independiente).
-- Política de seed si la DB app NO existiera y quedara vacía (jamás sobre una preexistente).
-- Las interpretaciones (a) numérico externo y (b) timeout, tal como están enunciadas.
+- Aprobada la política de seed sólo si la DB app NO existiera y quedara vacía (jamás sobre una preexistente).
+- Aprobadas las interpretaciones (a) numérico externo y (b) timeout, tal como están enunciadas.
 - No se pide: autorización por cancelación/timeout, scope de push, ni opinión humana sobre la existencia/estado de la DB (la descubre el operador con tools en A0).
 
 ## Changelog
@@ -244,4 +245,5 @@ aplicadas + host/puerto/db de la DB app, PID/puerto/log de la API, gates con out
 - Rev. 1: borrador inicial delegado; sin autorización de ejecución.
 - Rev. 2: revisión del borrador por hallazgos contrastados del supervisor; sin firma humana nueva.
 - Rev. 3: revisión final del supervisor: rutas compartidas y scopes sin contradicciones, worktree por célula,
-  aislamiento de tests, precisión Decimal de 64 cifras (no bits), listener sólo local y gates sin mutar datos de la DB app antes de migrar. Sigue pendiente de validación humana.
+  aislamiento de tests, precisión Decimal de 64 cifras (no bits), listener sólo local y gates sin mutar datos de la DB app antes de migrar.
+- Firma Rev. 3 (2026-11-05): el usuario respondió «SI APRUEBO» al plan y los cuatro puntos. Habilita A0–A6 según sus gates, sin ampliar alcance ni autorizar push.
