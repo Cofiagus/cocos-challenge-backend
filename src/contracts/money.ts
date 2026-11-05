@@ -6,42 +6,49 @@
 // (las reutiliza el espejo OpenAPI, sin transform); los `*InputSchema`
 // transforman a `FinancialDecimal` para el dominio.
 //
-// Salida (Decimal → wire): "Salida: números con 2 decimales" (DECISIONS.md) —
-// el valor se CUANTIZA A 2 DECIMALES EN Decimal ANTES de la conversión final;
-// el `number` del tipo MoneyArs es sólo el vehículo de serialización de JSON,
-// el último double es la repr más corta del decimal de 2 cifras. Ningún
-// cálculo se hace jamás en float.
+// Salida (Decimal → wire): "Salida: string con 2 decimales" (DECISIONS.md) —
+// el valor se CUANTIZA A 2 DECIMALES EN Decimal y se emite como STRING con
+// `.toFixed(2)`. NO se convierte a number: `Number("90071992547409.93")`
+// devuelve ...94 y perdía un centavo. El agregado (cash, patrimonio) puede
+// superar el máximo de una fila: es cota de columna, no de salida.
 
 import { z } from "zod";
 import { Decimal } from "decimal.js";
 import { FinancialDecimal } from "./financial-decimal.js";
 
-/** Dinero ARS serializado: número JSON con a lo sumo 2 decimales. */
-export type MoneyArs = number & { readonly __brand: "MoneyArs" };
+/** Dinero ARS serializado: string canónico con exactamente 2 decimales. */
+export type MoneyArs = string & { readonly __brand: "MoneyArs" };
 
 /** Porcentaje serializado (puntos porcentuales, 2 decimales). */
 export type Pct = number & { readonly __brand: "Pct" };
 
 /**
- * Valida un money serializado: número finito y ≤2 decimales.
+ * Gramática de un monto ARS SERIALIZADO (D3): string base 10 con exactamente
+ * dos decimales, sin exponente ni ceros iniciales; `-0.00` está prohibido
+ * (se normaliza a `0.00` en `serializeMoneyArs`). No lleva cota de magnitud:
+ * los agregados de cash/patrimonio pueden superar el máximo de una fila.
+ */
+const MONEY_OUTPUT_GRAMMAR = /^-?(?:0|[1-9][0-9]*)\.[0-9]{2}$/;
+
+/**
+ * Valida un money serializado: string canónico de exactamente 2 decimales.
  *
- * `z.number()` + `refine` en lugar de `z.custom`: `z.toJSONSchema` no puede representar tipos
- * custom ("Custom types cannot be represented in JSON Schema") y este schema viaja dentro de las
- * respuestas del contrato OpenAPI. La regla de 2 decimales viaja SOLO en la `description`:
- * un `multipleOf: 0.01` en el JSON Schema se valida con división float (0.07/0.01 =
- * 7.000000000000001) y hace que validadores estrictos (ajv) rechacen respuestas VÁLIDAS.
+ * `z.string()` + `regex` en lugar de `z.custom`: `z.toJSONSchema` representa
+ * el contrato OpenAPI (tipo string + pattern). La cuantización y la conversión
+ * las hace `serializeMoneyArs`, no el schema.
  */
 export const MoneyArsSchema = z
-  .number()
-  .refine(
-    (value) =>
-      Number.isFinite(value) &&
-      Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
-    { message: "Se espera un número finito con a lo sumo 2 decimales." },
-  )
+  .string({ error: "Se espera un string monetario con exactamente 2 decimales." })
+  .regex(MONEY_OUTPUT_GRAMMAR, {
+    message:
+      "Se espera un string monetario canónico con exactamente 2 decimales (sin exponente, ceros iniciales ni signo +).",
+  })
+  .refine((value) => value !== "-0.00", {
+    message: "El cero se serializa como 0.00, nunca como -0.00.",
+  })
   .meta({
     description:
-      "ARS con 2 decimales (número JSON; el valor se cuantizó en Decimal antes de serializar).",
+      "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar).",
   });
 
 /** Valida un porcentaje serializado: número finito, 2 decimales. */
@@ -133,14 +140,31 @@ export const PositiveArsInputSchema = PositiveArsWireSchema.transform(
   (value) => new FinancialDecimal(value),
 );
 
-/** Decimal → MoneyArs (2 decimales, HALF_UP), para la respuesta HTTP. */
-export const serializeMoneyArs = (amount: Decimal): MoneyArs =>
-  Number(
-    amount.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2),
-  ) as MoneyArs;
+/**
+ * Decimal → string de exactamente 2 decimales (HALF_UP), para la respuesta
+ * HTTP. Cuantiza EN Decimal y usa `.toFixed(2)`: nunca pasa por `number`, que
+ * perdía el centavo en valores como 90071992547409.93. Normaliza el cero
+ * (incluido `-0.001`) a `0.00`. Un no-finito (NaN/Infinity) es un error de
+ * programación/corrupción: falla ruidosamente en vez de emitir "Infinity".
+ */
+export const serializeMoneyArs = (amount: FinancialDecimal): MoneyArs => {
+  if (!amount.isFinite()) {
+    throw new RangeError("No se serializa un monto no finito (NaN o infinito).");
+  }
+  const quantized = amount.toDecimalPlaces(2, FinancialDecimal.ROUND_HALF_UP);
+  const normalized = quantized.isZero() ? new FinancialDecimal(0) : quantized;
+  return normalized.toFixed(2) as MoneyArs;
+};
 
-/** Decimal (puntos porcentuales) → Pct (2 decimales, HALF_UP). */
-export const serializePct = (pctX100: Decimal): Pct =>
-  Number(
-    pctX100.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2),
+/**
+ * Decimal (puntos porcentuales) → Pct: el contrato de porcentaje sigue siendo
+ * `number` (D3) y sólo se convierte acá, con HALF_UP y finitud validada.
+ */
+export const serializePct = (pctX100: Decimal): Pct => {
+  if (!pctX100.isFinite()) {
+    throw new RangeError("No se serializa un porcentaje no finito (NaN o infinito).");
+  }
+  return Number(
+    pctX100.toDecimalPlaces(2, FinancialDecimal.ROUND_HALF_UP).toFixed(2),
   ) as Pct;
+};

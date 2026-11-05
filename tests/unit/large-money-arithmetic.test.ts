@@ -98,7 +98,7 @@ describe("FinancialDecimal — aritmética de grandes montos", () => {
       "90071992547409.92",
     );
     // El camino por number SÍ pierde el centavo: por eso el contrato prohíbe numbers.
-    expect(new FinancialDecimal(90071992547409.93).toFixed(2)).toBe(
+    expect(new FinancialDecimal(Number("90071992547409.93")).toFixed(2)).toBe(
       "90071992547409.94",
     );
   });
