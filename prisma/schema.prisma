@@ -104,11 +104,12 @@ model Instrument {
 model Marketdata {
   id            Int          @id @default(autoincrement())
   instrumentId  Int?         @map("instrumentid")
-  high          Decimal?     @db.Decimal(10, 2)
-  low           Decimal?      @db.Decimal(10, 2)
-  open          Decimal?      @db.Decimal(10, 2)
-  close         Decimal?      @db.Decimal(10, 2)
-  previousClose Decimal?     @map("previousclose") @db.Decimal(10, 2)
+  // Precios ARS por acción: NUMERIC(24,2) (spec grandes montos, D1/D2).
+  high          Decimal?     @db.Decimal(24, 2)
+  low           Decimal?     @db.Decimal(24, 2)
+  open          Decimal?     @db.Decimal(24, 2)
+  close         Decimal?     @db.Decimal(24, 2)
+  previousClose Decimal?     @map("previousclose") @db.Decimal(24, 2)
   date          DateTime?    @db.Date
   instrument    Instrument?  @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -122,8 +123,10 @@ model Order {
   id            Int          @id @default(autoincrement())
   instrumentId  Int?         @map("instrumentid")
   userId        Int?         @map("userid")
-  size          Int?
-  price         Decimal?     @db.Decimal(10, 2)
+  // size = acciones (BUY/SELL, entero) o monto cash en ARS (CASH_IN/CASH_OUT),
+  // ambos NUMERIC(24,2) — máximo 9999999999999999999999.99 (D1/D2).
+  size          Decimal?     @db.Decimal(24, 2)
+  price         Decimal?     @db.Decimal(24, 2)
   type          OrderType?
   side          OrderSide?
   status        OrderStatus?
@@ -137,7 +140,7 @@ model Order {
   timeInForce   TimeInForce  @default(GTC)
   // filledPrice = precio de ejecución (DECISIONS.md: price = límite enviado).
   // NULL en las FILLED del seed: en el dataset el price YA es el de ejecución.
-  filledPrice   Decimal?     @db.Decimal(10, 2)
+  filledPrice   Decimal?     @db.Decimal(24, 2)
   filledAt      DateTime?    @db.Timestamp(6)
   idempotencyKey String?
 
