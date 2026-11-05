@@ -8,7 +8,10 @@
 //
 // GOLDEN VALUES VERIFICADOS contra la DB (schema migrado + db/seed.sql) el
 // 2026-11-02 corriendo db/queries/portfolio.sql + las queries de closes del
-// 2023-07-14 (última vela del seed):
+// 2023-07-14 (última vela del seed). Formas JSON según D3 (spec
+// datos-financieros-grandes-montos.md): dinero de SALIDA como string con
+// exactamente 2 decimales y quantity como string entero — mismos valores
+// económicos del golden, cambia sólo la representación:
 //   user 1: cashSettled 753000.00 − cashReserved 125500.00
 //           (LOMA BUY NEW 50×710 + BMA BUY NEW 60×1500) ⇒ disponible 627500.00
 //   PAMP 40 @ 930 (close 925.85)  ⇒ mv 37034.00 ·  retorno −0.45 %
@@ -126,31 +129,31 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
       // Disponible = 753000 − 125500; total = 753000 + 37034 + 114750 − 15028.
       // Posiciones ordenadas por instrumentId ASC: BMA(31), PAMP(47), METR(54).
       expect(res.body).toEqual({
-        cash: 627_500,
-        reservedCash: 125_500,
-        totalAccountValue: 889_756,
+        cash: "627500.00",
+        reservedCash: "125500.00",
+        totalAccountValue: "889756.00",
         positions: [
           {
             ticker: "BMA",
             name: "Banco Macro S.A.",
-            quantity: -10,
-            marketValue: -15_028,
+            quantity: "-10",
+            marketValue: "-15028.00",
             priceAvailable: true,
             totalReturnPct: -2.42,
           },
           {
             ticker: "PAMP",
             name: "Pampa Holding S.A.",
-            quantity: 40,
-            marketValue: 37_034,
+            quantity: "40",
+            marketValue: "37034.00",
             priceAvailable: true,
             totalReturnPct: -0.45,
           },
           {
             ticker: "METR",
             name: "MetroGAS S.A.",
-            quantity: 500,
-            marketValue: 114_750,
+            quantity: "500",
+            marketValue: "114750.00",
             priceAvailable: true,
             totalReturnPct: -8.2,
           },
@@ -188,9 +191,9 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
         .expect(200);
 
       expect(res.body).toEqual({
-        cash: 0,
-        reservedCash: 0,
-        totalAccountValue: 0,
+        cash: "0.00",
+        reservedCash: "0.00",
+        totalAccountValue: "0.00",
         positions: [],
       });
     });
@@ -200,7 +203,7 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
       const before = await request(app)
         .get(portfolioUrl(SEED_USER_EMILIANO_ID))
         .expect(200);
-      expect(before.body.totalAccountValue).toBe(889_756);
+      expect(before.body.totalAccountValue).toBe("889756.00");
 
       // INSERT directo (pg): BUY FILLED de PGR (id 3, SIN marketdata) 10 @ 500.
       await insertOrder({
@@ -223,19 +226,19 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
       expect(body.positions[0]).toEqual({
         ticker: "PGR",
         name: "Phoenix Global Resources",
-        quantity: 10,
+        quantity: "10",
         marketValue: null,
         priceAvailable: false,
         totalReturnPct: null,
       });
 
       // El cash cayó 5000 (la BUY FILLED movió plata)…
-      expect(body.cash).toBe(622_500);
+      expect(body.cash).toBe("622500.00");
       // …y el total cayó EXACTO esa plata: la posición sin precio aporta 0
       // (las null NO suman — DECISIONS.md; sin fallback a costo). Total
       // calculado: 889756 − 5000 = 884756 = 748000 + 37034 + 114750 − 15028
       // (748000 = cashSettled: la compra FILLED sí saca patrimonio).
-      expect(body.totalAccountValue).toBe(884_756);
+      expect(body.totalAccountValue).toBe("884756.00");
     });
 
     it("posición de cantidad 0 (BUY+SELL FILLED que se cancelan) ⇒ oculta", async () => {
@@ -272,8 +275,8 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
 
       // Cash neta del par: −500 + 500 = 0 y ninguna mv nueva ⇒ total
       // idéntico al del it anterior (884756: el cash ya cargó la BUY de PGR).
-      expect(body.cash).toBe(622_500);
-      expect(body.totalAccountValue).toBe(884_756);
+      expect(body.cash).toBe("622500.00");
+      expect(body.totalAccountValue).toBe("884756.00");
     });
 
     it("orden NEW (reserva de cash) ⇒ el total NO cambia; cash baja y reservedCash sube", async () => {
@@ -324,8 +327,8 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
           ticker: "PAMP",
           name: "Pampa Holding S.A.",
           type: "ACCIONES",
-          price: 925.85,
-          previousClose: 921.8,
+          price: "925.85",
+          previousClose: "921.80",
           dailyVariationPct: 0.44,
         },
       ]);
@@ -353,8 +356,8 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
         ticker: "METR",
         name: "MetroGAS S.A.",
         type: "ACCIONES",
-        price: 229.5,
-        previousClose: 232,
+        price: "229.50",
+        previousClose: "232.00",
         dailyVariationPct: -1.08,
       });
 
@@ -364,8 +367,8 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
         ticker: "BMA",
         name: "Banco Macro S.A.",
         type: "ACCIONES",
-        price: 1502.8,
-        previousClose: 1520.25,
+        price: "1502.80",
+        previousClose: "1520.25",
         dailyVariationPct: -1.15,
       });
     });

@@ -7,11 +7,12 @@
 // `DATABASE_URL` se fija al destino aislado de esta suite antes de usar Prisma;
 // los repositorios y fixtures apuntan a la misma base de test.
 //
-// CONVENCIÓN DEL SEED para las fixtures de cash (docs/database.md §2):
-// las filas CASH son orders del instrumento ARS (id 66, type MONEDA) con
-// price = 1.00 y size = pesos — deriveCash proyecta size × price = pesos.
-// La fixture de CASH_IN usa la MISMA convención que el seed (filledPrice
-// NULL; el mapper de B hace COALESCE(filledPrice, price) — GATE 3).
+// CONVENCIÓN DE LAS FIXTURES DE CASH (D4, spec datos-financieros-grandes-
+// montos.md §5): las filas CASH son orders del instrumento ARS (id 66) con
+// price = 1.00 y size = MONTO EXACTO en ARS (NUMERIC(24,2), string con
+// centavos, SIN floor). El mapper exige la unidad 1.00 y deriva el monto
+// del size; las filas HISTÓRICAS del seed no se reescriben (siguen siendo
+// enteras y mueven 123.00 aunque su pedido original fuera 123.45).
 //
 // Dinero (AGENTS.md): los esperados se computan con Decimal construido
 // desde strings y se comparan como Decimal — nunca float.
@@ -30,7 +31,6 @@ import { PrismaMarketdataRepository } from "../../../src/infra/prisma/marketdata
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
 import { PrismaPortfolioReadRepository } from "../../../src/infra/prisma/portfolio-read-repository.js";
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
-import { sizeSharesFromAmountArs } from "../../../src/domain/index.js";
 import { SEED_INSTRUMENT_ARS_ID } from "../../helpers/fixtures.js";
 
 const execFileAsync = promisify(execFile);
@@ -109,25 +109,20 @@ export const insertTestUser = async (email: string): Promise<number> => {
 };
 
 /**
- * CASH_IN FILLED con la convención del SEED (docs §2): instrumento ARS
- * (id 66), size = pesos (enteros), price = 1.00, filledPrice NULL (fila
- * legacy del dataset — el mapper de B hace COALESCE(filledPrice, price)).
- * ⇒ cash settled += amountArs. El size se deriva con la MISMA regla de
- * sizing del dominio (floor(amountArs / 1.00) — Decimal, nunca float).
+ * CASH_IN FILLED (D4): instrumento ARS (id 66), size = MONTO EXACTO en ARS
+ * (string con centavos, guardado tal cual — NUNCA floor(amountArs / 1.00)),
+ * price = 1.00. El mapper exige la unidad cash 1.00 y toma el monto del
+ * size. ⇒ cash settled += amountArs exacto.
  */
 export const insertTestCashIn = async (
   userId: number,
   amountArs: string,
 ): Promise<void> => {
-  const sizeShares = sizeSharesFromAmountArs(
-    new Decimal(amountArs),
-    new Decimal("1.00"),
-  );
   await dbQuery(
     `INSERT INTO orders
        (instrumentid, userid, side, type, status, size, price, datetime, "timeInForce")
-     VALUES ($1, $2, 'CASH_IN', 'MARKET', 'FILLED', $3, 1.00, now(), 'GTC')`,
-    [SEED_INSTRUMENT_ARS_ID, userId, sizeShares],
+     VALUES ($1, $2, 'CASH_IN', 'MARKET', 'FILLED', $3::numeric, 1.00, now(), 'GTC')`,
+    [SEED_INSTRUMENT_ARS_ID, userId, amountArs],
   );
 };
 
@@ -171,7 +166,7 @@ export interface TransfersOrderRow {
   readonly userid: number | null;
   readonly side: string | null;
   readonly status: string | null;
-  readonly size: number | null;
+  readonly size: string | null;
   readonly price: string | null;
   readonly "filledPrice": string | null;
   readonly "timeInForce": string;
@@ -214,27 +209,38 @@ export const countTransfersOrdersWithIdempotencyKey = async (
 // Dinero: helpers de esperados (Decimal desde strings, nunca float)
 // ---------------------------------------------------------------------------
 
-/** Cash esperado después de un delta: before ± delta (Decimal, nunca float). */
+/**
+ * Cash esperado después de un delta: before ± delta (Decimal desde STRINGS,
+ * nunca float). El contrato D3 serializa el cash como string de 2 decimales.
+ */
 export const expectedCashAfter = (
   cashBefore: unknown,
   deltaArs: string,
 ): string => {
-  if (typeof cashBefore !== "number") {
+  if (typeof cashBefore !== "string") {
     throw new Error(
-      `GET /portfolio no devolvió cash numérico (llegó ${String(cashBefore)}).`,
+      `GET /portfolio no devolvió cash como string monetario (llegó ${String(cashBefore)}).`,
     );
   }
-  return new Decimal(String(cashBefore))
-    .plus(new Decimal(deltaArs))
-    .toFixed(2);
+  return new Decimal(cashBefore).plus(new Decimal(deltaArs)).toFixed(2);
 };
 
-/** Assert de dinero serializado: Decimal(String(actual)) === Decimal(expected). */
+const MONEY_SERIALIZED_GRAMMAR = /^-?(?:0|[1-9][0-9]*)\.[0-9]{2}$/;
+
+/**
+ * Assert de dinero serializado (D3): exige string con formato canónico de
+ * exactamente 2 decimales (sin -0.00) y igualdad Decimal contra el esperado.
+ */
 export const expectMoneyArs = (actual: unknown, expectedArs: string): void => {
-  if (typeof actual !== "number") {
+  if (typeof actual !== "string") {
     throw new Error(
-      `Se esperaba money serializado (number) igual a ${expectedArs}; llegó: ${String(actual)}`,
+      `Se esperaba money serializado (string con 2 decimales) igual a ${expectedArs}; llegó: ${String(actual)}`,
     );
   }
-  expect(new Decimal(String(actual)).toFixed(2)).toBe(expectedArs);
+  if (!MONEY_SERIALIZED_GRAMMAR.test(actual) || actual === "-0.00") {
+    throw new Error(
+      `Money serializado fuera del formato canónico (2 decimales): ${actual}`,
+    );
+  }
+  expect(new Decimal(actual).toFixed(2)).toBe(expectedArs);
 };

@@ -11,10 +11,10 @@
 // settled 753000 − reservado 125500 ⇒ DISPONIBLE 627500
 // (tests/helpers/fixtures.ts, SEED_USER_1_PORTFOLIO).
 //
-// El mapper de B ya hace COALESCE(filledPrice, price) (GATE 3): las FILLED
-// creadas por la API (ejecución en filledPrice) se leen bien como las
-// legacy del seed (price) — las transferencias persisten price = 1.00 Y
-// filledPrice = 1.00, así que proyectan size × 1.00 = pesos en ambas eras.
+// El mapper de B exige la unidad cash 1.00 y toma el MONTO del size
+// (D4): las transferencias NUEVAS mueven el monto exacto con centavos
+// (size = amountArs, price = filledPrice = 1.00); las filas legacy del
+// seed siguen moviendo su size entero histórico, sin reescribirse.
 //
 // Dinero (AGENTS.md): esperados con Decimal desde strings, nunca float.
 
@@ -123,7 +123,7 @@ describe("UC-5 transfers · CASH_IN", () => {
     const before = await getPortfolio(userId);
 
     const res = await postTransfer(userId, {
-      amountArs: 5000,
+      amountArs: "5000", // dinero string canónico (D3)
       side: "CASH_IN",
     });
 
@@ -134,7 +134,7 @@ describe("UC-5 transfers · CASH_IN", () => {
     expect(body["type"]).toBe("MARKET"); // convención del seed para las filas CASH
     expect(body["timeInForce"]).toBe("GTC");
     expect(body["instrumentId"]).toBe(SEED_INSTRUMENT_ARS_ID); // la MONEDA del cash
-    expect(body["size"]).toBe(5000); // size = pesos
+    expect(body["size"]).toBe("5000.00"); // size = pesos, STRING monetario (D3)
     expect(body["reason"]).toBeNull(); // no hubo rechazo
     expectMoneyArs(body["price"], "1.00"); // un peso por peso
     expectMoneyArs(body["filledPrice"], "1.00"); // ejecución inmediata a 1.00
@@ -149,7 +149,7 @@ describe("UC-5 transfers · CASH_IN", () => {
     const row = await fetchTransfersOrderRow(orderId as number);
     expect(row?.status).toBe("FILLED");
     expect(row?.side).toBe("CASH_IN");
-    expect(row?.size).toBe(5000);
+    expect(row?.size).toBe("5000.00"); // NUMERIC(24,2) ⇒ string pg
     expect(row?.price).toBe("1.00");
     expect(row?.["filledPrice"]).toBe("1.00");
 
@@ -162,25 +162,42 @@ describe("UC-5 transfers · CASH_IN", () => {
     expectMoneyArs(after.cash, expectedCashAfter(before.cash, "5000.00"));
   });
 
-  it("amountArs < 1 peso ⇒ size 0 ⇒ 201 REJECTED ZERO_SIZE (regla de sizing de DECISIONS.md)", async () => {
+  it("CASH_IN subpeso de 0.50 ⇒ 201 FILLED EXACTO de 0.50 (D4 firmada: ya NO hay floor ni ZERO_SIZE)", async () => {
+    // CAMBIO DE SEMÁNTICA firmado (D4): antes un monto < 1 piso daba
+    // REJECTED ZERO_SIZE; ahora el cash acredita el monto EXACTO con
+    // centavos. El escenario subpeso se CONSERVA con su nueva semántica.
     const userId = await freshUser("1000.00");
+    const before = await getPortfolio(userId);
     const res = await postTransfer(userId, {
-      amountArs: 0.5,
+      amountArs: "0.50",
       side: "CASH_IN",
     });
 
     expect(res.status).toBe(201);
     const body = res.body as Record<string, unknown>;
-    expect(body["status"]).toBe("REJECTED");
-    expect(body["reason"]).toBe("ZERO_SIZE");
-    expect(body["size"]).toBe(0);
+    expect(body["status"]).toBe("FILLED");
+    expect(body["reason"]).toBeNull();
+    expect(body["size"]).toBe("0.50"); // monto EXACTO, string monetario
 
-    const events = await fetchTransfersOrderEvents(body["id"] as number);
+    const orderId = body["id"];
+    expect(typeof orderId).toBe("number");
+    const row = await fetchTransfersOrderRow(orderId as number);
+    expect(row?.status).toBe("FILLED");
+    expect(row?.size).toBe("0.50");
+    expect(row?.price).toBe("1.00");
+
+    // Sin REJECTED (el ZERO_SIZE ya no aplica al cash) y con su ACCEPTED.
+    const events = await fetchTransfersOrderEvents(orderId as number);
     expect(
       events.some(
         (event) => event.eventType === "REJECTED" && event.reason === "ZERO_SIZE",
       ),
-    ).toBe(true);
+    ).toBe(false);
+    expect(events.some((event) => event.eventType === "ACCEPTED")).toBe(true);
+
+    // El disponible acredita EXACTAMENTE los centavos pedidos.
+    const after = await getPortfolio(userId);
+    expectMoneyArs(after.cash, expectedCashAfter(before.cash, "0.50"));
   });
 });
 
@@ -194,7 +211,7 @@ describe("UC-5 transfers · CASH_OUT", () => {
     const before = await getPortfolio(userId);
 
     const res = await postTransfer(userId, {
-      amountArs: 5000,
+      amountArs: "5000", // dinero string canónico (D3)
       side: "CASH_OUT",
     });
 
@@ -202,7 +219,7 @@ describe("UC-5 transfers · CASH_OUT", () => {
     const body = res.body as Record<string, unknown>;
     expect(body["status"]).toBe("FILLED");
     expect(body["side"]).toBe("CASH_OUT");
-    expect(body["size"]).toBe(5000);
+    expect(body["size"]).toBe("5000.00"); // monto EXACTO, string monetario
     expect(body["reason"]).toBeNull();
     expectMoneyArs(body["filledPrice"], "1.00");
 
@@ -210,6 +227,7 @@ describe("UC-5 transfers · CASH_OUT", () => {
     expect(typeof orderId).toBe("number");
     const row = await fetchTransfersOrderRow(orderId as number);
     expect(row?.status).toBe("FILLED");
+    expect(row?.size).toBe("5000.00"); // NUMERIC(24,2) ⇒ string pg
     expect(row?.price).toBe("1.00");
     expect(row?.["filledPrice"]).toBe("1.00");
 
@@ -230,7 +248,7 @@ describe("UC-5 transfers · CASH_OUT", () => {
     expectMoneyArs(before.reservedCash, "125500.00");
 
     const res = await postTransfer(userId, {
-      amountArs: 700000,
+      amountArs: "700000", // dinero string canónico (D3)
       side: "CASH_OUT",
     });
 
@@ -238,7 +256,7 @@ describe("UC-5 transfers · CASH_OUT", () => {
     const body = res.body as Record<string, unknown>;
     expect(body["status"]).toBe("REJECTED");
     expect(body["reason"]).toBe("INSUFFICIENT_FUNDS");
-    expect(body["size"]).toBe(700000); // el monto pedido, no 0
+    expect(body["size"]).toBe("700000.00"); // el monto pedido, string monetario
     expect(body["filledPrice"]).toBeNull();
     expect(body["filledAt"]).toBeNull();
 
@@ -247,7 +265,7 @@ describe("UC-5 transfers · CASH_OUT", () => {
     const row = await fetchTransfersOrderRow(orderId as number);
     expect(row?.status).toBe("REJECTED");
     expect(row?.side).toBe("CASH_OUT");
-    expect(row?.size).toBe(700000);
+    expect(row?.size).toBe("700000.00"); // NUMERIC(24,2) ⇒ string pg
     expect(row?.["filledPrice"]).toBeNull();
 
     // Evento REJECTED con la razón Y la metadata del porqué (disponible
@@ -273,7 +291,7 @@ describe("UC-5 transfers · CASH_OUT", () => {
     expectMoneyArs(before.cash, "627500.00");
 
     const res = await postTransfer(userId, {
-      amountArs: 630000,
+      amountArs: "630000", // dinero string canónico (D3)
       side: "CASH_OUT",
     });
 
@@ -281,7 +299,7 @@ describe("UC-5 transfers · CASH_OUT", () => {
     const body = res.body as Record<string, unknown>;
     expect(body["status"]).toBe("REJECTED");
     expect(body["reason"]).toBe("INSUFFICIENT_FUNDS");
-    expect(body["size"]).toBe(630000);
+    expect(body["size"]).toBe("630000.00"); // monto EXACTO, string monetario
 
     const orderId = body["id"];
     expect(typeof orderId).toBe("number");
@@ -302,7 +320,7 @@ describe("UC-5 transfers · CASH_OUT", () => {
   it("mayor incluso que el settled (800000 > 753000) ⇒ REJECTED igual (no hay saldo que alcance)", async () => {
     const userId = await freshGoldenUser();
     const res = await postTransfer(userId, {
-      amountArs: 800000,
+      amountArs: "800000", // dinero string canónico (D3)
       side: "CASH_OUT",
     });
 
@@ -318,11 +336,13 @@ describe("UC-5 transfers · CASH_OUT", () => {
 // ---------------------------------------------------------------------
 
 describe("UC-5 transfers · errores del borde", () => {
-  it("amountArs ≤ 0 ⇒ 400 VALIDATION_ERROR SIN registro", async () => {
+  it("amountArs ≤ 0 (strings canónicos) ⇒ 400 VALIDATION_ERROR SIN registro", async () => {
     const userId = await freshUser();
     const before = await countTransfersOrders(userId);
 
-    for (const amountArs of [0, -100]) {
+    // Los inputs fuera de rango migran a string (D3) y SIGUEN probando la
+    // regla de positividad: 0 y negativo se rechazan.
+    for (const amountArs of ["0", "-100"]) {
       const res = await postTransfer(userId, {
         amountArs,
         side: "CASH_IN",
@@ -336,12 +356,30 @@ describe("UC-5 transfers · errores del borde", () => {
     expect(await countTransfersOrders(userId)).toBe(before); // sin registro
   });
 
+  it("amountArs como NÚMERO JSON (aunque sea pequeño) ⇒ 400 VALIDATION_ERROR SIN registro (D3)", async () => {
+    const userId = await freshUser();
+    const before = await countTransfersOrders(userId);
+
+    // D3: la aplicación no puede recuperar cifras que el parser JSON ya
+    // perdió — un money number se rechaza SIEMPRE, incluso 400.
+    const res = await postTransfer(userId, {
+      amountArs: 400, // número JSON, NO string
+      side: "CASH_IN",
+    });
+
+    expect(res.status).toBe(400);
+    expect(
+      (res.body as { error?: { code?: unknown } }).error?.code,
+    ).toBe("VALIDATION_ERROR");
+    expect(await countTransfersOrders(userId)).toBe(before); // sin registro
+  });
+
   it("side de trading (BUY) ⇒ 400 SIN registro", async () => {
     const userId = await freshUser();
     const before = await countTransfersOrders(userId);
 
     const res = await postTransfer(userId, {
-      amountArs: 5000,
+      amountArs: "5000",
       side: "BUY",
     });
 
@@ -364,7 +402,7 @@ describe("UC-5 transfers · errores del borde", () => {
 
   it("usuario inexistente ⇒ 404 USER_NOT_FOUND", async () => {
     const res = await postTransfer(99999, {
-      amountArs: 5000,
+      amountArs: "5000",
       side: "CASH_IN",
     });
 
@@ -387,7 +425,7 @@ describe("UC-5 transfers · idempotencia", () => {
 
     const firstRes = await postTransfer(
       userId,
-      { amountArs: 5000, side: "CASH_IN" },
+      { amountArs: "5000", side: "CASH_IN" },
       key,
     );
     expect(firstRes.status).toBe(201);
@@ -396,7 +434,7 @@ describe("UC-5 transfers · idempotencia", () => {
 
     const secondRes = await postTransfer(
       userId,
-      { amountArs: 5000, side: "CASH_IN" },
+      { amountArs: "5000", side: "CASH_IN" },
       key,
     );
     expect(secondRes.status).toBe(201); // replay: 201 con la original
@@ -415,7 +453,7 @@ describe("UC-5 transfers · idempotencia", () => {
 
     const first = await postTransfer(
       userId,
-      { amountArs: 5000, side: "CASH_IN" },
+      { amountArs: "5000", side: "CASH_IN" },
       key,
     );
     expect(first.status).toBe(201);
@@ -423,7 +461,7 @@ describe("UC-5 transfers · idempotencia", () => {
     const before = await countTransfersOrders(userId);
     const res = await postTransfer(
       userId,
-      { amountArs: 7000, side: "CASH_IN" }, // mismo key, OTRO monto
+      { amountArs: "7000", side: "CASH_IN" }, // mismo key, OTRO monto
       key,
     );
 
@@ -439,8 +477,8 @@ describe("UC-5 transfers · idempotencia", () => {
     const before = await getPortfolio(userId);
 
     const settled = await Promise.allSettled([
-      postTransfer(userId, { amountArs: 5000, side: "CASH_IN" }, key),
-      postTransfer(userId, { amountArs: 5000, side: "CASH_IN" }, key),
+      postTransfer(userId, { amountArs: "5000", side: "CASH_IN" }, key),
+      postTransfer(userId, { amountArs: "5000", side: "CASH_IN" }, key),
     ]);
 
     const bodies = settled.map((result) => {
@@ -472,8 +510,8 @@ describe("UC-5 transfers · concurrencia sobre el cash", () => {
     const before = await getPortfolio(userId);
 
     const settled = await Promise.allSettled([
-      postTransfer(userId, { amountArs: 60000, side: "CASH_OUT" }),
-      postTransfer(userId, { amountArs: 60000, side: "CASH_OUT" }),
+      postTransfer(userId, { amountArs: "60000", side: "CASH_OUT" }),
+      postTransfer(userId, { amountArs: "60000", side: "CASH_OUT" }),
     ]);
 
     const bodies = settled.map((result) => {

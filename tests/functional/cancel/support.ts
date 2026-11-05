@@ -109,7 +109,7 @@ export interface CancelOrderRow {
   readonly userid: number | null;
   readonly side: string | null;
   readonly status: string | null;
-  readonly size: number | null;
+  readonly size: string | null;
   readonly price: string | null;
   readonly "filledPrice": string | null;
   readonly "timeInForce": string;
@@ -128,15 +128,15 @@ export const fetchCancelOrderRow = async (
   )[0];
 
 /**
- * Fila de orders con status FILLED: movió cash/acciones. Fixture de estado
- * (CASH_IN) estilo legacy: la ejecución va en `price`
- * (COALESCE(filledPrice, price) del mapper de B la lee igual).
+ * Fila de orders con status FILLED: movió cash/acciones. Fixture de estado:
+ * el size va como STRING monetario (NUMERIC(24,2) — D2) y el precio como
+ * string (nunca float).
  */
 const insertTestOrder = async (order: {
   readonly userId: number;
   readonly instrumentId: number;
   readonly side: string;
-  readonly size: number;
+  readonly size: string;
   readonly priceArs: string;
 }): Promise<void> => {
   await dbQuery(
@@ -160,7 +160,12 @@ export const insertTestUser = async (email: string): Promise<number> => {
   return id;
 };
 
-/** CASH_IN FILLED (estilo legacy: price = ejecución) ⇒ cash += amountArs. */
+/**
+ * CASH_IN FILLED (D4): el monto EXACTO va en `size` (columna física de cash)
+ * con precio unitario 1.00 — la convención del mapper, que exige esa unidad
+ * y deriva el monto del size. Fixture NUEVA: no llama al sizing de acciones
+ * ni usa el estilo legacy de precio≠1.00.
+ */
 export const insertTestCashIn = async (
   userId: number,
   amountArs: string,
@@ -169,8 +174,8 @@ export const insertTestCashIn = async (
     userId,
     instrumentId: SEED_INSTRUMENT_ARS_ID, // ARS: el instrumento del cash (docs §2)
     side: "CASH_IN",
-    size: 1,
-    priceArs: amountArs,
+    size: amountArs, // monto exacto con centavos (D4), sin floor
+    priceArs: "1.00", // un peso por peso: convención cash del mapper
   });
 };
 
@@ -185,27 +190,38 @@ export const costArs = (size: number, priceArs: string): string =>
     .toDecimalPlaces(2)
     .toFixed(2);
 
-/** Cash esperado después de un delta: before ± delta (Decimal, nunca float). */
+/**
+ * Cash esperado después de un delta: before ± delta (Decimal desde STRINGS,
+ * nunca float). El contrato D3 serializa el cash como string de 2 decimales.
+ */
 export const expectedCashAfter = (
   cashBefore: unknown,
   deltaArs: string,
 ): string => {
-  if (typeof cashBefore !== "number") {
+  if (typeof cashBefore !== "string") {
     throw new Error(
-      `GET /portfolio no devolvió cash numérico (llegó ${String(cashBefore)}).`,
+      `GET /portfolio no devolvió cash como string monetario (llegó ${String(cashBefore)}).`,
     );
   }
-  return new Decimal(String(cashBefore))
-    .plus(new Decimal(deltaArs))
-    .toFixed(2);
+  return new Decimal(cashBefore).plus(new Decimal(deltaArs)).toFixed(2);
 };
 
-/** Assert de dinero serializado: Decimal(String(actual)) === Decimal(expected). */
+const MONEY_SERIALIZED_GRAMMAR = /^-?(?:0|[1-9][0-9]*)\.[0-9]{2}$/;
+
+/**
+ * Assert de dinero serializado (D3): exige string con formato canónico de
+ * exactamente 2 decimales (sin -0.00) y igualdad Decimal contra el esperado.
+ */
 export const expectMoneyArs = (actual: unknown, expectedArs: string): void => {
-  if (typeof actual !== "number") {
+  if (typeof actual !== "string") {
     throw new Error(
-      `Se esperaba money serializado (number) igual a ${expectedArs}; llegó: ${String(actual)}`,
+      `Se esperaba money serializado (string con 2 decimales) igual a ${expectedArs}; llegó: ${String(actual)}`,
     );
   }
-  expect(new Decimal(String(actual)).toFixed(2)).toBe(expectedArs);
+  if (!MONEY_SERIALIZED_GRAMMAR.test(actual) || actual === "-0.00") {
+    throw new Error(
+      `Money serializado fuera del formato canónico (2 decimales): ${actual}`,
+    );
+  }
+  expect(new Decimal(actual).toFixed(2)).toBe(expectedArs);
 };

@@ -131,7 +131,7 @@ describe("UC-4 cancel · NEW", () => {
       side: "BUY",
       type: "LIMIT",
       size: 2,
-      price: 250, // sin timeInForce ⇒ default GTC ⇒ NEW
+      price: "250.00", // dinero string canónico (D3); sin TIF ⇒ GTC ⇒ NEW
     });
     expect(created.status).toBe(201);
     expect((created.body as Record<string, unknown>)["status"]).toBe("NEW");
@@ -157,10 +157,10 @@ describe("UC-4 cancel · NEW", () => {
     expect(body["filledPrice"]).toBeNull();
     expect(body["filledAt"]).toBeNull();
 
-    // Persistida: la fila quedó CANCELLED.
+    // Persistida: la fila quedó CANCELLED (size NUMERIC(24,2) ⇒ string pg).
     const row = await fetchCancelOrderRow(orderId);
     expect(row?.status).toBe("CANCELLED");
-    expect(row?.size).toBe(2);
+    expect(row?.size).toBe("2.00");
 
     // La reserva se libera: reservedCash baja 2 × 250 y el disponible sube lo mismo.
     const after = await getPortfolio(userId);
@@ -187,7 +187,7 @@ describe("UC-4 cancel · evento", () => {
       side: "BUY",
       type: "LIMIT",
       size: 1,
-      price: 210,
+      price: "210.00", // dinero string canónico (D3)
     });
     const orderId = createdOrderId(created);
 
@@ -220,7 +220,7 @@ describe("UC-4 cancel · 422 ORDER_NOT_CANCELLABLE sin mutar", () => {
       side: "BUY",
       type: "LIMIT",
       size: 1,
-      price: 210,
+      price: "210.00", // dinero string canónico (D3)
     });
     const orderId = createdOrderId(created);
 
@@ -315,7 +315,7 @@ describe("UC-4 cancel · doble DELETE concurrente sobre la misma NEW", () => {
       side: "BUY",
       type: "LIMIT",
       size: 2,
-      price: 250,
+      price: "250.00", // dinero string canónico (D3)
     });
     const orderId = createdOrderId(created);
     const before = await getPortfolio(userId); // reservado: 2 × 250
