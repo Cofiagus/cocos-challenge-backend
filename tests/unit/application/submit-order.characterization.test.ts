@@ -1618,6 +1618,9 @@ describe("submitOrder — caracterización del envío (UC-3)", () => {
       throw new Error(`Se esperaba un Error, llegó ${String(error)}.`);
     }
     expect(error.message).toBe(testCase.message);
+    // Sólo el RangeError del sizing se traduce a 400: un guard inesperado no
+    // se convierte en SubmitOrderError (sube al manejador central).
+    expect(error).not.toBeInstanceOf(SubmitOrderError);
     // Los guards corren ANTES de la primera escritura: no hay orden ni evento.
     expect(fakes.createdDrafts).toEqual([]);
     expect(fakes.appendedEvents).toEqual([]);
