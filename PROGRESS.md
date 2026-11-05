@@ -11,11 +11,12 @@
 
 | Célula | Alcance / ownership | Estado | Gate |
 |---|---|---|---|
-| LM-A | Constructor/contratos de dinero y tests monetarios; CODEMAP sólo sus filas | PREPARADA | unit monetarios + typecheck/lint |
-| LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | PREPARADA | PG real, migración sobre viejo/seed nuevo; no app DB |
+| LM-A | Constructor/contratos de dinero y tests monetarios; CODEMAP sólo sus filas | EN EJECUCIÓN (ds_flash, rama cell/large-money-contracts) | unit monetarios + typecheck/lint |
+| LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | EN EJECUCIÓN (ds_flash, rama cell/large-money-database) | PG real, migración sobre viejo/seed nuevo; no app DB |
 | LM-C | Tipos discriminados, dominio, casos de uso y HTTP; depende de LM-A | PENDIENTE | unit dominio/application/HTTP |
 | LM-D | Mappers, repos e idempotencia histórica; depende de seams LM-C y schema LM-B | PENDIENTE | integración PG real y concurrencia |
-| LM-E | OpenAPI, ejemplos, docs y adaptación funcional; depende de código estable | PENDIENTE | docs/funcionales |
+| LM-E-docs | README/docs/colección del contrato aprobado; rama cell/large-money-docs | EN EJECUCIÓN (glm_flash) | docs/typecheck/lint; integración tras código |
+| LM-E-wire | OpenAPI y adaptación funcional; depende de código estable | PENDIENTE | docs/funcionales |
 | LM-QA | Revisión independiente de diff e invariantes | PENDIENTE | no merge a main sin firma adicional |
 
 ### Decisiones operativas
