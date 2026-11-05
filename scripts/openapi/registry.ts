@@ -226,9 +226,10 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
     description:
       "Sin `query` (ausente, vacía o sólo espacios) devuelve el listado inicial; con texto " +
       "(se recorta) es match parcial case-insensitive sobre `ticker` y/o `name`. `MONEDA` nunca " +
-      "aparece. `limit` es entero 1..100 con default 10; fuera de rango o parámetro desconocido " +
-      "es 400 (la `query` ausente/vacía NUNCA es inválida). Respuesta: array plano ordenado por " +
-      "ticker. `price` es el último precio de sesión vigente (Yahoo) y `previousClose` el cierre " +
+      "aparece. `limit` es entero 1..100 con default 10; fuera de rango, `query` repetida o " +
+      "no-string, o parámetro desconocido es 400 (la `query` ausente/vacía NUNCA es inválida). " +
+      "Respuesta: array plano ordenado por ticker. `price` es el último precio de sesión " +
+      "disponible (Yahoo) y `previousClose` el cierre " +
       "de la sesión anterior, ambos string monetario de 2 decimales; `dailyVariationPct` es number " +
       "redondeado a 2 decimales. Campos no-nullable: el instrumento sin cotización computable se " +
       "OMITE y el cupo se completa con los siguientes candidatos hasta agotar el catálogo. " +
@@ -243,14 +244,16 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
         // acá haría el ejemplo irreproducible contra el servidor.
         status: 200,
         description:
-          "Coincidencias ordenadas por ticker, con cotización vigente (sin ejemplo 200: " +
+          "Coincidencias ordenadas por ticker, con el último precio de sesión disponible "
+          + "(sin ejemplo 200: " +
           "la captura real queda para la verificación en vivo del despliegue local).",
         schema: InstrumentSearchResponseSchema,
       },
       errorBody(
         400,
         "VALIDATION_ERROR",
-        "`limit` fuera de 1..100 o parámetro desconocido (`query` ausente/vacía es válida: listado inicial).",
+        "`limit` fuera de 1..100, `query` repetida o de formato no-string, o parámetro "
+        + "desconocido (`query` ausente/vacía es válida: listado inicial).",
         "Query inválida: limit: Too big: expected number to be <=100",
       ),
       errorBody(
