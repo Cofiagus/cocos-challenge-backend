@@ -23,6 +23,10 @@ Orden sugerido (algunos ejemplos mutan estado y los idempotency keys se gastan):
 > **string entero** y el `size` de la respuesta es `number` en órdenes de trading pero
 > **string monetario** en transferencias. Los cuerpos y estados documentados en los comentarios
 > describen ese contrato aprobado (y los valores del seed, que no cambian: cash disponible
-> `627500.00`, reservado `125500.00`, total `889756.00`). La corrida verificada en vivo previa a
-> esta feature se hizo contra el contrato anterior (dinero `number`): re-corregir la colección
-> contra la implementación queda para la verificación final de la feature, no se afirma acá.
+> `627500.00`, reservado `125500.00`, total `889756.00`). El contrato está **implementado y
+> verificado por suites automatizadas contra DB de test real** (37 suites / 515 tests en verde;
+> evidencia y límites en [`../docs/references/large-money-verification.md`](../docs/references/large-money-verification.md)).
+> Eso **no** incluye una corrida manual íntegra de esta colección ni una DB de aplicación ya
+> migrada: esta verificación no aplicó migraciones a la DB de la app; el despliegue requiere
+> la ventana coordinada. Los `id` de los comentarios
+> siguen siendo ilustrativos.

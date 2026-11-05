@@ -1,13 +1,13 @@
 # PROGRESS.md — ejecución por células
 
-## Build activo: grandes montos (firma humana 2026-11-05)
+## Grandes montos: gate completo cerrado, integración local pendiente (firma humana 2026-11-05)
 
 - Spec inmutable: `specs/datos-financieros-grandes-montos.md` Rev. 2; D1–D5 aprobadas.
 - Rama integradora: `feature/large-money`; worktree `/home/cofi/repos/coccb-wt-large-money`.
 - Snapshot base: `b8006afbaaf8e8af3bfc7cf76a63bb557ae6f502` (`snapshot/large-money-20261105`), creado con índice Git alternativo. HEAD y staging originales de main se conservaron; sólo se registró la firma en la spec del árbol original.
 - Gate base medido sobre ese commit: **33 suites / 352 tests**, typecheck y lint verdes. PostgreSQL 18.6 nuevo, sólo loopback y puerto 55432, en scratch del perfil; ninguna conexión a DB de app.
 - El worktree original contiene trabajo previo del usuario que forma parte del snapshot, no del diff de esta feature. Preservar árbol e índice. El usuario autorizó posteriormente integrar a main tras terminar la implementación, revisión independiente y pruebas completas verdes; no autorizó migrar la DB de la app.
-- Gate final exige toda la spec, integración/funcionales con DB real, y revisión independiente. Las células iniciales tienen gates de alcance; ninguna declara verde global hasta adaptar todos los consumidores del contrato incompatible.
+- Gate completo de feature verificado: typecheck/lint/build/OpenAPI determinista y 37 suites / 515 tests con PostgreSQL real, sin open handles; revisión independiente final ACCEPT9.0/10. Resta el fast-forward autorizado a main y repetir el gate desde su worktree.
 
 | Célula | Alcance / ownership | Estado | Gate |
 |---|---|---|---|
@@ -17,15 +17,15 @@
 | LM-C1-pure | Dominio puro y ports; cell/large-money-pure-final | INTEGRADA: 3938ec0 | 64 unit/domain re-corridos; sizing RangeError antes de convertir; lint verde |
 | LM-C1-app | Casos de uso, HTTP y fakes unitarios; cell/large-money-app-final | INTEGRADA desde 835699a en este merge | 137 unit application/HTTP re-corridos; typecheck global recuperado |
 | LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | INTEGRADA desde 86dcbb4 en este merge | 117 tests infra verdes; origen coherente y evidencia obligatoria, sin truncar cash nuevo |
-| LM-E-docs | README/docs/colección del contrato aprobado | INTEGRADA: 4f9974f/e27f99a/ee5703f | correcciones revisadas; aún no afirma ejecución API final |
+| LM-E-docs | README/docs/colección del contrato aprobado | INTEGRADA: 4f9974f/e27f99a/ee5703f + cierre final | ejecución automatizada verificada; no se afirma corrida manual íntegra de colección |
 | LM-E-wire-final | OpenAPI; cell/large-money-wire-final | INTEGRADA: 3477ff9 | 15 tests/docs re-corridos; schemas monetarios únicos; lint verde |
 | LM-F-trading | tests/functional/{orders,orders-submit}; cell/large-money-functional-trading-final | INTEGRADA desde 4cb6324 (360ae4e) | 47 tests HTTP+PG re-corridos; gate completo detectOpenHandles=[] |
 | LM-F-cash | tests/functional/{read,cancel,transfers}; cell/large-money-functional-cash-final | INTEGRADA desde 0ccebda en este merge | 42 tests HTTP+PG re-corridos; typecheck/lint verdes; 0.50 FILLED exacto por D4 |
 | LM-F-acceptance | tests/functional/large-money nuevos; cell/large-money-acceptance-final | INTEGRADA desde 54ef051 en este merge | 19 E2E re-corridos; máximos/centavos/concurrencia/replays/rollback real |
-| LM-QA | Revisión independiente de diff e invariantes del runtime b55a8db | ACCEPT runtime, 8.5/10 (DeepSeek); cierre global PENDIENTE | matriz invariante → implementación → test entregada; sin bug de fuente confirmado; falta e2e final |
+| LM-QA | Revisión independiente de diff e invariantes del runtime b55a8db | ACCEPT runtime, 8.5/10 (DeepSeek); ampliada por LM-QA-final | matriz invariante → implementación → test entregada; e2e final y revisión9.0/10 completadas |
 | LM-QA-polish | Precisión docs CHECK y tipos financieros de price-source/support | INTEGRADA desde 046442a en este merge | 96 tests infra/docs re-corridos + typecheck/lint verdes; sin cambio de lógica |
 | LM-env-hygiene | Exclusión del archivo real .env.test; cell/large-money-env-final | INTEGRADA desde 7a76046 en este merge | copia local preservada byte a byte y ahora ignorada; sólo ejemplo versionado; sin rewrite |
-| LM-docs-close | README/API/colección y evidencia única de ejecución; cell/large-money-docs-close | REVISIÓN FINAL (GLM), HEAD 105b623 | corregir sobreafirmaciones SQL/una escritura/estado main/DBapp; sólo docs |
+| LM-docs-close | README/API/colección y evidencia única de ejecución; cell/large-money-docs-close | INTEGRADA desde 9400fe5 en este merge | correcciones leídas/aceptadas; gate completo37/515 re-corrido, sólo diff documental |
 | LM-QA-final | Revisión independiente del candidato completo 1bd02e4 | ACCEPT, 9.0/10 (DeepSeek) | revisor re-corre19E2E +79domain/docs; coteja JSON37/515 yopenHandles=[]; sin blocker |
 
 ### Decisiones operativas
@@ -73,6 +73,7 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 - Límites de evidencia: quantity agregada >MAX_SAFE_INTEGER se probó en unit con órdenes INT4 válidas, no mediante millones de filas E2E; la migración y locks se ensayaron en DBs de test chicas, no en producción. Ninguna DB de app migrada ni push remoto realizado.
 - QA final independiente acepta1bd02e4 con9.0/10, sin findings bloqueantes; re-ejecuta19E2E+79domain/docs y verifica515tests/openHandles[] del log. Se verificó que cambios posteriores propios sólo afectanPROGRESS (ya commiteado, árbol limpio), sin drift de runtime/tests/schema. Los2 gaps de cobertura E2E secundarios se aceptan como no bloqueantes por cobertura existente de eventoACCEPTED y guardas de evidencia/precio en integración; no ampliar diseño para perseguir10/10.
 - Cierre documental105b623 devuelto por precisión: CHECKs de precios de orden son positivos, marketdata permite0; concurrencia asegura un débito no una sola escritura; evidencia no debe quedar desactualizada diciendo main pendiente; DBapp no fue consultada ni migrada por esta tarea. Se delegó corrección sólo documental antes del merge.
+- Cierre documental9400fe5 aceptado por diff y lectura real: cinco precisiones resueltas. Gate completo posterior a integrar docs re-corrido: 37/515, openHandles=[], typecheck/lint/build verdes, OpenAPI sin diff. Evidencia única versionada en docs/references/large-money-verification.md. Árbol fuente/schema/tests idéntico al candidato core revisado1bd02e4.
 - Aceptadas las decisiones del dominio: builders cash/trading separados; cantidades acumuladas bigint probadas con órdenes INT4 válidas; matching conserva reglas y sigue sin disparador. No hay ampliación de diseño.
 
 ### Revisión intermedia del orquestador

@@ -4,7 +4,9 @@
 > status y los códigos de error están en [`../openapi.json`](../openapi.json) (OpenAPI 3.1,
 > generado desde los schemas Zod de `src/contracts`; `npm run openapi` lo regenera).
 > Acá va lo que un schema no puede expresar: cuándo usar cada endpoint, qué significa cada
-> estado y qué invariantes se cumplen.
+> estado y qué invariantes se cumplen. La evidencia de ejecución verificada (suite completa
+> contra DB de test real) y sus límites vive en
+> [`references/large-money-verification.md`](references/large-money-verification.md).
 
 Base: `http://localhost:3000/api` · JSON · errores siempre `{ "error": { "code", "message" } }`.
 
