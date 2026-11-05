@@ -6,7 +6,6 @@
 // (recrea cocos_challenge_test desde migración versionada + seed).
 
 import { randomUUID } from "node:crypto";
-import { Decimal } from "decimal.js";
 import type {
   CashOrderDraft,
   CashOrderRecord,
@@ -17,6 +16,7 @@ import type {
   TradingSide,
   TransferSide,
 } from "../../../src/contracts/index.js";
+import { FinancialDecimal as Decimal } from "../../../src/contracts/index.js";
 import {
   SEED_INSTRUMENT_ARS_ID,
   SEED_INSTRUMENT_PAMP_ID,
