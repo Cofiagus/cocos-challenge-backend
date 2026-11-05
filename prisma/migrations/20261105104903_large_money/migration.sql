@@ -41,12 +41,15 @@ ALTER TABLE "orders"
     "filledPrice" IS NULL OR ("filledPrice" <> 'NaN'::numeric AND "filledPrice" > 0)
   ),
   -- size: finito y no negativo en cualquier side; cero sólo en REJECTED
-  -- (histórico ZERO_SIZE), nunca en una fila operable.
+  -- (histórico ZERO_SIZE), nunca en una fila operable. El cero exige un status
+  -- REJECTED real: `IS NOT DISTINCT FROM` hace que un status NULL evalúe FALSE
+  -- (un `<>`/`=` daría UNKNOWN y el CHECK lo aceptaría). Un size positivo con
+  -- status NULL sigue permitido, igual que los NULL heredados.
   ADD CONSTRAINT "orders_size_finite_non_negative_check" CHECK (
     "size" IS NULL OR ("size" <> 'NaN'::numeric AND "size" >= 0)
   ),
   ADD CONSTRAINT "orders_size_zero_only_rejected_check" CHECK (
-    "size" IS NULL OR "size" > 0 OR "status" = 'REJECTED'
+    "size" IS NULL OR "size" <> 0 OR "status" IS NOT DISTINCT FROM 'REJECTED'::"OrderStatus"
   ),
   -- acciones por orden: entero y acotado a INT4 (D2); cash no pasa por acá.
   ADD CONSTRAINT "orders_share_size_int4_check" CHECK (

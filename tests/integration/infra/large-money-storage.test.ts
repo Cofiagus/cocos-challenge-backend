@@ -9,12 +9,15 @@
 // rechazo de NaN/negativos/fracciones/fuera de INT4, rollback de una
 // multi-escritura y DB nueva por `migrate deploy` + seed sin editar.
 //
-// Requiere TEST_DATABASE_URL (PostgreSQL 18 local); el test sólo crea/borra
-// bases con prefijo lm_b_ en ese servidor.
+// Requiere TEST_DATABASE_URL (PostgreSQL 18); puede ser la URL global de test
+// (p. ej. .../cocos_challenge_test). La suite SIEMPRE deriva sus propias bases
+// lm_b_* desde esa URL y sólo crea/borra esas: nunca ejecuta DROP/CREATE sobre
+// la base que la URL fuente nombra ni sobre APP_DATABASE_URL.
 
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { Client } from "pg";
+import { databaseUrlForTestName } from "../../helpers/test-database-url.js";
 
 jest.setTimeout(240_000);
 
@@ -31,17 +34,37 @@ const LARGE_MONEY_MIGRATION_PATH = join(
 const SEED_PATH = join(process.cwd(), "db/seed.sql");
 const PRISMA_BIN = join(process.cwd(), "node_modules", ".bin", "prisma");
 
+const databaseNameOf = (databaseUrl: string): string | null => {
+  const name = new URL(databaseUrl).pathname.replace(/^\//u, "");
+  return name.length > 0 ? decodeURIComponent(name) : null;
+};
+
+// Destino real de la app (APP_DATABASE_URL lo fija el harness/`.env`); ninguna
+// base de ensayo puede llamarse igual ni recibir DROP/CREATE desde acá.
+const applicationDatabaseName = (): string | null => {
+  for (const variable of ["APP_DATABASE_URL", "DATABASE_URL"]) {
+    const configured = process.env[variable];
+    if (configured) {
+      const name = databaseNameOf(configured);
+      if (name) {
+        return name;
+      }
+    }
+  }
+  return null;
+};
+
 const testDatabaseUrl = (): string => {
   const configured = process.env["TEST_DATABASE_URL"];
   if (!configured) {
-    throw new Error("TEST_DATABASE_URL no definida; exportarla apuntando al PostgreSQL aislado.");
+    throw new Error("TEST_DATABASE_URL no definida; exportarla apuntando al PostgreSQL de test.");
   }
   const parsed = new URL(configured);
   if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") {
     throw new Error("TEST_DATABASE_URL debe usar el protocolo PostgreSQL.");
   }
-  if (parsed.pathname.startsWith("/cocos_")) {
-    throw new Error("TEST_DATABASE_URL apunta a una base del orquestador (cocos_*); abortado.");
+  if (!databaseNameOf(configured)) {
+    throw new Error("TEST_DATABASE_URL debe incluir el nombre de la base de test.");
   }
   return configured;
 };
@@ -50,14 +73,14 @@ const validatedDatabaseName = (databaseName: string): string => {
   if (!/^lm_b_[a-z0-9_]+$/u.test(databaseName)) {
     throw new Error(`Nombre de base fuera del prefijo lm_b_: ${databaseName}`);
   }
+  if (databaseName === applicationDatabaseName()) {
+    throw new Error(`La base de ensayo ${databaseName} coincide con la base de la app; abortado.`);
+  }
   return databaseName;
 };
 
-const withDatabaseName = (databaseName: string): string => {
-  const parsed = new URL(testDatabaseUrl());
-  parsed.pathname = `/${validatedDatabaseName(databaseName)}`;
-  return parsed.toString();
-};
+const withDatabaseName = (databaseName: string): string =>
+  new URL(databaseUrlForTestName(validatedDatabaseName(databaseName))).toString();
 
 const adminDatabaseUrl = (): string => {
   const parsed = new URL(testDatabaseUrl());
@@ -440,6 +463,9 @@ describe("large money storage — migración NUMERIC(24,2) y CHECKs (DB real ais
     ["size 0 en fila operable", "orders_size_zero_only_rejected_check",
       `INSERT INTO orders (userid, instrumentid, size, price, side, status, datetime)
        VALUES (1, 47, 0, 10.00, 'BUY', 'NEW', now())`],
+    ["size 0 con status NULL (CHECK no puede dar UNKNOWN)", "orders_size_zero_only_rejected_check",
+      `INSERT INTO orders (userid, instrumentid, size, price, side, status, datetime)
+       VALUES (1, 47, 0, 10.00, 'BUY', NULL, now())`],
     ["acciones fraccionadas", "orders_share_size_int4_check",
       `INSERT INTO orders (userid, instrumentid, size, price, side, status, datetime)
        VALUES (1, 47, 10.5, 10.00, 'BUY', 'FILLED', now())`],
@@ -468,6 +494,15 @@ describe("large money storage — migración NUMERIC(24,2) y CHECKs (DB real ais
         `INSERT INTO orders (userid, instrumentid, size, price, side, status, datetime)
          VALUES (1, 47, 0, 10.00, 'BUY', 'REJECTED', now())`,
       );
+      await client.query(
+        `INSERT INTO orders (userid, instrumentid, size, price, side, status, datetime)
+         VALUES (1, 47, 10, 10.00, 'BUY', NULL, now())`,
+      );
+      const positiveNullStatus = await client.query<TextRow>(
+        `SELECT count(*)::text AS n FROM orders WHERE size = 10 AND price = 10.00 AND status IS NULL`,
+      );
+      expect(positiveNullStatus.rows[0]?.["n"]).toBe("1");
+
       await client.query(
         `INSERT INTO orders (userid, instrumentid, size, price, side, status, datetime)
          VALUES (1, NULL, NULL, NULL, NULL, NULL, NULL)`,
