@@ -19,8 +19,10 @@
 | LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | INTEGRADA desde 86dcbb4 en este merge | 117 tests infra verdes; origen coherente y evidencia obligatoria, sin truncar cash nuevo |
 | LM-E-docs | README/docs/colección del contrato aprobado | INTEGRADA: 4f9974f/e27f99a/ee5703f | correcciones revisadas; aún no afirma ejecución API final |
 | LM-E-wire-final | OpenAPI; cell/large-money-wire-final | INTEGRADA: 3477ff9 | 15 tests/docs re-corridos; schemas monetarios únicos; lint verde |
-| LM-E-functional | Compatibilidad de suites y nuevos casos e2e | PREPARACIÓN: 2 GLM para suites existentes + DeepSeek aceptación | HTTP + PostgreSQL real, DBs disjuntas; sin desactivar escenarios |
-| LM-QA | Revisión independiente de diff e invariantes | PENDIENTE | usuario autoriza integrar a main sólo tras pruebas y cierre de implementación |
+| LM-F-trading | tests/functional/{orders,orders-submit}; cell/large-money-functional-trading-final | EN EJECUCIÓN (GLM), base b55a8db | DBs ftest/submit, sin cambiar runtime ni escenarios |
+| LM-F-cash | tests/functional/{read,cancel,transfers}; cell/large-money-functional-cash-final | EN EJECUCIÓN (GLM), base b55a8db | DBs read/cancel/transfer, cambio cash subpeso firmado |
+| LM-F-acceptance | tests/functional/large-money nuevos; cell/large-money-acceptance-final | EN EJECUCIÓN (DeepSeek), base b55a8db | DB exclusiva lm_acceptance_test, máximos/centavos/concurrencia/replays |
+| LM-QA | Revisión independiente de diff e invariantes del runtime b55a8db | EN EJECUCIÓN (DeepSeek, sólo lectura) | matriz invariante → implementación → test; gate final posterior |
 | LM-env-hygiene | Exclusión del archivo real .env.test; cell/large-money-env-final | INTEGRADA desde 7a76046 en este merge | copia local preservada byte a byte y ahora ignorada; sólo ejemplo versionado; sin rewrite |
 
 ### Decisiones operativas
@@ -60,6 +62,7 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 - Gate integrado dominio + infra + docs re-corrido: 15 suites / 196 tests verdes con PostgreSQL test real, lint/diff-check verdes. Checkpoint global aún rojo: 24 diagnósticos TypeScript, todos en app/HTTP y sus fakes/tests asignados a LM-C1-app. Main permanece sin tocar.
 - LM-C1-app aceptada en 835699a: bases distributivas preservan unidades de draft, cash exacto sin sizing de acciones, quantity bigint interno/string HTTP, RangeError de sizing mapeado a400 sin writes (otros errores propagan). Se acepta omitir residualArs en eventos nuevos de cash porque ya no hay floor; amountArs canónico sigue siendo evidencia de origen.
 - Gate del runtime integrado: typecheck + lint + build verdes; 29 suites / 403 tests unit/docs/integration verdes con PostgreSQL real. Las suites funcionales previas aún requieren adaptación y pruebas de aceptación nuevas: no afirmar cierre global ni ejecución final de colección.
+- Probes del orquestador contra app compilada y DB nueva lm_diagnostic_test (2 migraciones + seed): CASH_IN123.45 persiste123.45 y responde size string; CASH_IN0.01 persiste0.01; misma key123.01→123.99 devuelve409. Portfolio final de esas pruebas cash246.47, exacto. Los3 defectos concretos iniciales ya no se reproducen; no sustituye el gate e2e completo.
 - Aceptadas las decisiones del dominio: builders cash/trading separados; cantidades acumuladas bigint probadas con órdenes INT4 válidas; matching conserva reglas y sigue sin disparador. No hay ampliación de diseño.
 
 ### Revisión intermedia del orquestador
