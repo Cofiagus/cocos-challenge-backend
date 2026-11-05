@@ -406,8 +406,12 @@ migraciones"; sólo la migración nueva, nunca la inicial ni los snapshots SQL):
   `orders_size_zero_only_rejected_check` exige que `status` sea `REJECTED`
   (`IS NOT DISTINCT FROM`, así un `status` NULL no se escapa). Ese CHECK **no** mira
   `order_events`: que el evento porte el motivo `ZERO_SIZE` es política de la
-  aplicación (los `size 0` históricos son `ZERO_SIZE` por compatibilidad) y **no** se
-  agrega ni se promete un CHECK cross-table sobre el motivo, ni DDL adicional.
+  aplicación y **no** se agrega ni se promete un CHECK cross-table sobre el motivo, ni
+  DDL adicional. El alcance del `0` es distinto por lado: en cash queda reservado a los
+  `REJECTED` históricos de `ZERO_SIZE` (compatibilidad §2); en trading una `REJECTED`
+  también puede guardar `0` según el caso — `ZERO_SIZE` por sizing, y `NO_PRICE` cuando
+  el sizing derivado de `amountArs` no llegó a resolverse por falta de precio. La DB
+  garantiza el estado (`REJECTED`), no la razón; los históricos no se normalizan.
 - Un NULL financiero ya permitido **no** se reemplaza por cero; la nullabilidad legacy no se
   endurece en este trabajo.
 - No se agregan constraints de email/ticker, índices nuevos, triggers de estados ni cambios al
