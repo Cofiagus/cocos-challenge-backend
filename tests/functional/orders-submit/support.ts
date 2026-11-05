@@ -161,7 +161,13 @@ export const sqlCashSettledArs = async (userId: number): Promise<string> => {
       WHERE userid = $1 AND status = 'FILLED'`,
     [userId],
   );
-  return rows[0]?.cash ?? "0";
+  // El SUM de NUMERIC(24,2) puede venir con escala 4 (size × price): la
+  // aritmética SQL es exacta; la CUANTIZACIÓN a 2 decimales es de
+  // presentación (AGENTS.md) y se hace acá, en Decimal, nunca float.
+  const raw = rows[0]?.cash ?? "0";
+  return new FinancialDecimal(raw)
+    .toDecimalPlaces(2, FinancialDecimal.ROUND_HALF_UP)
+    .toFixed(2);
 };
 
 /** Cash SQL (string) esperado después de un delta: before ± delta (Decimal). */
