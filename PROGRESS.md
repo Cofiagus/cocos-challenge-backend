@@ -22,7 +22,8 @@
 | LM-F-trading | tests/functional/{orders,orders-submit}; cell/large-money-functional-trading-final | EN EJECUCIÓN (GLM), base b55a8db | DBs ftest/submit, sin cambiar runtime ni escenarios |
 | LM-F-cash | tests/functional/{read,cancel,transfers}; cell/large-money-functional-cash-final | EN EJECUCIÓN (GLM), base b55a8db | DBs read/cancel/transfer, cambio cash subpeso firmado |
 | LM-F-acceptance | tests/functional/large-money nuevos; cell/large-money-acceptance-final | EN EJECUCIÓN (DeepSeek), base b55a8db | DB exclusiva lm_acceptance_test, máximos/centavos/concurrencia/replays |
-| LM-QA | Revisión independiente de diff e invariantes del runtime b55a8db | EN EJECUCIÓN (DeepSeek, sólo lectura) | matriz invariante → implementación → test; gate final posterior |
+| LM-QA | Revisión independiente de diff e invariantes del runtime b55a8db | ACCEPT runtime, 8.5/10 (DeepSeek); cierre global PENDIENTE | matriz invariante → implementación → test entregada; sin bug de fuente confirmado; falta e2e final |
+| LM-QA-polish | Precisión docs CHECK y tipos financieros de price-source/support | EN EJECUCIÓN (GLM), base 8a5656b | no confundir política ZERO_SIZE con garantía SQL status REJECTED; sin diseño nuevo |
 | LM-env-hygiene | Exclusión del archivo real .env.test; cell/large-money-env-final | INTEGRADA desde 7a76046 en este merge | copia local preservada byte a byte y ahora ignorada; sólo ejemplo versionado; sin rewrite |
 
 ### Decisiones operativas
@@ -63,6 +64,7 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 - LM-C1-app aceptada en 835699a: bases distributivas preservan unidades de draft, cash exacto sin sizing de acciones, quantity bigint interno/string HTTP, RangeError de sizing mapeado a400 sin writes (otros errores propagan). Se acepta omitir residualArs en eventos nuevos de cash porque ya no hay floor; amountArs canónico sigue siendo evidencia de origen.
 - Gate del runtime integrado: typecheck + lint + build verdes; 29 suites / 403 tests unit/docs/integration verdes con PostgreSQL real. Las suites funcionales previas aún requieren adaptación y pruebas de aceptación nuevas: no afirmar cierre global ni ejecución final de colección.
 - Probes del orquestador contra app compilada y DB nueva lm_diagnostic_test (2 migraciones + seed): CASH_IN123.45 persiste123.45 y responde size string; CASH_IN0.01 persiste0.01; misma key123.01→123.99 devuelve409. Portfolio final de esas pruebas cash246.47, exacto. Los3 defectos concretos iniciales ya no se reproducen; no sustituye el gate e2e completo.
+- QA independiente sobre b55a8db: ACCEPT de runtime8.5/10, 82 tests puros re-corridos por revisor, sin bug de fuente confirmado. Se aceptan como pendientes las pruebas HTTP nuevas y concurrencia cash (células activas). Observación menor aceptada: CHECK size0 sólo acredita status REJECTED, no reason de evento; no se añadirá constraint cross-table. Importaciones de tipo price-source y constructor en soporte infra se alinean por T13. Downgrade DDL no prometido ni autorizado.
 - Aceptadas las decisiones del dominio: builders cash/trading separados; cantidades acumuladas bigint probadas con órdenes INT4 válidas; matching conserva reglas y sigue sin disparador. No hay ampliación de diseño.
 
 ### Revisión intermedia del orquestador
