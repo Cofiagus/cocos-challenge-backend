@@ -14,13 +14,14 @@
 | LM-A | Constructor/contratos de dinero y tests monetarios; CODEMAP sólo sus filas | ACEPTADA e integrada hasta 1099fb4 | typecheck/lint/build + 48 tests re-corridos en integradora |
 | LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | INTEGRADA: 2bfcf26/e659a09 | 22 tests PG y CHECK NULL re-corridos; cliente nuevo generado |
 | LM-C0 | Tipos discriminados y schemas quantity/size | INTEGRADA: 8d1930c/c665109 | 28 tests de contratos/docs re-corridos; consumidores aún pendientes |
-| LM-C1-pure | Dominio puro y ports; cell/large-money-pure-final | EN EJECUCIÓN (DeepSeek) | unit/domain; sizing conserva firma number y lanza RangeError fuera de rango antes de convertir |
-| LM-C1-app | Casos de uso, HTTP y fakes unitarios | PENDIENTE de dominio puro | unit/application + unit/http |
-| LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | EN EJECUCIÓN (DeepSeek) | unit/infra + integration/infra; DBs de test aisladas, sin otra corrida simultánea sobre sus mismas bases |
+| LM-C1-pure | Dominio puro y ports; cell/large-money-pure-final | INTEGRADA: 3938ec0 | 64 unit/domain re-corridos; sizing RangeError antes de convertir; lint verde |
+| LM-C1-app | Casos de uso, HTTP y fakes unitarios; cell/large-money-app-final | EN EJECUCIÓN (DeepSeek), base 3477ff9 | unit/application + unit/http |
+| LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | DEVUELTA A REVISIÓN (DeepSeek), HEAD 8287dfa | bypass: igualdad con size truncado no puede omitir evidencia original; sin integrar hasta fix |
 | LM-E-docs | README/docs/colección del contrato aprobado | INTEGRADA: 4f9974f/e27f99a/ee5703f | correcciones revisadas; aún no afirma ejecución API final |
-| LM-E-wire-final | OpenAPI; cell/large-money-wire-final | EN EJECUCIÓN (GLM) | tests/docs; reutiliza schemas monetarios de contracts |
+| LM-E-wire-final | OpenAPI; cell/large-money-wire-final | INTEGRADA: 3477ff9 | 15 tests/docs re-corridos; schemas monetarios únicos; lint verde |
 | LM-E-functional | Compatibilidad de suites y nuevos casos e2e | PENDIENTE de código estable | HTTP + PostgreSQL real, sin desactivar escenarios |
 | LM-QA | Revisión independiente de diff e invariantes | PENDIENTE | usuario autoriza integrar a main sólo tras pruebas y cierre de implementación |
+| LM-env-hygiene | Exclusión del archivo real .env.test; cell/large-money-env-final | EN EJECUCIÓN (GLM) | conserva copia local; sólo ejemplo queda versionado; no reescribir historia |
 
 ### Decisiones operativas
 
@@ -50,6 +51,12 @@
 ### QUESTIONs activas
 
 Ninguna. Si una decisión de diseño no está expresada en la spec firmada, detener esa parte y preguntar; no ampliar alcance.
+
+### Revisión de la reanudación
+
+- Dominio y OpenAPI aceptados: 3938ec0/3477ff9. Gate conjunto re-corrido: 7 suites / 79 tests (domain + docs), lint y diff-check verdes. Checkpoint global explícitamente rojo: 40 diagnósticos TypeScript en app/HTTP/infra/tests aún pendientes; no es cierre de feature.
+- LM-D 8287dfa devuelve replay antes de leer evidencia cuando stored == requested. REJECT de revisión: histórico pedido 123.45, guardado 123, retry 123.00 debe ser conflicto; evidencia ausente o corrupta no se vuelve suficiente por igualdad de size. Se delegó TDD del caso y validación del evento origen para todo replay cash, reutilizando gramática de contracts (sin duplicación).
+- Aceptadas las decisiones del dominio: builders cash/trading separados; cantidades acumuladas bigint probadas con órdenes INT4 válidas; matching conserva reglas y sigue sin disparador. No hay ampliación de diseño.
 
 ### Revisión intermedia del orquestador
 
