@@ -47,7 +47,8 @@ export interface OrderRow {
   readonly id: number;
   readonly instrumentid: number | null;
   readonly userid: number | null;
-  readonly size: number | null;
+  /** NUMERIC(24,2) (D1/D2): pg lo devuelve como string — acciones o pesos. */
+  readonly size: string | null;
   readonly price: string | null;
   readonly type: string | null;
   readonly side: string | null;

@@ -19,7 +19,7 @@
 | LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | INTEGRADA desde 86dcbb4 en este merge | 117 tests infra verdes; origen coherente y evidencia obligatoria, sin truncar cash nuevo |
 | LM-E-docs | README/docs/colección del contrato aprobado | INTEGRADA: 4f9974f/e27f99a/ee5703f | correcciones revisadas; aún no afirma ejecución API final |
 | LM-E-wire-final | OpenAPI; cell/large-money-wire-final | INTEGRADA: 3477ff9 | 15 tests/docs re-corridos; schemas monetarios únicos; lint verde |
-| LM-F-trading | tests/functional/{orders,orders-submit}; cell/large-money-functional-trading-final | EN EJECUCIÓN (GLM), base b55a8db | DBs ftest/submit, sin cambiar runtime ni escenarios |
+| LM-F-trading | tests/functional/{orders,orders-submit}; cell/large-money-functional-trading-final | INTEGRADA desde 4cb6324 en este merge | 47 tests HTTP+PG re-corridos; typecheck/lint verdes; advertencia de handles al finalizar (revisar gate completo) |
 | LM-F-cash | tests/functional/{read,cancel,transfers}; cell/large-money-functional-cash-final | EN EJECUCIÓN (GLM), base b55a8db | DBs read/cancel/transfer, cambio cash subpeso firmado |
 | LM-F-acceptance | tests/functional/large-money nuevos; cell/large-money-acceptance-final | EN EJECUCIÓN (DeepSeek), base b55a8db | DB exclusiva lm_acceptance_test, máximos/centavos/concurrencia/replays |
 | LM-QA | Revisión independiente de diff e invariantes del runtime b55a8db | ACCEPT runtime, 8.5/10 (DeepSeek); cierre global PENDIENTE | matriz invariante → implementación → test entregada; sin bug de fuente confirmado; falta e2e final |

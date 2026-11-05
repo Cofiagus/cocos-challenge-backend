@@ -90,7 +90,7 @@ describe("UC-3 · 1 · MARKET BUY con fondos", () => {
 
     const row = await fetchOrderRow(body.id);
     expect(row?.status).toBe("FILLED");
-    expect(row?.size).toBe(5);
+    expect(row?.size).toBe("5.00"); // NUMERIC(24,2): pg lo devuelve como string
     expect(row?.price).toBeNull();
     expect(row?.filledPrice).toBe("925.85");
 
@@ -194,7 +194,7 @@ describe("UC-3 · 4 · MARKET BUY por amountArs", () => {
       instrumentId: SEED_INSTRUMENT_METR_ID,
       side: "BUY",
       type: "MARKET",
-      amountArs: 1000,
+      amountArs: "1000",
     });
 
     expect(res.status).toBe(201);
@@ -204,7 +204,7 @@ describe("UC-3 · 4 · MARKET BUY por amountArs", () => {
     expectMoneyArs(body.filledPrice, REF.METR);
 
     const row = await fetchOrderRow(body.id);
-    expect(row?.size).toBe(4);
+    expect(row?.size).toBe("4.00");
     expect(row?.filledPrice).toBe("229.50");
 
     const after = await getPortfolio(USER_ID);
@@ -220,7 +220,7 @@ describe("UC-3 · 4 · MARKET BUY por amountArs", () => {
       instrumentId: SEED_INSTRUMENT_BMA_ID,
       side: "BUY",
       type: "MARKET",
-      amountArs: 100, // floor(100 / 1502.80) = 0
+      amountArs: "100", // floor(100 / 1502.80) = 0
     });
 
     expect(res.status).toBe(201);
@@ -231,7 +231,7 @@ describe("UC-3 · 4 · MARKET BUY por amountArs", () => {
 
     const row = await fetchOrderRow(body.id);
     expect(row?.status).toBe("REJECTED");
-    expect(row?.size).toBe(0);
+    expect(row?.size).toBe("0.00");
 
     const events = await fetchOrderEvents(body.id);
     expect(
@@ -254,7 +254,7 @@ describe("UC-3 · 5 · LIMIT GTC ⇒ NEW y reserva fondos", () => {
       side: "BUY",
       type: "LIMIT",
       size: 10,
-      price: 250, // sin timeInForce → default GTC del contrato
+      price: "250", // sin timeInForce → default GTC del contrato
     });
 
     expect(res.status).toBe(201);
@@ -298,7 +298,7 @@ describe("UC-3 · 6 · LIMIT IOC / FOK", () => {
       type: "LIMIT",
       timeInForce: "IOC",
       size: 2,
-      price: 950, // ref 925.85 → cruza → ejecuta a min(950, ref)
+      price: "950", // ref 925.85 → cruza → ejecuta a min(950, ref)
     });
 
     expect(res.status).toBe(201);
@@ -329,7 +329,7 @@ describe("UC-3 · 6 · LIMIT IOC / FOK", () => {
       type: "LIMIT",
       timeInForce: "IOC",
       size: 2,
-      price: 900, // ref 925.85 → no cruza
+      price: "900", // ref 925.85 → no cruza
     });
 
     expect(res.status).toBe(201);
@@ -362,7 +362,7 @@ describe("UC-3 · 6 · LIMIT IOC / FOK", () => {
       type: "LIMIT",
       timeInForce: "FOK",
       size: 2,
-      price: 950, // ref 925.85 → cruza
+      price: "950", // ref 925.85 → cruza
     });
 
     expect(res.status).toBe(201);
@@ -379,7 +379,7 @@ describe("UC-3 · 6 · LIMIT IOC / FOK", () => {
       type: "LIMIT",
       timeInForce: "FOK",
       size: 2,
-      price: 900, // ref 925.85 → no cruza
+      price: "900", // ref 925.85 → no cruza
     });
 
     expect(res.status).toBe(201);
@@ -396,7 +396,7 @@ describe("UC-3 · 6 · LIMIT IOC / FOK", () => {
       type: "LIMIT",
       timeInForce: "IOC",
       size: 5,
-      price: 200, // ref 229.50 → cruza → ejecuta a max(200, ref)
+      price: "200", // ref 229.50 → cruza → ejecuta a max(200, ref)
     });
 
     expect(res.status).toBe(201);
@@ -450,7 +450,7 @@ describe("UC-3 · 7 · Instrumento sin precio (PGR, sin marketdata en el seed)",
         type: "LIMIT",
         timeInForce,
         size: 10,
-        price: 100,
+        price: "100",
       });
 
       expect(res.status).toBe(201);
@@ -467,7 +467,7 @@ describe("UC-3 · 7 · Instrumento sin precio (PGR, sin marketdata en el seed)",
       side: "BUY",
       type: "LIMIT",
       size: 10,
-      price: 100,
+      price: "100",
     });
 
     expect(res.status).toBe(201);
@@ -536,7 +536,7 @@ describe("UC-3 · 9 · Payload inválido", () => {
       side: "BUY",
       type: "MARKET",
       size: 5,
-      amountArs: 1000,
+      amountArs: "1000",
     });
 
     expect(res.status).toBe(400);
@@ -571,6 +571,23 @@ describe("UC-3 · 9 · Payload inválido", () => {
     expect(await countOrdersForUser(USER_ID)).toBe(before);
   });
 
+  it("amountArs como NÚMERO JSON ⇒ 400 sin registro en orders (D3: el number no se acepta ni chico)", async () => {
+    const before = await countOrdersForUser(USER_ID);
+    // El number sale por el wire tal cual: el cast documenta que lo que se
+    // ejercita es el rechazo del CONTRATO (Zod), no del tipado del test.
+    const numberMoneyPayload = {
+      instrumentId: SEED_INSTRUMENT_METR_ID,
+      side: "BUY",
+      type: "MARKET",
+      amountArs: 1000, // number JSON: el contrato exige string canónico
+    } as unknown as OrderPayload;
+    const res = await postOrder(USER_ID, numberMoneyPayload);
+
+    expect(res.status).toBe(400);
+    expect(asErrorBody(res).error?.code).toBe(API_ERROR_CODES.VALIDATION_ERROR);
+    expect(await countOrdersForUser(USER_ID)).toBe(before);
+  });
+
   it("MARKET con price ⇒ 400 sin registro en orders", async () => {
     const before = await countOrdersForUser(USER_ID);
     const res = await postOrder(USER_ID, {
@@ -578,7 +595,7 @@ describe("UC-3 · 9 · Payload inválido", () => {
       side: "BUY",
       type: "MARKET",
       size: 5,
-      price: 900,
+      price: "900",
     });
 
     expect(res.status).toBe(400);
@@ -619,7 +636,7 @@ describe("UC-3 · 11 · Idempotencia (Idempotency-Key)", () => {
     side: "BUY",
     type: "LIMIT",
     size: 5,
-    price: 210,
+    price: "210",
   };
 
   it("misma key + mismo payload ⇒ devuelve la MISMA orden, sin duplicar ni reservar dos veces", async () => {

@@ -129,7 +129,7 @@ describe("UC-3 submit · MARKET BUY", () => {
     expect(typeof orderId).toBe("number");
     const row = await fetchSubmitOrderRow(orderId as number);
     expect(row?.status).toBe("FILLED");
-    expect(row?.size).toBe(3);
+    expect(row?.size).toBe("3.00"); // NUMERIC(24,2): pg lo devuelve como string
     expect(row?.price).toBeNull();
     expect(row?.["filledPrice"]).toBe("925.85");
 
@@ -191,7 +191,7 @@ describe("UC-3 submit · LIMIT GTC", () => {
       side: "BUY",
       type: "LIMIT",
       size: 2,
-      price: 250, // sin timeInForce ⇒ default GTC
+      price: "250", // sin timeInForce ⇒ default GTC
     });
 
     expect(res.status).toBe(201);
@@ -229,7 +229,7 @@ describe("UC-3 submit · LIMIT IOC", () => {
       type: "LIMIT",
       timeInForce: "IOC",
       size: 2,
-      price: 950, // ref 925.85 ⇒ cruza ⇒ ejecuta a min(950, ref) = ref
+      price: "950", // ref 925.85 ⇒ cruza ⇒ ejecuta a min(950, ref) = ref
     });
 
     expect(res.status).toBe(201);
@@ -259,7 +259,7 @@ describe("UC-3 submit · LIMIT IOC", () => {
       type: "LIMIT",
       timeInForce: "IOC",
       size: 2,
-      price: 900, // ref 925.85 ⇒ no cruza
+      price: "900", // ref 925.85 ⇒ no cruza
     });
 
     expect(res.status).toBe(201);
@@ -296,7 +296,7 @@ describe("UC-3 submit · idempotencia", () => {
     side: "BUY",
     type: "LIMIT",
     size: 1,
-    price: 210, // GTC: queda NEW (nunca fill ⇒ no toca movimientos)
+    price: "210", // GTC: queda NEW (nunca fill ⇒ no toca movimientos)
   };
 
   it("misma key + mismo payload ⇒ la MISMA orden, sin duplicar ni reservar dos veces", async () => {
@@ -371,7 +371,7 @@ describe("UC-3 submit · rechazos de dominio", () => {
       instrumentId: SEED_INSTRUMENT_BMA_ID,
       side: "BUY",
       type: "MARKET",
-      amountArs: 100, // floor(100 / 1502.80) = 0
+      amountArs: "100", // floor(100 / 1502.80) = 0
     });
 
     expect(res.status).toBe(201);
@@ -382,7 +382,7 @@ describe("UC-3 submit · rechazos de dominio", () => {
 
     const row = await fetchSubmitOrderRow(body["id"] as number);
     expect(row?.status).toBe("REJECTED");
-    expect(row?.size).toBe(0);
+    expect(row?.size).toBe("0.00");
 
     const events = await fetchSubmitOrderEvents(body["id"] as number);
     expect(
@@ -421,7 +421,7 @@ describe("UC-3 submit · rechazos de dominio", () => {
       side: "BUY",
       type: "LIMIT",
       size: 1,
-      price: 100,
+      price: "100",
     });
 
     expect(res.status).toBe(201);
@@ -466,7 +466,7 @@ describe("UC-3 submit · errores del borde", () => {
       side: "BUY",
       type: "MARKET",
       size: 5,
-      amountArs: 1000,
+      amountArs: "1000",
     });
     expect(res.status).toBe(400);
     expect((res.body as { error?: { code?: unknown } }).error?.code).toBe(
@@ -490,9 +490,25 @@ describe("UC-3 submit · errores del borde", () => {
       side: "BUY",
       type: "MARKET",
       size: 5,
-      price: 900,
+      price: "900",
     });
     expect(res.status).toBe(400);
+  });
+
+  it("amountArs como NÚMERO JSON ⇒ 400 (D3: el number no se acepta ni chico)", async () => {
+    // El number sale por el wire tal cual: el cast documenta que lo que se
+    // ejercita es el rechazo del CONTRATO (Zod), no del tipado del test.
+    const numberMoneyPayload = {
+      instrumentId: SEED_INSTRUMENT_PAMP_ID,
+      side: "BUY",
+      type: "MARKET",
+      amountArs: 1000, // number JSON: el contrato exige string canónico
+    } as unknown as Record<string, unknown>;
+    const res = await postOrder(SEED_USER_EMILIANO_ID, numberMoneyPayload);
+    expect(res.status).toBe(400);
+    expect((res.body as { error?: { code?: unknown } }).error?.code).toBe(
+      "VALIDATION_ERROR",
+    );
   });
 
   it("instrumento MONEDA (ARS) ⇒ 400 INSTRUMENT_NOT_OPERABLE sin orden", async () => {
@@ -563,7 +579,7 @@ describe("UC-3 submit · concurrencia sobre el cash", () => {
       side: "BUY",
       type: "LIMIT",
       size: 500, // 500 × 930 = 465.000; dos juntas exceden 700.000
-      price: 930,
+      price: "930",
     };
     const before = await getPortfolio(userId);
 
