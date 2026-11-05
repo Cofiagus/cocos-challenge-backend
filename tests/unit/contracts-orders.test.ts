@@ -54,6 +54,14 @@ describe("CreateOrderRequestSchema — cota de size al rango INTEGER", () => {
   });
 });
 
+describe("CreateOrderRequestSchema — sigue siendo sólo trading", () => {
+  it("rechaza CASH_IN/CASH_OUT: las transferencias van por su ruta", () => {
+    for (const side of ["CASH_IN", "CASH_OUT"]) {
+      expect(rejectionPaths({ ...validLimitOrder, side })).toContain("side");
+    }
+  });
+});
+
 describe("CreateOrderRequestSchema — price null en MARKET", () => {
   it("acepta MARKET con price: null como 'sin precio'", () => {
     const result = CreateOrderRequestSchema.safeParse({

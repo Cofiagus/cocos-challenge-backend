@@ -5,16 +5,22 @@
 // input inválido 400 SIN crear orden; usuario inexistente 404; Idempotency-Key
 // opcional (misma key + mismo payload → la orden original; key + otro
 // payload → 409). price = límite enviado; filledPrice = ejecución.
+//
+// D3 de specs/datos-financieros-grandes-montos.md: la ENTRADA de trading no
+// cambia (size sigue number entero ≤ INT4); la SALIDA discrimina por side:
+// BUY/SELL mantienen `size` numérico/null y CASH_IN/CASH_OUT lo emiten como
+// string monetario de 2 decimales (pesos, con centavos). No hay campo
+// duplicado ni dos formas monetarias simultáneas.
 
 import type { Decimal } from "decimal.js";
 import { z } from "zod";
 import {
   OrderRejectionReasonSchema,
-  OrderSideSchema,
   OrderStatusSchema,
   OrderTypeSchema,
   TimeInForceSchema,
   TradingSideSchema,
+  TransferSideSchema,
 } from "./enums.js";
 import { PositiveArsInputSchema, MoneyArsSchema } from "./money.js";
 
@@ -24,9 +30,9 @@ export const IdempotencyKeySchema = z.string().min(1).max(64);
 export type IdempotencyKey = z.infer<typeof IdempotencyKeySchema>;
 
 /**
- * Cota de `size`: la columna `size` es INTEGER (INT4) de Postgres, cuyo máximo
- * es 2^31−1. Sin esta cota el valor pasa Zod y el INSERT falla con 500 en vez
- * de llegar como 400 del contrato.
+ * Cota de `size` de TRADING: la cantidad de acciones por orden sigue acotada
+ * al máximo de INT4 (2^31−1), aunque la columna pase a NUMERIC(24,2). Sin
+ * esta cota el valor pasa Zod y llega como 500 del INSERT en vez de 400.
  */
 export const MAX_ORDER_SIZE_SHARES = 2147483647;
 
@@ -111,22 +117,15 @@ export const CreateOrderRequestSchema = z
 export type CreateOrderRequest = z.infer<typeof CreateOrderRequestSchema>;
 
 /**
- * Orden en respuestas de POST /orders, POST /transfers (UC-5) y
- * DELETE /orders/:orderId.
+ * Campos de la orden que NO cambian con el side (forma de la respuesta
+ * vigente: IDs, tipo, TIF, estado, precios, tiempos y razón).
  */
-export const OrderResponseSchema = z.strictObject({
+const orderResponseCommonShape = {
   id: z.number().int(),
   instrumentId: z.number().int(),
-  side: OrderSideSchema,
   type: OrderTypeSchema,
   timeInForce: TimeInForceSchema,
   status: OrderStatusSchema,
-  /**
-   * Doble uso del size INT (convención del seed — docs/database.md §2):
-   * acciones en órdenes de instrumento; pesos ARS en transferencias (orders
-   * del MONEDA ARS con price 1.00 — UC-5). 0 en un REJECTED por ZERO_SIZE.
-   */
-  size: z.number().int().nullable(),
   /** Límite enviado (LIMIT); null en MARKET (DECISIONS.md: price = límite). */
   price: MoneyArsSchema.nullable(),
   /** Precio de ejecución (FILLED); null si no ejecutó. */
@@ -137,5 +136,35 @@ export const OrderResponseSchema = z.strictObject({
   datetime: z.string(),
   /** Razón del rechazo/cancelación; null en NEW/FILLED. */
   reason: OrderRejectionReasonSchema.nullable(),
-});
+} as const;
+
+/**
+ * Orden en respuestas de POST /orders, POST /transfers (UC-5) y
+ * DELETE /orders/:orderId.
+ *
+ * `size` está discriminado por `side` (D3):
+ *  - BUY/SELL: cantidad de ACCIONES, number entero o null según el caso
+ *    vigente (0 en un REJECTED por ZERO_SIZE);
+ *  - CASH_IN/CASH_OUT: MONTO en pesos como string de exactamente 2 decimales
+ *    ("123.00" para un cash histórico de size 123, sin reescribir el valor
+ *    persistido); el decimal se serializa con `serializeMoneyArs`.
+ */
+export const OrderResponseSchema = z.discriminatedUnion("side", [
+  z.strictObject({
+    ...orderResponseCommonShape,
+    side: TradingSideSchema,
+    size: z.number().int().nullable().meta({
+      description:
+        "Acciones de la orden (BUY/SELL): entero o null; 0 en un REJECTED por ZERO_SIZE.",
+    }),
+  }),
+  z.strictObject({
+    ...orderResponseCommonShape,
+    side: TransferSideSchema,
+    size: MoneyArsSchema.meta({
+      description:
+        "Monto en ARS de la transferencia como string con exactamente 2 decimales (columna física size con precio 1.00).",
+    }),
+  }),
+]);
 export type OrderResponse = z.infer<typeof OrderResponseSchema>;
