@@ -34,6 +34,12 @@ export const API_ERROR_CODES = {
   IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
   /** 422 — cancelar una orden que no está NEW. */
   ORDER_NOT_CANCELLABLE: "ORDER_NOT_CANCELLABLE",
+  /**
+   * 503 — el proveedor de cotizaciones (Yahoo) no responde / timeout /
+   * rate-limit (spec instruments-current-quotes Rev. 2). Lo traduce el
+   * borde HTTP desde `MarketDataServiceUnavailableError`.
+   */
+  MARKET_DATA_SERVICE_UNAVAILABLE: "MARKET_DATA_SERVICE_UNAVAILABLE",
   /** 404 — ruta o método inexistente (sin handler). */
   NOT_FOUND: "NOT_FOUND",
   /** 400 — body JSON malformado (no parsea). */
@@ -50,3 +56,20 @@ export type ApiErrorCode =
 export const apiErrorBody = (code: ApiErrorCode, message: string): ApiErrorBody => ({
   error: { code, message },
 });
+
+/**
+ * Falla de disponibilidad del proveedor de cotizaciones (Yahoo Finance).
+ *
+ * Error de dominio: NO conoce HTTP ni status. El caso de uso lo lanza cuando el
+ * proveedor no responde / da timeout / rate-limit; el borde HTTP lo traduce a
+ * 503 con MARKET_DATA_SERVICE_UNAVAILABLE. Un ticker sin cotización computable
+ * NO se representa con este error: es `null` en la fuente.
+ */
+export class MarketDataServiceUnavailableError extends Error {
+  constructor() {
+    super(
+      "El servicio de cotizaciones (Yahoo Finance) no está disponible. Intentá nuevamente más tarde.",
+    );
+    this.name = "MarketDataServiceUnavailableError";
+  }
+}

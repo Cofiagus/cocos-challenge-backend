@@ -1,20 +1,28 @@
 // UC-2 — GET /api/instruments?query=
 //
-// DECISIONS.md: MONEDA no aparece en búsqueda. Query vacía → 400. Límite
-// por defecto del contrato (recorte del plan: la paginación es lo primero
-// que se recorta, el límite se mantiene).
+// Spec instruments-current-quotes Rev. 2: query ausente, vacía o sólo
+// espacios ⇒ listado inicial ("" tras trim); con texto ⇒ match parcial
+// case-insensitive por ticker/name. Límite por defecto 10 (entero 1..100).
+// MONEDA no aparece en búsqueda (DECISIONS.md).
+//
+// Dinero de salida (D3, money.ts): `price` y `previousClose` son el string
+// monetario de exactamente 2 decimales (`MoneyArsSchema`), nunca number;
+// `dailyVariationPct` sigue siendo number (puntos porcentuales, 2 decimales).
 
 import { z } from "zod";
 import { InstrumentTypeSchema } from "./enums.js";
 import { MoneyArsSchema, PctSchema } from "./money.js";
 
-export const DEFAULT_INSTRUMENT_SEARCH_LIMIT = 20;
+export const DEFAULT_INSTRUMENT_SEARCH_LIMIT = 10;
 export const MAX_INSTRUMENT_SEARCH_LIMIT = 100;
 
-/** Query string: match parcial case-insensitive sobre ticker y/o name. */
+/** Query string del borde: listado inicial si no hay texto de búsqueda. */
 export const InstrumentSearchQuerySchema = z.strictObject({
-  /** Requerido y no vacío ("" o ausente → 400). */
-  query: z.string().min(1),
+  /** Ausente, vacía o sólo espacios ⇒ "" (listado inicial); con texto se recorta. */
+  query: z
+    .string()
+    .optional()
+    .transform((query) => (query ?? "").trim()),
   limit: z.coerce
     .number()
     .int()
@@ -24,22 +32,23 @@ export const InstrumentSearchQuerySchema = z.strictObject({
 });
 export type InstrumentSearchQuery = z.infer<typeof InstrumentSearchQuerySchema>;
 
-/** Resultado individual: último precio y variación diaria. */
+/** Resultado individual: cotización actual válida (sin precio, se omite). */
 export const InstrumentSearchResultSchema = z.strictObject({
   ticker: z.string(),
   name: z.string(),
   type: InstrumentTypeSchema,
-  /** Close de la última fila de marketdata por date. Null si sin marketdata. */
-  price: MoneyArsSchema.nullable(),
-  previousClose: MoneyArsSchema.nullable(),
-  /** (close − previousClose) / previousClose × 100, 2 decimales. Null si no computable. */
-  dailyVariationPct: PctSchema.nullable(),
+  /** Último precio de sesión vigente (fuente Yahoo); positivo y en ARS. */
+  price: MoneyArsSchema,
+  /** Cierre de la sesión anterior, positivo y en ARS. */
+  previousClose: MoneyArsSchema,
+  /** (price − previousClose) / previousClose × 100, 2 decimales. */
+  dailyVariationPct: PctSchema,
 });
 export type InstrumentSearchResult = z.infer<
   typeof InstrumentSearchResultSchema
 >;
 
-/** Respuesta: listado de activos (sin MONEDA). */
+/** Respuesta: listado de activos (sin MONEDA) con cotización actual. */
 export const InstrumentSearchResponseSchema = z.array(
   InstrumentSearchResultSchema,
 );
