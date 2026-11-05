@@ -61,11 +61,11 @@
 <body>
 <div class="wrap">
   <h1>API cocos-challenge — lo que está implementado</h1>
-  <div class="sub">5 endpoints · casos de uso en <code>application/</code> · 4 puertos · repositorios Prisma. Estado verificable con <code>npm test</code> y <code>docs/CODEMAP.md</code>.</div>
+  <div class="sub">5 endpoints · casos de uso en <code>application/</code> · 5 puertos · repositorios Prisma. Estado verificable con <code>npm test</code> y <code>docs/CODEMAP.md</code>.</div>
 
   <div class="layer">
     <div class="lt"><b>Cliente</b><span class="path">collection/*.http · curl</span></div>
-    <div class="row"><div class="box">REST Client / curl <em>— JSON, dinero como número con 2 decimales</em></div></div>
+    <div class="row"><div class="box">REST Client / curl <em>— JSON, dinero como string decimal (entrada ≤ 2 decimales, salida exactamente 2); porcentajes number</em></div></div>
   </div>
 
   <div class="arrow"><span class="stem"></span>▼ <span class="lbl">HTTP + JSON</span></div>
@@ -98,7 +98,7 @@
           <div class="box accent">cancelOrder <em>— UC-4</em></div>
           <div class="box accent">submitTransfer <em>— UC-5</em></div>
           <div class="box accent">getPortfolio <em>— UC-1</em></div>
-          <div class="box"><em>UC-2 (búsqueda) no tiene caso de uso: vive en el router</em></div>
+          <div class="box">searchInstruments <em>— UC-2</em></div>
         </div>
       </div>
 
@@ -116,7 +116,7 @@
         </div>
         <div class="row" style="margin-top:6px">
           <div class="box">contracts: schemas Zod + records + <code>API_ERROR_CODES</code></div>
-          <div class="box">dinero: <code>Decimal</code> desde string, nunca float</div>
+          <div class="box">dinero: <code>FinancialDecimal</code> — 64 cifras significativas desde strings, nunca float</div>
         </div>
       </div>
     </div>
@@ -125,8 +125,9 @@
       <b>Nota de forma</b>
       <ul>
         <li>UC-1 (portfolio) agrega en lote (<code>getLatestSnapshots</code> + <code>findByIds</code>) en <code>application/portfolio/get-portfolio.ts</code>: sin una consulta por posición.</li>
-        <li>UC-1/3/4/5 están en <code>application/</code>; UC-2 (búsqueda) sigue en el router.</li>
-        <li>El diagrama de <code>arquitectura-componentes.html</code> describe el estado <i>objetivo</i> (Yahoo, cron, price_ticks, sweep), no esto.</li>
+        <li>Los cinco casos de uso están en <code>application/</code>; UC-2 (<code>searchInstruments</code>) pagina el catálogo y pide la cotización actual por el port <code>InstrumentQuoteSource</code>.</li>
+        <li>El diagrama de <code>arquitectura-componentes.html</code> describe el estado <i>objetivo</i> (cron, price_ticks, sweep, matching continuo); de Yahoo sólo existe acá el adaptador de cotizaciones de UC-2.</li>
+        <li>UC-2 sale a la red por request (chart de Yahoo, <code>ticker + ".BA"</code>, timeout 5 s, sin caché ni ingesta). Cableado ya en código (composición en <code>http/server.ts</code>, ref <code>8287e22</code>); la ejecución en vivo — arranque local y consulta real a Yahoo con su cobertura — sigue pendiente según PROGRESS (plan de despliegue local Rev. 3, A4/A5).</li>
       </ul>
     </div>
   </div>
@@ -140,6 +141,7 @@
       <div class="box port">PortfolioReadRepository</div>
       <div class="box port">InstrumentRepository</div>
       <div class="box port">MarketdataRepository</div>
+      <div class="box port">InstrumentQuoteSource <em>— UC-2, cotización actual</em></div>
     </div>
     <div class="txbox">
       <b>withUserTransaction(userId)</b> → <code>pg_advisory_xact_lock(userId)</code> + validación + escrituras en la MISMA tx.
@@ -157,6 +159,7 @@
       <div class="box">PrismaInstrumentRepository</div>
       <div class="box">PrismaMarketdataRepository</div>
       <div class="box"><em>MarketdataPriceSource (no cableado al submit)</em></div>
+      <div class="box">YahooInstrumentQuoteSource <em>— src/infra/yahoo/, UC-2</em></div>
     </div>
     <div class="row" style="margin-top:6px">
       <div class="box">mappers.ts <em>— fila ↔ record</em></div>
@@ -164,6 +167,7 @@
       <div class="box"><code>$executeRaw</code>: insert <code>ON CONFLICT DO NOTHING</code></div>
       <div class="box"><code>$queryRaw</code>: últimos snapshots en batch</div>
       <div class="box">driver adapter <code>@prisma/adapter-pg</code></div>
+      <div class="box accent">UC-2 → red: GET chart Yahoo <code>ticker + ".BA"</code> <em>sólo este caso de uso; el resto no sale a la red</em></div>
     </div>
   </div>
 
@@ -188,7 +192,7 @@
   <div class="legend">
     <span><i class="sw"></i> llamada síncrona</span>
     <span><i class="sw dash"></i> interfaz / implementación</span>
-    <span>Todo el flujo es request → response. No hay cron, colas ni workers.</span>
+    <span>Todo el flujo es request → response. No hay cron, colas ni workers; UC-2 agrega su consulta a Yahoo dentro del request.</span>
   </div>
 
   <div class="layer" style="margin-top:14px">
