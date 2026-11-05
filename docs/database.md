@@ -401,8 +401,13 @@ CHECKs acotados a los campos financieros modificados (excepción firmada D5 a "n
 migraciones"; sólo la migración nueva, nunca la inicial ni los snapshots SQL):
 
 - Todo precio no nulo debe ser finito; precio de orden positivo.
-- `size` no nulo: finito y no negativo. En BUY/SELL, entero y ≤ 2147483647; `size 0` sólo
-  compatible con `REJECTED`. En cash, `0` sólo para los `REJECTED` históricos de `ZERO_SIZE`.
+- `size` no nulo: finito y no negativo. En BUY/SELL, entero y ≤ 2147483647.
+- `size 0`: la garantía SQL es de **una sola tabla** — el CHECK
+  `orders_size_zero_only_rejected_check` exige que `status` sea `REJECTED`
+  (`IS NOT DISTINCT FROM`, así un `status` NULL no se escapa). Ese CHECK **no** mira
+  `order_events`: que el evento porte el motivo `ZERO_SIZE` es política de la
+  aplicación (los `size 0` históricos son `ZERO_SIZE` por compatibilidad) y **no** se
+  agrega ni se promete un CHECK cross-table sobre el motivo, ni DDL adicional.
 - Un NULL financiero ya permitido **no** se reemplaza por cero; la nullabilidad legacy no se
   endurece en este trabajo.
 - No se agregan constraints de email/ticker, índices nuevos, triggers de estados ni cambios al

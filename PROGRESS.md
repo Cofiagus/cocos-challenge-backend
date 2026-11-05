@@ -23,7 +23,7 @@
 | LM-F-cash | tests/functional/{read,cancel,transfers}; cell/large-money-functional-cash-final | EN EJECUCIÓN (GLM), base b55a8db | DBs read/cancel/transfer, cambio cash subpeso firmado |
 | LM-F-acceptance | tests/functional/large-money nuevos; cell/large-money-acceptance-final | EN EJECUCIÓN (DeepSeek), base b55a8db | DB exclusiva lm_acceptance_test, máximos/centavos/concurrencia/replays |
 | LM-QA | Revisión independiente de diff e invariantes del runtime b55a8db | ACCEPT runtime, 8.5/10 (DeepSeek); cierre global PENDIENTE | matriz invariante → implementación → test entregada; sin bug de fuente confirmado; falta e2e final |
-| LM-QA-polish | Precisión docs CHECK y tipos financieros de price-source/support | EN EJECUCIÓN (GLM), base 8a5656b | no confundir política ZERO_SIZE con garantía SQL status REJECTED; sin diseño nuevo |
+| LM-QA-polish | Precisión docs CHECK y tipos financieros de price-source/support | INTEGRADA desde 046442a en este merge | 96 tests infra/docs re-corridos + typecheck/lint verdes; sin cambio de lógica |
 | LM-env-hygiene | Exclusión del archivo real .env.test; cell/large-money-env-final | INTEGRADA desde 7a76046 en este merge | copia local preservada byte a byte y ahora ignorada; sólo ejemplo versionado; sin rewrite |
 
 ### Decisiones operativas

@@ -3,7 +3,7 @@
 // referencia es el close de la última fila de marketdata por date del
 // instrumento (DECISIONS.md), null si no hay marketdata (NO_PRICE).
 
-import { Decimal } from "decimal.js";
+import type { FinancialDecimal } from "../../contracts/index.js";
 import type { PriceSource } from "../../domain/matching/index.js";
 import type { MarketdataRepository } from "../../domain/ports/index.js";
 
@@ -12,7 +12,7 @@ export class MarketdataPriceSource implements PriceSource {
 
   readonly getReferencePriceArs = async (
     instrumentId: number,
-  ): Promise<Decimal | null> => {
+  ): Promise<FinancialDecimal | null> => {
     const snapshot = await this.marketdata.getLatestSnapshot(instrumentId);
     return snapshot === null ? null : snapshot.closeArs;
   };
