@@ -133,8 +133,10 @@ interface SeedCashOrderInput {
   readonly size: string;
   readonly idempotencyKey: string;
   readonly price?: string;
+  readonly status?: "FILLED" | "REJECTED";
   readonly events?: readonly {
     readonly eventType: OrderEventType;
+    readonly reason?: "ZERO_SIZE";
     readonly metadata: unknown;
   }[];
 }
@@ -153,7 +155,7 @@ const seedCashOrder = async (
         side: "CASH_IN",
         type: "MARKET",
         timeInForce: "GTC",
-        status: "FILLED",
+        status: input.status ?? "FILLED",
         size: input.size,
         price: input.price ?? "1.00",
         filledPrice: input.price ?? "1.00",
@@ -167,6 +169,7 @@ const seedCashOrder = async (
         data: {
           orderId: row.id,
           eventType: event.eventType,
+          reason: event.reason ?? null,
           metadata: event.metadata as Prisma.InputJsonValue,
         },
       });
@@ -343,6 +346,70 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
     expect(conflict.id).toBe(orderId);
     expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(2);
   });
+
+  it("histórico FILLED con evento de ORIGEN REJECTED ⇒ CONFLICT aunque el monto coincida exacto", async () => {
+    const user = await createTestUser(prisma);
+    const key = randomUUID();
+    const orderId = await seedCashOrder(prisma, user.id, {
+      size: "123",
+      idempotencyKey: key,
+      events: [{ eventType: "REJECTED", metadata: { amountArs: "123.45" } }],
+    });
+
+    // Monto, floor y precio 1.00 coinciden: sin coherencia de estado sería REPLAY.
+    const conflict = expectConflict(
+      await submit(
+        buildCashDraft(user.id, {
+          idempotencyKey: key,
+          amountArs: new Decimal("123.45"),
+        }),
+      ),
+    );
+    expect(conflict.id).toBe(orderId);
+    // Sin evento nuevo ni reescritura de la fila: la incoherencia no se corrige.
+    expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(1);
+    const row = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(row.status).toBe("FILLED");
+    expect(row.size?.toString()).toBe("123");
+  });
+
+  it.each([
+    ["monto con centavos", "123", "123.45", "123.00", null],
+    ["ZERO_SIZE histórico (size 0)", "0", "0.45", "0.00", "ZERO_SIZE" as const],
+  ])(
+    "control positivo: REJECTED con evento REJECTED y monto original (%s) ⇒ REPLAY",
+    async (_label, size, amountArs, storedArs, reason) => {
+      const user = await createTestUser(prisma);
+      const key = randomUUID();
+      const orderId = await seedCashOrder(prisma, user.id, {
+        size,
+        status: "REJECTED",
+        idempotencyKey: key,
+        events: [
+          {
+            eventType: "REJECTED",
+            metadata: { amountArs },
+            ...(reason === null ? {} : { reason }),
+          },
+        ],
+      });
+
+      const replayed = expectCashRecord(
+        expectReplay(
+          await submit(
+            buildCashDraft(user.id, {
+              idempotencyKey: key,
+              amountArs: new Decimal(amountArs),
+            }),
+          ),
+        ),
+      );
+      expect(replayed.id).toBe(orderId);
+      expect(replayed.amountArs.toFixed(2)).toBe(storedArs);
+      expect(await prisma.order.count({ where: { id: orderId } })).toBe(1);
+      expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(1);
+    },
+  );
 
   it("key histórica 123.45/123: retry 123.45 REPLAY fila 123.00 sin evento nuevo; 123.99 CONFLICT", async () => {
     const user = await createTestUser(prisma);
