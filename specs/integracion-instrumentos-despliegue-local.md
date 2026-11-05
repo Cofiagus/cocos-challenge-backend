@@ -1,271 +1,229 @@
-# Spec — plan de delegación: integrar instrumentos sobre grandes montos, migrar sólo DB local, arrancar API y verificar con supervisión estricta
+# Spec — plan de delegación: integrar UC-2 (cotizaciones Yahoo) sobre grandes montos, migrar sólo la DB local, dejar la API arriba y verificar con supervisión estricta
 
-> **Rev. 1 — BORRADOR pendiente de validación humana.** Este documento es un PLAN de delegación:
-> no autoriza migraciones, arranques de servicios, escrituras en DB ni merges. Cada fase arranca
-> sólo tras su gate humano; el padre orquestador verifica outputs reales (read-back), re-corre
-> gates y es el único que mergea a main. Este plan NO declara decisiones firmadas como pendientes:
-> UC-2 Rev. 2 y D1–D5 de grandes montos están firmadas y se toman como dado.
+> **Rev. 2 — BORRADOR pendiente de validación humana.** Re-escrito tras revisión por hallazgos contrastados del
+> supervisor (semántica Git, scopes reales, gates supervisados, writers de DB, preflight y runtime). Sigue siendo un PLAN:
+> esta fase no ejecuta nada. Hay UNA validación humana de este plan y su topología; después los gates G0–G5 los corre y
+> verifica el supervisor (padre orquestador), único que mergea a main, con read-back de outputs reales. UC-2 Rev. 2 y
+> D1–D5 están firmadas y se toman como dado: ninguna decisión firmada se reabre.
 >
-> Base: `main` en `8d1475f` (grandes montos integrados y probados: 37 suites / 515 tests, 0 handles
-> abiertos). Rama de este plan: `plan/instruments-local-rollout`. UC-2: `specs/instruments-current-quotes.md`
-> Rev. 2 firmada (default 10 con query ausente/vacía, query opcional, Yahoo último dato de sesión +
-> `previousClose` de la sesión anterior, símbolo directo `ticker + ".BA"`, omisión de faltantes
-> completando el límite, 503 `MARKET_DATA_SERVICE_UNAVAILABLE` ante indisponibilidad — sin seed
-> fallback). Grandes montos: `specs/datos-financieros-grandes-montos.md` Rev. 2 firmada (D1–D5).
+> **Semántica Git (hallazgo verificado):** `feature/instruments-current-quotes` (`4541d1c`) divergió en el ancestro común
+> `60b3764`, pre-grandes-montos. El diff two-point `main..rama` muestra "D" en artefactos D1–D5 porque esas rutas fueron
+> AÑADIDAS sólo en main después del fork: contra el ancestro (`git diff --name-status 60b3764..rama`) esas rutas están
+> VACÍAS — la rama jamás las tocó. Prohibido afirmar "la rama borra artefactos" o que "un merge los borraría". Riesgo
+> real: copiar archivos completos viejos o resolver theirs a full revierte finanzas. Método: portar el alcance UC-2 de
+> `4541d1c` sobre `8d1475f` por alcance, comparando contra `60b3764`, conservando finanzas y la config/env de main. Sin
+> declarar "merge no es posible" sin repro (`git merge-tree`); prohibido checkout/restore de la rama entera.
 
 ## Why
 
-UC-2 (cotizaciones actuales de Yahoo) vive en `feature/instruments-current-quotes` (`4541d1c`) y **no
-está integrado** a main: esa rama nació de `60b3764` (pre-grandes-montos) y su diff borra archivos de
-grandes montos (`prisma/migrations/20261105104903_large_money/`, `specs/datos-financieros-grandes-montos.md`,
-`tests/unit/large-money-arithmetic.test.ts`, `tests/integration/infra/large-money-storage.test.ts`,
-`docs/references/*precision*`) y revierte `prisma/schema.prisma`. Un merge ingenuo destruiría el
-trabajo firmado D1–D5; una reconciliación coordinada puede conservar ambos. Además, la entrega exige
-una DB app local real migrada con `prisma migrate deploy`, una API corriendo en el puerto 3000 y
-verificación HTTP en vivo — todo con supervisión estricta, sin tocar el PG del sistema (5432) ni DBs
-remotas, y sin excluir de la verificación el comportamiento monetario ya probado (515 escenarios previos).
+UC-2 vive completo y probado en `feature/instruments-current-quotes` (`4541d1c`) pero no está en main, que ya integra
+grandes montos (D1–D5). Comparten ancestro `60b3764` y, verificado contra él, tocan archivos distintos: la integración
+es un port por alcance, no un rescate de rama. La entrega además exige una DB app local migrada con `prisma migrate
+deploy`, la API corriendo en 3000 y verificación HTTP en vivo — sin tocar el PG del sistema (5432) ni DBs remotas, y
+conservando los 515 escenarios ya probados.
 
 ## What
 
-Secuencia A0→A6 con gates. Delegación a subagentes (DS = `ds_flash`, GLM) bajo un padre orquestador;
-máximo **4 subagentes activos**, rutas de worktree disjuntas y **un único DB writer** a la vez.
+Validación humana única (plan + topología) → A0…A6 con gates G0–G5 supervisados por el padre. Máximo **4 subagentes
+activos**, células de código disjuntas, **sólo el orq mergea**.
 
-### Inventario medido (fuente: mediciones del padre, 2026-11-05)
+### Inventario medido (preflight 2026-11-05; la existencia/estado de la DB la descubre el operador con tools, no por opinión humana)
 
 | Hecho | Valor |
 |---|---|
 | `main` | `8d1475f`, limpio; grandes montos integrados; 37 suites / 515 tests verdes |
-| `feature/instruments-current-quotes` | `4541d1c`, base `60b3764`, UC-2 Rev. 2 completo; **no integrado**; borra artefactos de grandes montos |
+| `feature/instruments-current-quotes` | `4541d1c`, base `60b3764`; UC-2 completo; **no integrado**; no tocó rutas D1–D5 (verificado vs ancestro) |
+| Cluster local | `~/.pg/cocos`, `PG_VERSION 18`, servidor **apagado** hoy |
+| Puertos | 5433 libre · 5432 PG del sistema (AJENO, prohibido) · 55432 cluster de pruebas en uso |
 | `.env` (main worktree) | existe, `PORT=3000`, **sin `DATABASE_URL`** |
-| Proceso heredado (env del padre) | `DATABASE_URL` → `127.0.0.1:55432/lm_prepare_test` (PREPARACIÓN, **no** es la DB app) y `TEST_DATABASE_URL` → `127.0.0.1:55432/cocos_challenge_test`; no se imprime ni se usa ninguna URI heredada para migrar por default |
-| `.env.test` en archivo | apunta a `localhost:5433/cocos_challenge_test` |
-| Listeners | 5432 sistema activo (sin ownership confirmado) · 55432 cluster de pruebas con usuarios activos · 5433 libre · 3000 libre |
-| Cluster local | `~/.pg/cocos` existe, `PG_VERSION 18`, `pg_ctl status` dice NO servidor |
-| Toolchain | `psql`/`pg_dump`/`pg_restore` disponibles; `npm ci` hecho en este worktree; **Prisma generate aún no corrido** |
+| Proceso heredado / `.env.test` | heredado: `DATABASE_URL` → `127.0.0.1:55432/lm_prepare_test` (preparación): **nunca usar por default**; `.env.test`: `localhost:5433/cocos_challenge_test` |
+| Toolchain | `psql`/`pg_dump`/`pg_restore` OK; `npm ci` hecho; Prisma generate aún no corrido |
 
-### Topología operativa propuesta (confirmable por el validador; nada se ejecuta sin esa confirmación)
+### Topología (confirmable en la validación única; nada se ejecuta sin ella)
 
-| Recurso | Propuesta | Condición previa |
+| Recurso | Propuesta | Condición |
 |---|---|---|
-| PG app local | reutilizar el cluster `~/.pg/cocos` en loopback **5433** | confirmar ownership y config ANTES; **no** inicializar/borrar el cluster existente, **no** asumir el contenido de sus DBs |
-| DB app | `cocos_challenge` en ese cluster | inventariar ANTES si existe: si existe se preserva todo (sin seed, sin reset); si no existe y hay aprobación, crear/migrar/seed **sólo si está vacía** |
-| Tests | cluster separado `55432` con DBs propias aisladas (nunca la DB app) | ya activo con usuarios; crear DBs de test propias sin alterar ajenas |
-| HTTP | puerto **3000** | libre hoy; no ocupar puertos ajenos |
-| Prohibido | tocar PG sistema 5432; escribir DB app fuera de A3/A5 controlados | — |
+| PG app local | cluster `~/.pg/cocos`, loopback **5433** | sin inicializar/borrar el cluster; sin asumir contenido |
+| DB app | `cocos_challenge` en ese cluster | el operador la **descubre** en A0: si existe se preserva todo (jamás seed/reset de una preexistente); crear+migrar+seed sólo si NO existía, quedó vacía y la política lo permite |
+| Tests | DBs aisladas propias en el cluster 55432 | nunca la DB app; los tests SÍ escriben en sus DBs de test |
+| HTTP | **3000** | hoy libre |
 
-### Roles y delegación
+### Roles y writers de DB
 
 | Rol | Modelo | Responsabilidad |
 |---|---|---|
-| Orquestador (padre) | humano + supervisor | gates, verificación read-back de outputs, merges a main, PROGRESS; comprueba que el proceso de API SOBREVIVE al fin de la célula antes de declarar la API arriba |
-| Células de código | DS (`ds_flash`) | A1 reconciliación, A2 suites, A6 fixes acotados |
-| Operador DB | GLM (único, exclusivo) | A0 auditoría read-only y A3 migración; **ningún otro rol escribe DB** |
-| Runtime | DS | A4 proceso de API, A5 smoke HTTP |
-| QA independiente | célula distinta del autor | califica ACCEPT/SIN BLOQUEANTES antes de cada merge a main |
+| Orquestador (padre) | supervisor | corre G0–G5, read-back, merges a main, PROGRESS |
+| Células de código | DS (`ds_flash`) razonamiento/runtime; GLM adaptador/test-docs/DB | A1 por subtareas, A4/A5/A6 |
+| Operador DB | GLM (único) | único **escritor de migraciones / ADMIN de la DB app** (A0, A3) |
+| QA independiente | célula distinta del autor | ACCEPT/SIN BLOQUEANTES antes de cada merge |
 
-### Scopes — rutas de worktree disjuntas (propuestas, confirmables)
+Writers de DB reales: el operador escribe la DB app; **los tests escriben sus propias DBs de test aisladas** (pueden
+paralelizar sobre DBs distintas); los tests HTTP de escritura corren en copia de prueba (55432), **nunca** contra la
+DB app del runtime. Prohibido seed/reset de DBs preexistentes.
 
-| Scope | Worktree | Rama propuesta | Archivos dueños |
-|---|---|---|---|
-| S-PLAN (esta fase) | `coccb-wt-local-rollout-plan` | `plan/instruments-local-rollout` | sólo `specs/integracion-instrumentos-despliegue-local.md` |
-| S-AUDIT | `coccb-wt-local-rollout-audit` (nuevo) | sin código: audit read-only | reporte en workspace privado, no en repo |
-| S-INT | `coccb-wt-local-rollout-int` (nuevo) | `feature/instruments-local-rollout` | integración UC-2 (1–2 archivos por tarea) |
-| S-QA | `coccb-wt-local-rollout-qa` (nuevo) | checkout del SHA del candidato | no edita src: corre gates |
-| S-DB | `coccb-wt-local-rollout-db` (nuevo) | checkout del SHA aprobado | operador DB: migración y verificación |
-| S-RT | `coccb-wt-local-rollout-runtime` (nuevo) | checkout del SHA migrado | runtime + smoke |
+### Scopes — rutas concretas y dueño (no "S-INT todo")
 
-Reglas transversales: sin secretos en nariz ni Git; sin `env` reales versionados (`.env`/`.env.test`
-se crean por worktree desde `*.example`, fuera de Git); sin dinero en float; sin reescribir auditoría
-(`order_events`) ni datos financieros históricos; sin suite contra la DB app; backups **privados y
-durables** (fuera de `/tmp` y del cache 24 h) con restore ensayado; no prometer duración de lock ni
-los 95 ms de ensayo de producción; cada ejecutor con timebox + pregunta cerrada al final + outputs
-reales; máximo 1–2 archivos por tarea; nada de lanzar todo en paralelo sin dependencias.
+| Scope | Dónde | Rutas / dueño |
+|---|---|---|
+| S-PLAN | este worktree, `plan/instruments-local-rollout` | sólo `specs/integracion-instrumentos-despliegue-local.md` |
+| S-INT | `coccb-wt-local-rollout-int`, rama `feature/instruments-local-rollout` desde `8d1475f` | subtareas de A1 (ver Tasks) |
+| S-QA | worktree transitorio en el SHA exacto del candidato | corre gates; no edita src |
+| A3–A5 | **worktree principal** (main, SHA integrado) | operador DB y runtime; sin worktrees dedicados |
+
+Sin worktrees para operadores puramente read-only: A0 corre con herramientas desde el worktree del plan; worktrees
+sólo para células de código y QA cuando ejecuta. Sin secretos en nariz ni Git; backups privados durables (fuera de
+`/tmp` y del cache 24 h) con restore ensayado; sin dinero en float; sin reescribir `order_events`; 1–2 archivos por
+subtarea; timebox + pregunta cerrada + outputs reales por ejecutor.
 
 ## Constraints
 
-- **Esta fase (S-PLAN) no ejecuta nada**: sin DB writes, sin arrancar servicios, sin merges a main ni
-  push remoto sin pedido explícito. Sólo crea y comitea este md.
-- No DB remota ni producción. No tocar PG sistema 5432. No inicializar/borrar el cluster `~/.pg/cocos`
-  ni asumir su contenido. Sin migrar antes de G1 aprobado.
-- No reescribir specs firmadas (`instruments-current-quotes.md`, `datos-financieros-grandes-montos.md`);
-  no marcar este plan como aprobado; no pasar a ejecución sin validación humana.
-- Mantener fuente Yahoo **sólo para UC-2**, sin influir ejecución/portfolio; sin mapping de tickers,
-  sin dependencias nuevas, sin migraciones nuevas en A1; fallo de proveedor → 503 honesto, nunca seed
-  fallback ni reemplazo de fuente.
-- `prisma migrate deploy` como único comando de despliegue (nunca `migrate dev`, `db push` ni `reset`
-  contra la DB app); no editar la migración inicial ni migraciones ya aplicadas.
-- Si la DB legacy no tiene history de Prisma o el DDL diverge: **detener y pedir estrategia humana**;
-  prohibido baseline automática y SQL normalizador por defecto.
-- `src/index.ts` escucha en `listen(port)`, no en HOST: no asumir que `HOST` env funciona; cualquier
-  ajuste de red local se reporta como mínimo y justificado (sin new health route ni framework nuevo).
-- Conteo final de tests **medido**, no hardcodeado: los 515 previos deben conservarse salvo cambio
-  UC-2 aprobado; puede crecer, no puede caer sin justificación auditada.
+- Esta fase (S-PLAN) no ejecuta nada: sin DB writes, sin servicios, sin merges ni push. Sólo comitea este md.
+- Núcleo financiero **congelado** para la integración UC-2: `src/contracts/{money,financial-decimal}.ts`, `domain/**`,
+  `application/{orders,portfolio}/**`, `infra/prisma/{mappers,order-repository,marketdata-price-source}.ts`,
+  `prisma/schema.prisma`, migraciones y deps de `package.json`: prohibido editarlos salvo BLOCKER con repro aprobado por humano.
+- No reescribir las specs firmadas (`instruments-current-quotes.md`, `datos-financieros-grandes-montos.md`).
+- `prisma migrate deploy` como único comando de despliegue; `migrate dev`/`db push`/`reset` prohibidos contra la DB
+  app y contra las DBs de test (el reset de test usa sus utilidades ya existentes). No editar migraciones ya aplicadas.
+- Legacy sin history de Prisma o DDL divergente → detener y escalar; prohibido baseline automática y SQL normalizador por defecto.
+- `.env` existente NO se sobrescribe con `*.example`: backup + editar sólo las keys necesarias, preservando el resto; fuera de Git.
+- `src/index.ts` escucha con `listen(port)` (bind en todas las interfaces, sin soporte HOST): no inventar `HOST=...`;
+  si el objetivo "dejarla local" exige ajuste, proponer el cambio mínimo de entry + test antes del cierre, sin refactor general ni health route nueva.
+- Sin ajustes por preferencia: "ajusta todo" = sólo fallos reproducidos, 1–2 archivos rojo→verde, sin borrar
+  escenarios ni aflojar asserts. Conteo de tests medido, nunca hardcodeado.
 
 ## Tasks
 
-### A0 — Inventario de DB local real y preparación (paralelizable con A1, read-only)
+### A0 — Preflight DB (operador DB GLM; read-only hasta G0)
 
-Dueño: GLM (operador DB único), scope S-AUDIT. Sin migrar hasta G1.
+- **A0a (sin levantar PG):** identificar archivos/versión/puertos y env: cluster `~/.pg/cocos` (PG 18) apagado, 5433
+  libre, 5432 ajeno, 55432 en uso; `.env` de main sin `DATABASE_URL`; proceso heredado apuntando a `lm_prepare_test` (nunca por default).
+- **A0b (tras la firma del plan):** arrancar el cluster en 5433; descubrir la(s) DB(s) existentes: history en
+  `_prisma_migrations`, conteos y montos de users/orders/order_events/instruments/marketdata, IDs extremos,
+  secuencias, PIDs de writers; preflight de grandes montos (size/precios nulos-cero-negativos, cash con precio ≠ 1.00,
+  keys cash sin `metadata.amountArs`); backup privado durable + **restore ensayado en un clon de test** (verificado
+  por conteos/fingerprints), sin mutar datos de la DB app. Informes sin usuario/password/secretos de query: sólo host/puerto/db.
 
-1. Levantar (o no) el cluster `~/.pg/cocos` en 5433 **sólo tras** confirmar ownership y config; antes
-   de cualquier SQL, confirmar localidad de la URL contra la que se va a conectar (nunca una URI
-   heredada del proceso).
-2. Inventario read-only de la(s) DB(s) existentes: migraciones aplicadas (`_prisma_migrations`),
-   presencia y conteo de users/orders/order_events/instruments/marketdata, preflight especial de
-   grandes montos (size/precios nulos, cero, negativos, cash con precio ≠ 1.00, keys cash sin evidencia
-   de `metadata.amountArs`), secuencias, PIDs de writers activos.
-3. Neutralizar la influencia del env de test heredado para el runtime futuro: definir explícitamente
-   qué `DATABASE_URL` usará la API (la DB app en 5433) y qué `TEST_DATABASE_URL` usarán los tests
-   (cluster 55432), documentándolo como confirmable; en el proceso de runtime se valida la URL real
-   dentro del proceso (A4), no se confía en el entorno heredado.
-4. Backup privado durable de la(s) DB(s) existentes + **restore ensayado en un clon** (verificado por
-   conteos/fingerprints, no por mensaje de éxito).
+**G0 (supervisor):** preflight sin anomalías; DB app descubierta con tools. Volver a humano SÓLO por: anomalía
+financiera, legacy sin history de Prisma, target no identificado o writer desconocido.
 
-**Gate G0 (humano):** inventario leído y confirmado; anomalías resueltas o escaladas; propuesta de
-DB app confirmada. Si hay anomalías financieras, writers desconocidos o legacy sin history de Prisma:
-**punto de parada** — sin baseline automática, sin SQL normalizador.
+### A1 — Port de UC-2 sobre `8d1475f` (células DS/GLM, scope S-INT)
 
-### A1 — Integración de UC-2 en el candidato (desde main 8d1475f)
+Orden con gates chicos por subtarea (1–2 archivos + CODEMAP en el MISMO commit si hay exports):
+1. **Seams compartidos** (un DS): `src/contracts/instruments.ts`, `src/contracts/errors.ts`,
+   `src/domain/ports/index.ts` — portados de `4541d1c`, comparando contra `60b3764`.
+2. **Paralelo disjunto:** adaptador Yahoo `src/infra/yahoo/yahoo-instrument-quote-source.ts` (nuevo, GLM) ∥ caso de
+   uso `src/application/instruments/search-instruments.ts` (nuevo, DS).
+3. **Integración (3 puntos):** `src/http/instruments/instruments-router.ts`, `src/http/server.ts` y
+   `src/infra/prisma/instrument-repository.ts` (sólo la lectura por offset que UC-2 necesita).
+4. **Cierre:** tests unit UC-2, funcionales, OpenAPI (registry/json) y docs (ver (c)).
 
-Dueño: DS, scope S-INT. Dependencia: contratos/ports **antes** de cualquier célula paralela.
+Reglas del port: portar por alcance desde `4541d1c`; jamás copiar un archivo completo viejo sobre la versión de main
+ni resolver theirs a full; auxiliares de la rama vieja (`.env.example`, `jest.config`, `prisma.config`, scripts de
+test-db, `tests/setup`, `tests/helpers`): re-derivar caso por caso (main ya tiene su infra de 515). Los 5 unit UC-2
+portan casi tal cual; en `tests/functional/read/{support,read-endpoints.test}.ts` añadir SÓLO los casos UC-2 sobre la
+versión de main (preservar strings UC-1 y los 515 escenarios); `tests/functional/large-money/support.ts`: sólo el
+ajuste mínimo que exija compilar. Sin deps nuevas, migraciones, mapping de tickers ni seed fallback; fallo de
+proveedor → 503 honesto; riesgo intermedio por consumidores pendientes registrado, sin falsear verde.
 
-1. Crear `feature/instruments-local-rollout` desde `main` `8d1475f`; integrar de
-   `feature/instruments-current-quotes` **sólo el alcance UC-2** (archivos nuevos:
-   `src/application/instruments/search-instruments.ts`, `src/infra/yahoo/yahoo-instrument-quote-source.ts`,
-   `src/contracts/instruments.ts` ya existente adaptado, ports, router, tests unitarios/funcionales
-   de UC-2, OpenAPI/docs de UC-2), **sin arrastrar** el snapshot/config viejo ni el envfile de la rama
-   origen, y **sin aceptar** sus borrados de grandes montos (migración `20261105104903_large_money`,
-   spec firmada, tests y docs de grandes montos, `schema.prisma` NUMERIC).
-2. Reconciliar en los archivos que ambas líneas tocaron (`decide-order`, `persist-order-decision`,
-   `submit-order`, `get-portfolio`, `edge`, mappers, contratos de dinero, OpenAPI, CODEMAP, DECISIONS):
-   preservar `FinancialDecimal` 64 / dinero string / `quantity` string / size cash string de D1–D5 y
-   sumar la política UC-2 Rev. 2 (default 10, 503, omisión de faltantes).
-3. Mantener Yahoo sólo UC-2; sin seed fallback; sin mapping de tickers; sin dependencias ni
-   migraciones nuevas; sin tocar otras UC.
-4. Un DS auditor paralelo entrega el informe de riesgos/rutas del diff; el integrador **no inventa**
-   resultados del review: lo que no esté en el informe no se cita.
+**G1 (supervisor):** gates chicos de cada subtarea cerrados + build/typecheck/lint del candidato + diff de alcance
+(cero toques en rutas congeladas). **Sin suite completa** (esa es G2).
 
-**Gate G1 (humano):** typecheck + lint + suite completa del candidato con conteo medido ≥ 515
-escenarios previos preservados; diff revisado sin borrados de grandes montos; informe del auditor
-entregado. Recién aquí se autoriza A2 (y la migración de A3 queda desbloqueada en su gate propio).
+### A2 — Verificación completa del candidato (DS + QA independiente, scope S-QA)
 
-### A2 — Verificación determinista del candidato
+Prisma generate + build + typecheck + lint; suite completa con conteo **medido** ≥ 515 preservados;
+`detectOpenHandles` limpio; E2E de máximos/centavos, concurrencia (doble submit, advisory lock), idempotencia
+histórica y rollback de multi-escritura contra DBs de test aisladas (55432); UC-2 funcional con fuente inyectada
+(sin Internet): default 10, omisión de faltantes, 503; OpenAPI determinista regenerado y docs verdes.
 
-Dueño: DS (+ QA independiente), scope S-QA. Pruebas contra PG de test aislado (55432), **nunca la
-DB app**.
+**G2 (supervisor):** QA independiente ACCEPT sin bloqueantes → el padre mergea a main.
 
-1. Prisma generate + build + typecheck + lint del SHA del candidato.
-2. Unit + docs funcionales (`docs-consistency`, `openapi`) deterministas; E2E de máximos/centavos,
-   concurrencia (doble submit, advisory lock), idempotencia histórica (§5 grandes montos), rollback
-   de multi-escritura; `detectOpenHandles` limpio.
-3. UC-2 funcional con fuente inyectada (sin Internet): contrato de default 10, omisión, 503.
-4. OpenAPI determinista regenerado y tests de docs verdes; conteo final **medido y reportado**.
+### A3 — Migración única de la DB app (operador DB GLM; worktree principal)
 
-**Gate G2 (humano/supervisor):** QA independiente califica ACCEPT sin bloqueantes → recién entonces
-el padre puede mergear el candidato a main. A3 no arranca sin este gate + confirmación humana.
+1. Pausar writers del repo/proceso; **revalidar el backup** (restore ensayado en clon) ANTES del deploy; registrar
+   antes: conteos por tabla, IDs extremos, secuencias, auditoría y montos canónicos de control (sin credenciales ni datos personales en el informe).
+2. `npx prisma migrate deploy` con DATABASE_URL explícita a la DB app (5433); si la DB NO existía y quedó vacía:
+   crear + migrar + seed según la política aprobada; jamás seed/reset de una preexistente. Sin `migrate dev`/`db push`/`reset`.
+3. Verificar history consistente, CHECKs financieros reales en PostgreSQL, columnas NUMERIC(24,2), fingerprints
+   económicos (cash/posiciones/patrimonio) y **segundo deploy sin cambios**.
+4. Legacy sin history o DDL divergente → detener, escalar; prohibido `migrate resolve` automático.
+5. Rollback = restore probado en clon con costo e indisponibilidad explícitos; prohibido downgrade por cast/truncado de dinero.
 
-### A3 — Migración única de la DB app local
+**G3 (supervisor):** fingerprints antes/después iguales, segundo deploy idempotente, migraciones aplicadas y
+host/puerto/db de destino registrados (sin secretos).
 
-Dueño: GLM (operador DB único, exclusivo durante toda la fase), scope S-DB. Precondición: main
-mergeado con A1–A2 verdes, G0 sin anomalías.
+### A4 — Arranque de la API local (DS; worktree principal, SHA integrado)
 
-1. Pausar escrituras del repo/proceso; verificar el backup de A0 (restore ensayado en clon) y
-   registrar ANTES: conteos por tabla, IDs extremos, secuencias, filas de auditoría, montos
-   canónicos de control (sin credenciales ni datos personales en el informe).
-2. Aplicar **sólo migraciones versionadas** con `npx prisma migrate deploy` apuntando a la DB app
-   local (5433). `migrate dev` no es comando de despliegue; prohibido `db push`/`reset`. Si la DB no
-   existía y hay aprobación: crear + migrar + seed **sólo si quedó vacía**.
-3. Después: verificar history consistente, CHECKs financieros presentes en PostgreSQL (no sólo
-   mocks), tipos columnares NUMERIC(24,2), fingerprints económicos (cash/posiciones/patrimonio por
-   valor) y **idempotencia de un segundo deploy** (sin cambios, sin error).
-4. Si la DB es legacy sin history de Prisma o el DDL diverge del esperado: **detener, escalar
-   estrategia humana**; prohibido `migrate resolve` automático.
-5. Rollback: restauración probada en clon; tras almacenarse datos nuevos, prohibido un downgrade por
-   cast/truncado — sólo restore aprobado, con costo e indisponibilidad explícitos.
+1. `npx prisma generate` + `npm run build`; editar el `.env` EXISTENTE (backup previo): añadir `DATABASE_URL` → DB
+   app 5433 y fijar `PORT=3000`, preservar las demás keys; sin versionar.
+2. Arrancar `npm start` (o `node dist/index.js`) como proceso administrado: PID, puerto, log en archivo durable; PG queda activo. Prohibido matar PIDs ajenos.
+3. Verificar la URL real dentro del proceso (vars del proceso + SQL de identidad, sin secretos) y que NUNCA se use
+   la heredada de `lm_prepare_test`; verificar `listen(port)`: en qué interfaz queda escuchando (loopback vs todas)
+   y proponer ajuste mínimo de entry + test si el objetivo "local" lo requiere, antes del cierre.
+4. Ciclo: startup sano, SIGTERM cierra el pool de Prisma, reinicio, `detectOpenHandles` limpio.
 
-**Gate G3 (humano):** fingerprints antes/después iguales, segundo deploy idempotente, evidencia de
-migraciones aplicadas y URL de destino registrada.
+**G4 (supervisor):** el proceso SOBREVIVE al fin de la célula (PID vivo, 3000 escuchando, log sin errores) y
+sobrevive a un reinicio verificado.
 
-### A4 — Arranque de la API local (dejarla corriendo)
+### A5 — Verificación HTTP en el listener real (DS + QA)
 
-Dueño: DS, scope S-RT. Precondición: G3.
+1. Smoke **read-only** contra la DB app real (UC-1, UC-2 read paths), sin contaminar datos runtime.
+2. Semánticas de escritura y colecciones contra copia de test (55432), nunca la DB app del runtime.
+3. Yahoo **en vivo sin fixtures**: precio último de sesión, `previousClose` de la sesión anterior, fecha de fuente.
+   Cobertura: extraer tickers de una **copia** del seed de instruments y medir N cubiertos / total real — sin
+   mapping, sin ingesta, sin inventar datos ni asumir cantidades. Un 503 del proveedor NO es un éxito con array
+   vacío; distinguir "servidor local arriba + 503 del proveedor" de "integración exitosa completa"; si el mercado está cerrado, reportar la última sesión honestamente.
+4. Yahoo externo indisponible desde esta red → reportar BLOQUEO de precio real, sin fingir verificación.
 
-1. En el worktree del SHA mergeado: `npx prisma generate` + `npm run build`; `.env` local creado
-   desde `.env.example` con `DATABASE_URL` → DB app 5433 y `PORT=3000` (sin versionar, sin secretos
-   en Git); **sin** heredar el `DATABASE_URL` de lm_prepare_test del proceso padre.
-2. Arrancar `npm start` (o `node dist/index.js`) como proceso **administrado y documentado** (PID,
-   puerto, log en archivo durable); PG queda activo también. Prohibido: matar PIDs desconocidos,
-   `nohup` mágico, daemons incontrolables, ocupar puerto ajeno.
-3. Verificar la URL real dentro del proceso: si las fuentes no la exponen, confirmar por variables
-   del proceso y SQL de identidad (sin secretos); `src/index.ts` escucha `listen(port)` sin HOST —
-   verificar el límite de red local y, si hiciera falta ajuste, reportarlo como mínimo y justificado
-   (sin new health route ni framework).
-4. Tests de ciclo: startup sano, shutdown ordenado (SIGTERM cierra el pool de Prisma), reinicio, y
-   cierre de pools verificado (`detectOpenHandles` del smoke).
+**G5 (supervisor/QA):** endpoints evidenciados, cobertura medida, veredicto honesto de Yahoo y suite completa verde
+contra la DB de test.
 
-**Gate G4 (padre):** el orquestador comprueba que el proceso **SOBREVIVE al fin de la célula** antes
-de declarar la API arriba (PID vivo, puerto 3000 escuchando, log sin errores).
+### A6 — Loop de ajustes por fallos comprobados (DS, scope dueño del archivo)
 
-### A5 — Verificación HTTP en el listener real
+Sólo fallos reproducidos: issue con repro mínimo → owner del archivo → rojo → fix de 1–2 archivos → verde + gate
+re-corrido por el padre. Prohibido borrar escenarios, aflojar asserts o refactor general. Si el fix exige
+dependencia nueva, cambio de contrato, migración distinta o altera saldos → humano. QA independiente final antes de
+cerrar.
 
-Dueño: DS (+ QA), scope S-RT. Sobre la API de A4 y la DB app migrada.
+**Gate final (supervisor):** main limpio y mergeado; `PROGRESS.md` del padre; evidencia: SHA mergeado, migraciones
+aplicadas + host/puerto/db de la DB app, PID/puerto/log de la API, gates con outputs reales. Sin push sin pedido.
 
-1. Smoke **read-only** contra la DB app real (UC-1, UC-2 read paths) sin contaminar datos runtime
-   con órdenes.
-2. Semánticas de escritura y colecciones contra una **copia de test restaurada** (55432), nunca contra
-   la DB app del runtime; sin borrar auditoría.
-3. Adaptador Yahoo **en vivo sin fixtures**: precio último de sesión, `previousClose` de la sesión
-   anterior, fecha de fuente (no instantáneo); medir cobertura de tickers del catálogo (sin mapping);
-   rate-limit/timeout → 503 `MARKET_DATA_SERVICE_UNAVAILABLE` real.
-4. Si Yahoo externo no está disponible desde esta red: reportar **BLOQUEO de precio en real** — no
-   fingir que el verde unitario demuestra conexión ni aflojar tests. Suite completa independiente y
-   fixtures offline documentados para CI.
+## Interpretaciones a confirmar en la validación del plan (no reabren contratos firmados)
 
-**Gate G5 (padre/QA):** evidencia de endpoints, cobertura de catálogo medida, estado real de Yahoo,
-y suite completa verde contra la DB de test.
-
-### A6 — Loop de ajustes por fallos comprobados
-
-Dueño: DS en el scope dueño del archivo fallado. Para cada fallo comprobado: issue con repro mínimo →
-archivo owner → rojo → fix de 1–2 archivos → verde + gate re-corrido por el padre. Prohibido refactor
-general o diseño nuevo; si el fix requiere dependencia nueva, cambio de contrato, migración distinta o
-altera saldos: **volver a humano**. QA independiente final antes de cerrar.
-
-**Gate final (padre):** main limpio y mergeado; `PROGRESS.md` escrito por el padre; evidencia reunida:
-SHA mergeado, migraciones aplicadas + URL de la DB app, PID/puerto/log de la API, gates con outputs
-reales, enlace/estado de la API local. Sin push remoto sin pedido.
+- **(a) Numérico externo:** el JSON de Yahoo ya es `number` (vía `response.json`);
+  `FinancialDecimal(String(value))` no recupera dígitos perdidos por el proveedor. Propuesta: mantener el parser del
+  adaptador aprobado + validación Zod (ARS, finitos), operar con el constructor de 64 bits, sin prometer exactitud
+  del texto externo, sin parser raw ni deps nuevas. No relaja los strings strict del input de usuario ni toca UC-1/3/4/5; limitación expresa.
+- **(b) Timeout:** 5 s por cotización, secuencial con `concurrency: 1` (ya en la rama). Mantener el comportamiento
+  aprobado y medir latencia en vivo; sin deadline global, caché ni batching inventados. Si la medición muestra
+  impedimento real → escalar con repro y presupuesto humano nuevo. Sin SLA instantáneo.
+- **(c) Docs firmados no recortables:** INCLUIR el sync UC-2 en `specs/trading-api-domain.md` y
+  `docs/arquitectura-implementada.html` sin pérdida D1–D5; las dos specs firmadas quedan read-only. Updates
+  derivados según el contrato ya aprobado, sin reabrirlo. En CODEMAP/api/DECISIONS/README/legacy: sólo secciones UC-2, con el wire monetario de main intacto.
 
 ## Puntos de parada (detener y escalar, nunca continuar)
 
-1. Anomalía financiera en el inventario A0 (valores imposibles, audit truncada, montos canónicos que
-   no cierran).
+1. Anomalía financiera en el inventario A0 (valores imposibles, auditoría truncada, montos que no cierran).
 2. Writer/PID desconocido conectado a la DB destino.
-3. Legacy sin history de Prisma o DDL divergente (sin `migrate resolve` automático).
-4. Cualquier fix que exija dependencia nueva, cambio de contrato firmado, migración distinta o altere
-   saldos.
-5. Yahoo externo no disponible: se reporta BLOQUEO, no se finge verificación.
+3. Legacy sin history de Prisma o DDL divergente (sin baseline ni `migrate resolve` automáticos).
+4. Fix que exija dependencia nueva, contrato distinto, migración distinta o altere saldos.
+5. Yahoo externo no disponible: BLOQUEO declarado, nunca verificación fingida.
 6. Conteo de escenarios previos (< 515) cayendo sin cambio UC-2 aprobado.
 
 ## Aceptación verificable
 
-1. UC-2 Rev. 2 integrado sobre grandes montos sin borrar migración/spec/tests de D1–D5; los 515
-   escenarios previos preservados (conteo medido, no hardcodeado).
-2. Contratos reconciliados: dinero string / `FinancialDecimal` 64 / size cash string / quantity string
-   conviven con default 10, omisión de faltantes y 503 de UC-2.
-3. DB app local (`cocos_challenge` en 5433, si el validador confirma) migrada con `migrate deploy`,
-   history consistente, CHECKs financieros reales en PostgreSQL, segundo deploy idempotente.
-4. API local viva al fin de la célula (PID/puerto/log verificados por el padre), conectada a la DB app
-   confirmada dentro del proceso.
-5. Smoke HTTP real: read-only sobre DB app; escrituras en copia de test; Yahoo en vivo con veredicto
-   honesto (cobertura medida o BLOQUEO declarado).
-6. Gates G0–G5 con outputs reales pegados; QA independiente ACCEPT sin bloqueantes antes de cada merge
-   a main; main limpio; sin push sin pedido.
+1. UC-2 portado por alcance sobre grandes montos, comparado contra `60b3764`; cero toques en el núcleo congelado; 515 escenarios previos preservados (conteo medido).
+2. Contratos: dinero string / `FinancialDecimal` 64 / size cash string / quantity string conviven con default 10, omisión de faltantes y 503 de UC-2.
+3. DB app local (`cocos_challenge` en 5433) migrada con `migrate deploy`, history consistente, CHECKs reales en
+   PostgreSQL, segundo deploy idempotente; backup revalidado antes del deploy.
+4. API viva al fin de la célula y tras un reinicio (PID/puerto/log verificados por el supervisor), conectada a la
+   DB app confirmada dentro del proceso; escucha real verificada.
+5. Smoke HTTP real: read-only sobre DB app; escrituras en copia de test; Yahoo en vivo con cobertura medida (N/total del catálogo) o BLOQUEO declarado.
+6. Gates G0–G5 con outputs reales pegados; QA independiente ACCEPT antes de cada merge; main limpio; sin push sin pedido.
 
-## Pendientes de humano (sólo operativos; ninguna decisión firmada se reabre)
+## Pendientes de humano (sólo la validación inicial; nada de esto es re-abrible después)
 
-- Validar/ajustar este plan Rev. 1 y marcarlo aprobado.
-- Confirmar topología operativa: reutilizar `~/.pg/cocos` en 5433, nombre de DB app
-  (`cocos_challenge`), puerto 3000, y las rutas de worktree/ramas propuestas.
-- Confirmar si la DB app existe y si se permite seed en caso de crearla vacía.
-- Aprobar cada gate G0–G5 y la ventana de pausa de escrituras de A3.
-- Ordenar el push/remoto si se quiere (nunca por defecto).
+- Validar este plan Rev. 2 y su topología: cluster `~/.pg/cocos` en 5433, DB app `cocos_challenge`, HTTP 3000,
+  rutas/ramas de worktree (detalles operativos: responsabilidad del orq, no exigen firma independiente).
+- Política de seed si la DB app NO existiera y quedara vacía (jamás sobre una preexistente).
+- Las interpretaciones (a) numérico externo y (b) timeout, tal como están enunciadas.
+- No se pide: autorización por cancelación/timeout, scope de push, ni opinión humana sobre la existencia/estado de la DB (la descubre el operador con tools en A0).
