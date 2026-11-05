@@ -6,19 +6,21 @@
 - Rama integradora: `feature/large-money`; worktree `/home/cofi/repos/coccb-wt-large-money`.
 - Snapshot base: `b8006afbaaf8e8af3bfc7cf76a63bb557ae6f502` (`snapshot/large-money-20261105`), creado con índice Git alternativo. HEAD y staging originales de main se conservaron; sólo se registró la firma en la spec del árbol original.
 - Gate base medido sobre ese commit: **33 suites / 352 tests**, typecheck y lint verdes. PostgreSQL 18.6 nuevo, sólo loopback y puerto 55432, en scratch del perfil; ninguna conexión a DB de app.
-- El worktree original contiene trabajo previo del usuario que forma parte del snapshot, no del diff de esta feature. No cambiarlo ni mergear a main.
+- El worktree original contiene trabajo previo del usuario que forma parte del snapshot, no del diff de esta feature. Preservar árbol e índice. El usuario autorizó posteriormente integrar a main tras terminar la implementación, revisión independiente y pruebas completas verdes; no autorizó migrar la DB de la app.
 - Gate final exige toda la spec, integración/funcionales con DB real, y revisión independiente. Las células iniciales tienen gates de alcance; ninguna declara verde global hasta adaptar todos los consumidores del contrato incompatible.
 
 | Célula | Alcance / ownership | Estado | Gate |
 |---|---|---|---|
 | LM-A | Constructor/contratos de dinero y tests monetarios; CODEMAP sólo sus filas | ACEPTADA e integrada hasta 1099fb4 | typecheck/lint/build + 48 tests re-corridos en integradora |
 | LM-B | Schema, migración nueva y pruebas PG de almacenamiento/preflight | ACEPTADA en afc5e5f; preparada en branch LM-D, integración junto a mappers | 22 tests PG y validate/lint re-corridos; CHECK NULL cerrado |
-| LM-C0 | Tipos discriminados y schemas quantity/size (base LM-A 607c138) | EN EJECUCIÓN (ds_flash, cell/large-money-domain) | contratos aislados; consumidores pendientes |
-| LM-C1 | Dominio, casos de uso y HTTP; depende de seams LM-C0 | PENDIENTE | unit dominio/application/HTTP |
-| LM-D | Mappers, repos e idempotencia histórica; depende de seams LM-C y schema LM-B | ENTORNO PREPARADO (cell/large-money-infra, base e6ad04c) | Cliente Decimal generado; lm_d_test migrada/seed; espera LM-C0 |
-| LM-E-docs | README/docs/colección del contrato aprobado; rama cell/large-money-docs | REVISIÓN: 12 tests/docs y typecheck/lint re-corridos; corregir marcador patch y ejemplo cash numérico | No integrado aún |
-| LM-E-wire | OpenAPI y adaptación funcional; depende de código estable | PENDIENTE | docs/funcionales |
-| LM-QA | Revisión independiente de diff e invariantes | PENDIENTE | no merge a main sin firma adicional |
+| LM-C0 | Tipos discriminados y schemas quantity/size | INTEGRADA: 8d1930c/c665109 | 28 tests de contratos/docs re-corridos; consumidores aún pendientes |
+| LM-C1-pure | Dominio puro y ports; cell/large-money-pure-final | PREPARADA (DeepSeek) | unit/domain; sizing conserva firma number y lanza RangeError fuera de rango antes de convertir |
+| LM-C1-app | Casos de uso, HTTP y fakes unitarios | PENDIENTE de dominio puro | unit/application + unit/http |
+| LM-D-final | Mappers, repos e idempotencia histórica; cell/large-money-infra-final | PREPARADA (DeepSeek) | unit/infra + integration/infra; cluster de test separado para no colisionar con otras suites |
+| LM-E-docs | README/docs/colección del contrato aprobado | INTEGRADA: 4f9974f/e27f99a/ee5703f | correcciones revisadas; aún no afirma ejecución API final |
+| LM-E-wire-final | OpenAPI; cell/large-money-wire-final | PREPARADA (GLM) | tests/docs; reutiliza schemas monetarios de contracts |
+| LM-E-functional | Compatibilidad de suites y nuevos casos e2e | PENDIENTE de código estable | HTTP + PostgreSQL real, sin desactivar escenarios |
+| LM-QA | Revisión independiente de diff e invariantes | PENDIENTE | usuario autoriza integrar a main sólo tras pruebas y cierre de implementación |
 
 ### Decisiones operativas
 
@@ -26,6 +28,17 @@
 - Sólo PostgreSQL de test aislado. LM-B tiene bases prefijadas `lm_b_`; las suites de integración finales usarán el cluster efímero, nunca el destino de la app.
 - La firma D5 permite personalizar la migración nueva aún no aplicada; no editar la inicial ni usar db push.
 - La preparación no actualiza dependencias: Node 26.12.1, npm 12.0.2 y Prisma 7.10.1 verificados. Avisos de npm sobre dependencias no se consideran una auditoría completa de seguridad.
+
+### Reanudación y ownership T13/T14
+
+- Base de reanudación ee5703f; se integraron C0, B y E-docs. Gate de seams re-corrido: 4 suites / 50 tests (contratos + storage PG + CODEMAP). Esto NO es un gate de feature: typecheck/global y consumidores siguen pendientes.
+- Última corrida global previa (46fcb36): 34 suites, 325/380 tests pasan; 55 fallos. Funcionales: 36/86 pasan. Probes en DB aislada reprodujeron 123.45 → 123, 0.01 → ZERO_SIZE y falsa equivalencia idempotente 123.01/123.99. No integrar ese comportamiento a main.
+- LM-C1-pure: src/domain/{portfolio,sizing,matching}/index.ts, src/domain/{index.ts,ports/index.ts}; tests/unit/domain/{helpers.ts,portfolio.test.ts,portfolio-characterization.test.ts,portfolio-total-account-value.test.ts,sizing.test.ts,matching.test.ts}. CODEMAP sólo filas dominio/ports.
+- LM-D-final: src/infra/prisma/{mappers,order-repository,portfolio-read-repository,marketdata-repository,marketdata-price-source}.ts; tests/unit/infra/mappers-filled-price.test.ts; tests/integration/infra/{support,portfolio-read-repository.test,order-repository.create-order.test,order-repository.idempotency.test,order-repository.transaction.test,marketdata-repository.test}.ts; tests/helpers/factories.ts. Puede extraer helpers de infra si lint lo exige y registrar CODEMAP sólo sus filas.
+- LM-E-wire-final: scripts/openapi/{wire,registry,build}.ts, scripts/generate-openapi.ts, openapi.json, tests/docs/openapi.test.ts; CODEMAP sólo filas de herramientas.
+- LM-C1-app (después de pure): src/application/**, src/http/{shared/edge,portfolio/portfolio-router,orders/orders-router,transfers/transfers-router,instruments/instruments-router}.ts, tests/unit/{application,http}/**, tests/helpers/fakes/submit-order-fakes.ts; CODEMAP sólo application/HTTP.
+- LM-E-functional (después de código estable): tests/functional/**, con inventario y cortes de máximo 2 archivos por adaptación. Nuevas suites de aceptación con DB propia; sin colisión con integración.
+- Ninguna célula cambia specs, DECISIONS, deps, migraciones aplicadas, DB app o main. Nuevos archivos de src sólo para extraer funciones financieras por umbral de lint, sin ampliar diseño; CODEMAP en el mismo commit. Los cambios compartidos se integran secuencialmente.
 
 ### QUESTIONs activas
 
