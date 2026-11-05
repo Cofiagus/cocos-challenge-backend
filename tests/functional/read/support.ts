@@ -1,14 +1,13 @@
 // Support de la suite funcional de LECTURA (Célula C) — tests/functional/read.
 //
-// DB REAL y AISLADA: cocos_challenge_read en el cluster local (localhost:5433,
-// auth trust). Las demás células corren contra cocos_challenge_test vía
-// .env.test — ESTA suite NO carga .env.test: fija DATABASE_URL explícito a SU
-// DB antes de que ningún repositorio construya el PrismaClient (el singleton
-// de src/lib/prisma-client.ts es lazy, pero vive POR PROCESO del worker).
+// DB REAL y AISLADA: READ_DB_URL deriva TEST_DATABASE_URL cambiando sólo el
+// nombre de la base para esta suite. La app de test no usa DATABASE_URL runtime.
+// La URL queda fijada antes de crear repositorios Prisma (singleton lazy por worker).
 //
 // Self-reset en beforeAll: corre scripts/test-db-reset.sh con TEST_DB_NAME
 // apuntando a ESTA DB (migrate deploy + db/seed.sql).
 
+import { databaseUrlForTestName } from "../../helpers/test-database-url.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Express } from "express";
@@ -24,10 +23,9 @@ const execFileAsync = promisify(execFile);
 
 /** DB de ESTA suite (aislada por célula: el orquestador corre en paralelo). */
 export const READ_DB_NAME = "cocos_challenge_read";
-export const READ_DB_URL = `postgresql://postgres:postgres@localhost:5433/${READ_DB_NAME}`;
+export const READ_DB_URL = databaseUrlForTestName(READ_DB_NAME);
 
-// ANTES del primer uso del singleton lazy: la URL de ESTA DB (nunca la de
-// .env.test, que apunta a cocos_challenge_test — la DB de la célula B).
+// ANTES del primer uso del singleton lazy: URL derivada de TEST_DATABASE_URL.
 process.env["DATABASE_URL"] = READ_DB_URL;
 
 /** Resea cocos_challenge_read: migrate deploy + db/seed.sql (idempotente). */

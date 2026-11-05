@@ -122,9 +122,9 @@ exports con firma resumida, quién lo llama, test que lo cubre, y una sección f
 Verificación: `node -e` que compare el set de archivos con los headings (preludio de D2).
 
 **T2 — `AGENTS.md` reescrito.** Estructura real por capas; comandos reales
-(`dev` = `tsx watch`, no nodemon; `test:db:reset`; suite única; la DB local de esta máquina es el
-cluster userspace en `:5433`, no docker); protocolo de lectura (CODEMAP → un doc → código);
-tabla "pregunta → doc"; límites y reglas financieras **referenciando** `DECISIONS.md` en vez de
+(`dev` = `tsx watch`, no nodemon; `test:db:reset`; suite única; PostgreSQL de test configurado
+por `TEST_DATABASE_URL`, separado de la conexión runtime `DATABASE_URL`); protocolo de lectura
+(CODEMAP → un doc → código); tabla "pregunta → doc"; límites y reglas financieras **referenciando** `DECISIONS.md` en vez de
 repetirlas; nota de que `specs/` y `PROGRESS.md` son históricos.
 Verificación: D1 verde; ningún comando del doc falla al copiarse (los de sólo lectura se ejecutan).
 

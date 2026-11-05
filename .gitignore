@@ -9,11 +9,11 @@ build/
 out/
 *.tsbuildinfo
 
-# Environment
+# Environment and secrets: local files are never versioned.
 .env
 .env.*
 !.env.example
-!.env.test
+!.env.test.example
 
 # Logs
 logs/

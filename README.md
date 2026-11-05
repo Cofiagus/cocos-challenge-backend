@@ -6,31 +6,34 @@ API REST para consultar el portfolio de un usuario, buscar instrumentos, enviar 
 
 ## Quickstart
 
+1. Configurá `DATABASE_URL` en `.env` para desarrollo o en el gestor de secretos de tu entorno de despliegue. `.env.example` sólo muestra el formato; no contiene credenciales reales.
+2. Instalá dependencias y generá el cliente si hace falta:
+
 ```bash
-cp .env.example .env
-docker compose up -d db
 npm install
-npx prisma migrate deploy && psql postgresql://postgres:postgres@localhost:5433/cocos_challenge -v ON_ERROR_STOP=1 -q -f db/seed.sql
+npx prisma generate
+```
+
+3. Sobre una base vacía o preparada para esta versión, aplicá las migraciones y cargá el seed del challenge **sólo si corresponde a esa base**:
+
+```bash
+npx prisma migrate deploy
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/seed.sql
+```
+
+El seed modifica datos; no lo ejecutes sobre una base con datos que quieras conservar. La app acepta cualquier PostgreSQL compatible configurado en `DATABASE_URL`; no uses esa misma URL para suites de integración que resetean datos.
+
+4. Iniciá el servidor:
+
+```bash
 npm run dev
 ```
 
-Verificación: `curl http://localhost:3000/api/users/1/portfolio` → `200` con `"totalAccountValue": 889756`.
+Verificación: `curl http://localhost:3000/api/users/1/portfolio` → `200` con `"totalAccountValue": 889756` **cuando** la DB contiene el seed del challenge.
 
-- `.env.example` ya trae `PORT=3000` y `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/cocos_challenge`; `prisma.config.ts` (CLI) y `src/index.ts` (servidor) cargan ese `.env`, así que la secuencia de arriba no necesita variables extra.
-- `docker compose up -d db` levanta el Postgres 16 de `docker-compose.yml` en el puerto **5433** (para no chocar con un Postgres instalado), user `postgres`, DB `cocos_challenge`.
-- `npx prisma migrate deploy` aplica `prisma/migrations/**` (el esquema vigente) y `db/seed.sql` carga el dataset del challenge.
-- **Ejecución compilada y cierre:** `npm run build && npm start` compila `src/` a `dist/` y corre `node dist/index.js`. Ante `SIGINT`/`SIGTERM` el servidor deja de aceptar conexiones, espera las requests en vuelo, cierra el pool de Prisma y sale con código `0` (a los 10 s fuerza la salida con `1`). En `npm run dev`, Ctrl-C alcanza al proceso; si lo lanzás con un wrapper (`npx`), la señal tiene que llegarle al proceso `node`.
+**Configuración:** copiá `.env.example` a `.env` y reemplazá el placeholder de `DATABASE_URL` por la URL de la base elegida. En producción, configurá `DATABASE_URL` en el entorno/secret manager; no subas `.env` ni pegues credenciales en el repositorio. Para tests destructivos configurá una `TEST_DATABASE_URL` independiente, incluso si apunta a otra DB del mismo servidor PostgreSQL.
 
-**Sin docker** (un Postgres ya instalado; sólo depende de `DATABASE_URL`):
-
-```bash
-export DATABASE_URL=postgresql://postgres:postgres@localhost:5433/cocos_challenge
-npx prisma migrate deploy && psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/seed.sql
-```
-
-> El camino con docker no se pudo ejecutar en la máquina donde se verificó esta entrega (no hay docker): la secuencia se verificó contra un PostgreSQL 18 local con los mismos comandos, sustituyendo sólo el nombre de la base.
-
-**Requisitos:** Node.js ≥ 22 (`engines` del `package.json`; verificado con v26.12.1) y npm ≥ 10 (verificado con 12.0.2) · un PostgreSQL accesible (verificado con 18.6) con el cliente `psql` · `npm install` instala las dependencias; si el cliente de Prisma no quedó generado, `npx prisma generate` (script `prisma:generate`).
+**Requisitos:** Node.js ≥ 22 (`engines` del `package.json`) · PostgreSQL compatible con el esquema/migraciones · `psql` para cargar el seed · `npm install` instala dependencias; `npx prisma generate` genera el cliente.
 
 ## Stack
 
@@ -41,7 +44,7 @@ npx prisma migrate deploy && psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/se
 | Acceso a datos | Prisma 7 (`@prisma/client` 7.10.1 + `@prisma/adapter-pg` driver adapter) |
 | Validación | Zod 4 (borde HTTP estricto) |
 | Dinero | `decimal.js` — **nunca float** (ver [Supuestos](#supuestos-y-decisiones)) |
-| Base de datos | PostgreSQL 18 (verificado con 18.6); `docker-compose.yml` levanta Postgres 16 en el puerto 5433 |
+| Base de datos | PostgreSQL compatible con las migraciones de Prisma; la URL se configura por `DATABASE_URL` |
 | Testing | Jest 30 + ts-jest + supertest |
 
 ## Endpoints
@@ -318,15 +321,17 @@ Fuera del alcance firmado (`DECISIONS.md`); cada ítem con su vía de enchufe:
 
 ## Tests
 
+Configurá una base exclusiva de pruebas en `.env.test` (copiá `.env.test.example` y completá `TEST_DATABASE_URL`). No uses la URL configurada para la app: el reset elimina y recrea las bases de test.
+
 ```bash
-npm run test:db:reset   # (re)crea cocos_challenge_test desde la migración versionada + seed (sin docker)
+npm run test:db:reset   # requiere PostgreSQL de test y permiso para crear/eliminar bases
 npm test
 ```
 
 - **Unit** (`tests/unit/**`): funciones puras (derivación de cash/posiciones/reservas, `evaluateCross`, `matchRestingOrders`, sizing), casos de uso con fakes, contratos Zod, borde HTTP y contrato de errores.
-- **Integration** (`tests/integration/infra`): repos Prisma contra Postgres real, con `cocos_challenge_test` (la crea `npm run test:db:reset`).
-- **Functional** (`tests/functional/**`): los 5 endpoints vía supertest; cada suite **se auto-resetea** su propia base (`TEST_DB_NAME`) en `beforeAll`, así que no depende del estado previo de la base.
-- `npm run typecheck` (`tsc --noEmit`, nodenext) y `npm run lint` (eslint 9 flat config) completan el chequeo local.
+- **Integration** (`tests/integration/infra`): repos Prisma contra la base indicada por `TEST_DATABASE_URL`.
+- **Functional** (`tests/functional/**`): los 5 endpoints vía supertest; cada suite deriva y resetea su propia base desde `TEST_DATABASE_URL` antes de correr.
+- `npm run typecheck` (`tsc --noEmit`, nodenext) y `npm run lint` (eslint 9 flat config) completan el chequeo.
 
 ## Estructura del proyecto
 

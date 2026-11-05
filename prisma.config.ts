@@ -5,9 +5,9 @@ import { defineConfig, env } from "prisma/config";
 // era del CLI Platform v8 (prisma@^8.0.0-rc) y no existe en esta línea.
 //
 // Prisma 7 NO autocarga .env: la URL del datasource se resuelve ACÁ.
-// dotenv config() NO pisa variables ya presentes en el proceso, así que
-// scripts que exporten DATABASE_URL (ej. scripts/test-db-reset.sh apuntando
-// a cocos_challenge_test) ganan sobre el .env local (cocos_challenge).
+// dotenv config() NO pisa variables ya presentes en el proceso, así que los
+// scripts pueden proporcionar explícitamente DATABASE_URL para el destino
+// correcto sin que esta carga lo reemplace.
 config();
 
 const databaseUrl = env("DATABASE_URL");

@@ -69,16 +69,12 @@ El detalle archivo por archivo, con firmas y trampas, está en `docs/CODEMAP.md`
 slices por dominio ni capas `shared` / `controllers` / `services`: si un doc o el `tsconfig` sugieren
 eso, está desactualizado.
 
-## 4. Entorno local (esta máquina)
+## 4. Configuración de base de datos
 
-- La base de desarrollo/test es un **cluster PostgreSQL userspace en `localhost:5433`**, no docker
-  (`docker compose` existe en el repo para otros entornos, pero acá no se usa). Si está caído:
-  `/usr/lib/postgresql/18/bin/pg_ctl -D ~/.pg/cocos -o '-p 5433 -k /tmp' -l ~/.pg/cocos.log start`
-- `DATABASE_URL` sale de `.env` (dev) y `.env.test` (tests base). Cada suite funcional fija **su propia**
-  DB y la resetea en `beforeAll`: correr `npm test` dos veces da verde.
-- ESM + `nodenext`: los imports llevan extensión `.js` (`import … from "./x.js"`).
-- Prisma 7: la URL no vive en `schema.prisma` sino en `prisma.config.ts`, y el cliente exige un driver
-  adapter (`@prisma/adapter-pg`). El singleton es **lazy** a propósito.
+- La app toma `DATABASE_URL` desde `.env` en desarrollo o desde el entorno/secret manager al desplegar. El repo no fija proveedor, host, puerto ni credenciales.
+- Las pruebas con escritura usan `TEST_DATABASE_URL`, separado de `DATABASE_URL`; las suites funcionales recrean bases de test. PostgreSQL local es una opción para integración. Nunca apuntar el reset de tests a la base de la app ni a una base productiva.
+- Crear `.env` desde `.env.example`; para tests, crear `.env.test` desde `.env.test.example`. Ambos archivos reales quedan fuera de Git.
+- Prisma 7: la URL no vive en `schema.prisma` sino en `prisma.config.ts`, y el cliente exige un driver adapter (`@prisma/adapter-pg`). El singleton es **lazy** a propósito.
 - `db/schema.sql` es un snapshot generado y desactualizado: el DDL real son las migraciones.
 
 ## 5. Reglas no negociables (el porqué está en `DECISIONS.md`)

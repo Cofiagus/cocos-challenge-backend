@@ -5,18 +5,17 @@
  *
  * PROYECTOS separados por DB: cada suite funcional corre contra SU postgres
  * (aislamiento real, sin interferencia entre suites en workers paralelos).
- * El proyecto "uc3-functional" existe porque la suite tests/functional/orders/**
- * NO setea DATABASE_URL (su pool es propio): el setup del proyecto la apunta a
- * cocos_challenge_ftest, la misma DB que aserta su pool.
+ * El proyecto "uc3-functional" usa el URL derivado de TEST_DATABASE_URL
+ * para su propia base.
  *
- * Tests que necesiten la DB: `npm run test:db:reset` antes (recrea
- * cocos_challenge_test desde la migración versionada + seed, sin docker);
- * las suites funcionales se auto-resetean en beforeAll vía TEST_DB_NAME.
+ * Tests que necesitan DB: `TEST_DATABASE_URL` debe estar configurada en
+ * `.env.test`; `npm run test:db:reset` recrea las bases aisladas del test.
  */
 
 /** Base común (transform + mapper .js→.ts para nodenext). */
 const base = {
   testEnvironment: "node",
+  setupFiles: ["<rootDir>/tests/setup/test-database-env.ts"],
   transform: {
     "^.+\\.tsx?$": ["ts-jest", { tsconfig: "tsconfig.test.json" }],
   },
@@ -40,7 +39,10 @@ export default {
       ...base,
       displayName: "uc3-functional",
       testMatch: ["<rootDir>/tests/functional/orders/**/*.test.ts"],
-      setupFiles: ["<rootDir>/tests/setup/database-url-ftest.ts"],
+      setupFiles: [
+        "<rootDir>/tests/setup/test-database-env.ts",
+        "<rootDir>/tests/setup/database-url-ftest.ts",
+      ],
     },
   ],
 };

@@ -1,18 +1,15 @@
 // Support de la suite funcional de ENVÍO (Célula E) — tests/functional/orders-submit.
 //
-// DB REAL y AISLADA: `cocos_challenge_submit` en el cluster local
-// (localhost:5433, auth trust), creada con
-// `TEST_DB_NAME=cocos_challenge_submit npm run test:db:reset` y con self-reset
-// en beforeAll (patrón tests/functional/read/support.ts de la Célula C).
+// DB REAL y AISLADA: la URL de `cocos_challenge_submit` se deriva de
+// TEST_DATABASE_URL y se recrea por suite con scripts/test-db-reset.sh.
 //
-// DATABASE_URL se fija ACÁ, a la DB de ESTA suite, antes del primer uso del
-// singleton lazy de src/lib/prisma-client.ts: la app bajo test (los repos
-// Prisma reales de la célula B) NUNCA apunta a la DB de otra célula, aunque
-// el proceso traiga otra variable (p. ej. .env.test → cocos_challenge_test).
+// `DATABASE_URL` se fija al destino aislado de esta suite antes de usar Prisma;
+// los repositorios y fixtures apuntan a la misma base de test.
 //
 // Dinero (AGENTS.md): los esperados se computan con Decimal construido desde
 // strings y se comparan como Decimal — nunca float.
 
+import { databaseUrlForTestName } from "../../helpers/test-database-url.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Decimal } from "decimal.js";
@@ -32,7 +29,7 @@ const execFileAsync = promisify(execFile);
 
 /** DB de ESTA suite (aislada por célula: el orquestador corre en paralelo). */
 export const SUBMIT_DB_NAME = "cocos_challenge_submit";
-export const SUBMIT_DB_URL = `postgresql://postgres:postgres@localhost:5433/${SUBMIT_DB_NAME}`;
+export const SUBMIT_DB_URL = databaseUrlForTestName(SUBMIT_DB_NAME);
 
 // ANTES del primer uso del singleton lazy (patrón read/support.ts).
 process.env["DATABASE_URL"] = SUBMIT_DB_URL;

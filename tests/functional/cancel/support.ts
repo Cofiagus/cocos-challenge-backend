@@ -1,19 +1,15 @@
 // Support de la suite funcional de CANCELACIÓN (Célula F) — tests/functional/cancel.
 //
-// DB REAL y AISLADA: `cocos_challenge_cancel` en el cluster local
-// (localhost:5433, auth trust), creada con
-// `TEST_DB_NAME=cocos_challenge_cancel npm run test:db:reset` y con self-reset
-// en beforeAll (patrón EXACTO de tests/functional/orders-submit/support.ts
-// de la Célula E, que a su vez sale del de la Célula C).
+// DB REAL y AISLADA: la URL de `cocos_challenge_cancel` se deriva de
+// TEST_DATABASE_URL y se recrea por suite con scripts/test-db-reset.sh.
 //
-// DATABASE_URL se fija ACÁ, a la DB de ESTA suite, antes del primer uso del
-// singleton lazy de src/lib/prisma-client.ts: la app bajo test (los repos
-// Prisma reales de la célula B) NUNCA apunta a la DB de otra célula, aunque
-// el proceso traiga otra variable (p. ej. .env.test → cocos_challenge_test).
+// `DATABASE_URL` se fija al destino aislado de esta suite antes de usar Prisma;
+// los repositorios y fixtures apuntan a la misma base de test.
 //
 // Dinero (AGENTS.md): los esperados se computan con Decimal construido desde
 // strings y se comparan como Decimal — nunca float.
 
+import { databaseUrlForTestName } from "../../helpers/test-database-url.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Decimal } from "decimal.js";
@@ -34,12 +30,11 @@ const execFileAsync = promisify(execFile);
 
 /** DB de ESTA suite (aislada por célula: el orquestador corre en paralelo). */
 export const CANCEL_DB_NAME = "cocos_challenge_cancel";
-export const CANCEL_DB_URL = `postgresql://postgres:postgres@localhost:5433/${CANCEL_DB_NAME}`;
+export const CANCEL_DB_URL = databaseUrlForTestName(CANCEL_DB_NAME);
 
 // ANTES del primer uso del singleton lazy (patrón orders-submit/support.ts).
-// Se RESTAURA en closeCancelDbPool: el worker de jest se reusa para otros
-// archivos de tests (p. ej. tests/db.smoke.test.ts lee DATABASE_URL vía
-// .env.test y dotenv NO pisa una variable ya presente).
+// Se RESTAURA al cerrar: Jest reutiliza el worker entre archivos y la suite
+// no debe dejar un DATABASE_URL distinto para el siguiente archivo.
 const PREVIOUS_DATABASE_URL: string | undefined = process.env["DATABASE_URL"];
 process.env["DATABASE_URL"] = CANCEL_DB_URL;
 

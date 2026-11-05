@@ -1,6 +1,6 @@
 # Base de datos — esquema y guía de trabajo
 
-PostgreSQL 18.6 (Neon, `us-east-2`) · base `neondb` · esquema `public` · ~7.8 MB
+PostgreSQL compatible con el esquema migrado · esquema `public` · dataset de referencia del challenge
 
 Este documento describe **qué hay en la base** y **cómo iterar contra ella sin perder tiempo**.
 Si algo cambia en la base, se regenera el snapshot con `make db-snapshot` (ver §6).
@@ -289,58 +289,32 @@ Están escritos y comentados en `db/indexes.sql` — **no** los apliques sobre N
 
 ---
 
-## 6. Flujo de trabajo recomendado
+## 6. Configuración y flujo de datos
 
-**Neon = fuente de verdad para el snapshot. Postgres local = donde iterás.**
+La aplicación acepta cualquier PostgreSQL compatible mediante `DATABASE_URL`. Configurá la variable en `.env` para desarrollo o en el gestor de secretos del entorno; no guardes credenciales reales en Git. La configuración de `.env.example` es sólo un formato de referencia.
 
-```
-Neon (remoto, ~200ms)  --make db-snapshot-->  db/schema.sql + db/seed.sql  --psql -f db/seed.sql-->  localhost:5433 (~1ms)
-```
+Para una base vacía preparada para esta versión, aplicar migraciones y cargar el dataset del challenge:
 
 ```bash
-make db-up         # levanta Postgres 16 local en docker (puerto 5433)
-make db-load       # carga el snapshot LEGACY: exige LEGACY=1 (ver warning abajo)
-make db-reset      # drop + carga del snapshot LEGACY: exige LEGACY=1
-make psql          # abre psql contra la base local
-make prices        # corre db/queries/portfolio.sql para el user 1
-
-# re-baja schema+datos desde Neon (necesita NEON_DATABASE_URL, ver .env.example)
-export NEON_DATABASE_URL="postgresql://neondb_owner:<password>@<host>/neondb?sslmode=require"
-make db-snapshot
+npx prisma migrate deploy
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/seed.sql
 ```
 
-> ⚠️ **`make db-load` y `make db-reset` exigen `LEGACY=1` y NO sirven para levantar una base de
-> la app.** Cargan `db/schema.sql` = el **snapshot legacy** (sin
-> `"timeInForce"`/`filledPrice`/`filledAt`/`idempotencyKey` ni `order_events`) — la app no
-> funciona contra ese esquema. Sin `LEGACY=1` ambos se niegan con ese aviso; con la variable,
-> quedan para reproducir el dataset original de referencia. **Para una base de la app
-> (dev/test), el flujo verificado es:**
->
-> ```bash
-> psql postgresql://postgres:postgres@localhost:5433/postgres -c 'DROP DATABASE IF EXISTS cocos_challenge_dev'
-> psql postgresql://postgres:postgres@localhost:5433/postgres -c 'CREATE DATABASE cocos_challenge_dev TEMPLATE template0'
-> DATABASE_URL=postgresql://postgres:postgres@localhost:5433/cocos_challenge_dev npx prisma migrate deploy
-> psql postgresql://postgres:postgres@localhost:5433/cocos_challenge_dev -v ON_ERROR_STOP=1 -q -f db/seed.sql
-> ```
->
-> (quickstart completo en el `README.md`). Sin docker: contra cualquier PostgreSQL al que
-> apunte `DATABASE_URL` — el flujo no depende de docker.
+`db/seed.sql` modifica datos y debe ejecutarse sólo cuando se desea cargar el dataset del challenge. No se debe ejecutar sobre datos que se quieran conservar.
 
-> El snapshot se generó y se **validó cargándolo en un PostgreSQL 18 limpio**: 4/66/11/126
-> filas, `schema.sql` y `seed.sql` cargan sin errores, `db/indexes.sql` aplica sin conflictos
-> y `db/queries/portfolio.sql` devuelve exactamente los valores de §3.
+Las pruebas de integración usan `TEST_DATABASE_URL`, independiente de `DATABASE_URL`. PostgreSQL local es una opción para estas pruebas; cada suite funcional resetea su base de test antes de correr. No uses una base de aplicación/productiva para el reset de tests. El procedimiento vigente es:
 
-`.env` local: `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/cocos_challenge`
+```bash
+npm run test:db:reset
+npm test
+```
 
 Reglas:
 
 - `db/schema.sql` y `db/seed.sql` **son generados**, no se editan a mano.
-- Si el challenge pide "usar la base tal cual", la verdad de los DATOS es el snapshot (carga
-  sin ediciones sobre el esquema migrado); Neon se usa para la demo final y para verificar que
-  las migraciones corren contra la base real.
-- Para tests de integración: **`npm run test:db:reset`** (recrea `cocos_challenge_test` desde la
-  **migración versionada** + seed, sin docker y sin template). El template cargado de
-  `db/schema.sql` quedó obsoleto por lo mismo que `make db-load`.
+- El snapshot describe los datos de referencia; el DDL vigente son `prisma/migrations/**`.
+- La conexión de la app y la de tests son responsabilidades distintas: `DATABASE_URL` para runtime, `TEST_DATABASE_URL` para suites con escritura.
+- Los comandos de migración y seed afectan la DB indicada por `DATABASE_URL`; verificar el destino antes de ejecutarlos.
 
 ---
 

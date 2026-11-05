@@ -1,14 +1,12 @@
 // Célula D — acceso directo a la DB de los tests funcionales de UC-3.
 //
-// La suite de orders corre contra `cocos_challenge_ftest` (TEST_DB_NAME de
-// scripts/test-db-reset.sh): DB AISLADA de las demás células (B usa
-// cocos_challenge_test). El URL vive ACÁ, hardcoded, y NO en .env.test —
-// así la suite nunca toca la DB de otra célula aunque el proceso traiga
-// otra variable.
+// La suite de orders deriva su URL desde TEST_DATABASE_URL y usa una base
+// aislada de las demás suites. Nunca toma la URL runtime de la aplicación.
 //
 // Dinero (AGENTS.md): pg devuelve `numeric` como string; los asserts lo
 // comparan vía Decimal construido desde strings, nunca float.
 
+import { databaseUrlForTestName } from "../../helpers/test-database-url.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Pool, type QueryResultRow } from "pg";
@@ -16,7 +14,7 @@ import { Pool, type QueryResultRow } from "pg";
 const execFileAsync = promisify(execFile);
 
 export const FUNCTIONAL_DB_NAME = "cocos_challenge_ftest";
-export const FUNCTIONAL_DATABASE_URL = `postgresql://postgres:postgres@localhost:5433/${FUNCTIONAL_DB_NAME}`;
+export const FUNCTIONAL_DATABASE_URL = databaseUrlForTestName(FUNCTIONAL_DB_NAME);
 
 /**
  * Recrea la DB de la célula D al estado del seed (migración versionada +

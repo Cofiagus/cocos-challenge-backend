@@ -154,15 +154,13 @@ test de contrato T4 con valores esperados calculados a mano.
 **Verificación**: GET portfolio user 1 devuelve exactamente §3; "APPL" matchea por prefijo; ARS nunca
 aparece en positions ni en búsqueda.
 
-## M9 — Infra de conexión: IPv4 first, pooler solo runtime, local para tests
+## M9 — Configuración separada de conexión runtime y tests
 
-**Porqué**: §5 documenta la trampa IPv6 (90s de connect que parece cold start) y los ~200ms de RTT;
-el pooler (PgBouncer transaction) rompe prepared statements con nombre — migraciones van por host
-directo, runtime por pooler. Los tests tienen que correr en milisegundos.
+**Fundamento**: cualquier recomendación sobre DNS, pooling o URLs directas depende del proveedor elegido
+y no forma parte del contrato de configuración genérico del repositorio.
 
-**Cómo**: `dns.setDefaultResultOrder('ipv4first')` (o resolver A + hostaddr) en `src/lib/prisma`;
-tests de integración contra Postgres local (template `CREATE DATABASE test TEMPLATE cocos` desde el
-snapshot + migración); Neon solo para demo final y verificación de migraciones.
+**Cómo**: las pruebas de integración usan `TEST_DATABASE_URL` y runtime usa `DATABASE_URL`;
+ambas aceptan PostgreSQL compatible con el esquema, sin asumir proveedor, host o puerto.
 
 **Tareas**: config en `src/lib` → script de test DB con template → documentar separación pooler/host en README.
 
