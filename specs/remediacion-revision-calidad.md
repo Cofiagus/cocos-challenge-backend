@@ -205,13 +205,18 @@ Antes de despachar la célula correspondiente, el humano debe elegir:
 | **Q1** | F2-IDEM | **A — columna nueva `requestFingerprint`** | Agrega una columna a `orders` y una migración create-only. Cablea con F3-DB: la columna y su UNIQUE/CHECK se definen UNA sola vez en la migración de F3, y F2 sólo la escribe/compara. Orden de ejecución: **F3 antes de F2** en la Wave 3 (F3 define el DDL, F2 lo consume). |
 | **Q2** | F1-PNL | **A — denominador `|costBasis|`, retorno exacto con signo** | El retorno de una posición negativa se **calcula** y puede ser negativo cuando corresponde: gana ⇒ positivo, pierde ⇒ negativo. No se devuelve `null`. Actualizar `tests/unit/domain/portfolio.test.ts:390-415`, que hoy congela `-10.00%` para una posición que gana $150. |
 
+### ✅ Decisiones tomadas por el humano (2026-11-06)
+
+| # | Célula | Decisión | Consecuencia |
+|---|---|---|---|
+| **Q3** | F6-QUOTES | **A — sin cache** | Sólo presupuesto de tiempo del request + concurrencia acotada. Sin estado en memoria: el precio es siempre fresco. Se descarta TTL. |
+| **Q4** | F3-DB | **A — versionar Y ensayar en DB de test aislada** | La migración se aplica **sólo** sobre una base de test creada para el ensayo. **No se toca la DB de la app.** El ensayo deja evidencia de conservación de valores. |
+| **Q5** | F4-RUNTIME | **A — `HOST` configurable, default `127.0.0.1`** | Mantiene el comportamiento actual (fix `d7663d1`) y permite contenedor. |
+| **R1** | F9-README (nueva, Wave 2) | **A — actualizar números y estado a lo verificado** | El README deja de afirmar "37 suites / 515 tests" y "A4/A5 no verificados"; se alinea con la corrida real y con G5/Yahoo en vivo. |
+
 ### ⏳ Pendientes de confirmación
 
-| # | Célula | Decisión | Opciones |
-|---|---|---|---|
-| **Q3** | F6-QUOTES | Cache de cotizaciones y TTL | **A)** sin cache (simple, latencia plena en cada request) · **B)** cache en memoria con TTL corto (**confirmar TTL**: 15 s / 60 s) |
-| **Q4** | F3-DB | Alcance de la migración | **A)** sólo dejar la migración versionada (como `large_money`) · **B)** versionar **y** aplicar en DB de test, con ensayo documentado |
-| **Q5** | F4-RUNTIME | Binding del puerto tras el fix `127.0.0.1` | **A)** mantener `127.0.0.1` · **B)** host configurable por `HOST` (default `127.0.0.1`) — necesario si se despliega en contenedor |
+Ninguno. Todas las decisiones abiertas están firmadas; el build sigue el orden de §2.
 
 ---
 
