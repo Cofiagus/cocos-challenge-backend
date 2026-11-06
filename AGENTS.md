@@ -18,10 +18,10 @@ Estado: 5 endpoints implementados; el estado de los tests lo da `npm test`.
 | ¿por qué esta regla de negocio es así? | `DECISIONS.md` |
 | ¿qué columnas, índices y derivaciones SQL existen? | `docs/database.md` |
 | ¿cómo levanto la base y el server? ¿qué comando uso? | este archivo §2 y §4 |
-| ¿qué se decidió y por qué, en la entrega? | `README.md` §Supuestos |
+| ¿qué se decidió y por qué, en la entrega? | `README.md` §Cómo funciona |
 | ¿qué devuelve exactamente cada endpoint? | `openapi.json` (contrato, generado) + `docs/api.md` (semántica) |
 | ¿en qué orden corre un caso de uso? | el header del caso de uso en `src/application/` |
-| ¿qué límites y supuestos tiene el sistema? | `README.md` §Supuestos y las consecuencias de `DECISIONS.md` |
+| ¿qué límites tiene el sistema? | `README.md` §Cómo funciona y las consecuencias de `DECISIONS.md` |
 
 La topología vigente es la de `docs/CODEMAP.md`; el contrato HTTP, `openapi.json`, y la semántica,
 `docs/api.md`.
