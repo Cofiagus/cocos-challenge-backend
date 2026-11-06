@@ -48,6 +48,7 @@ const orderRow = (overrides: OrderRowOverrides = {}): Order => ({
   ),
   filledAt: new Date("2023-07-14T00:00:00.000Z"),
   idempotencyKey: null,
+  requestFingerprint: null,
 });
 
 const asTrading = (order: OrderRecord): TradingOrderRecord => {
