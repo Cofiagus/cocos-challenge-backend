@@ -1,7 +1,7 @@
 # CODEMAP — topología del código
 
-> **Normativo.** Si agregás, borrás o renombrás un archivo o un export, este archivo se actualiza en el
-> MISMO commit: `tests/docs/docs-consistency.test.ts` (D2/D3) falla si no.
+> **Normativo.** Un archivo o un export nuevo o renombrado se refleja acá en el MISMO commit:
+> `tests/docs/docs-consistency.test.ts` (D2/D3) falla si no.
 >
 > **Qué NO responde acá**: qué devuelve un endpoint (`openapi.json` + `docs/api.md`), por qué una
 > regla de negocio es así (`DECISIONS.md`), columnas e índices (`docs/database.md`), cómo levantar el
@@ -36,7 +36,7 @@ Permitido (flecha = puede importar): `http → application → domain`, `http �
 Verificación de la última regla:
 
 ```bash
-grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
+grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # no imprime nada
 ```
 
 ## 3. contracts — el vocabulario y el borde
@@ -143,16 +143,17 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
    `dotenv` pueda setear `DATABASE_URL` antes (los imports ESM corren antes del cuerpo del módulo).
    Por eso cada `support.ts` fija `process.env.DATABASE_URL` ANTES de importar la app.
 4. **`createOrder` usa `$executeRaw` con `ON CONFLICT DO NOTHING`** y decide por el count (1 = insertó,
-   0 = conflicto). Cualquier otro count = `CorruptRowError`. No reemplazar por `create()` + catch P2002.
+   0 = conflicto). Cualquier otro count = `CorruptRowError`. Un `create()` con catch de P2002 no
+   reproduce esa garantía.
 5. **`markFilled`/`markCancelled` son `updateMany` con `WHERE status='NEW'`**: el count ES la transición
    atómica; 0 ⇒ `null` ⇒ 422, sin mutar y sin evento.
 6. **`marketdata` usa una query raw con `DISTINCT ON`** y `to_char(date,'YYYY-MM-DD')`: la fecha viaja
    como texto para no pasar por `Date`/zona horaria. El batch evita N+1.
 7. **Los mappers fallan ruidosamente.** Un NULL donde el contrato exige valor es `CorruptRowError`,
-   nunca un default silencioso. Si un test nuevo rompe con `CorruptRowError`, sospechar de una fila del
-   seed o de una lectura de movimientos tras un fill creado por la API.
+   nunca un default silencioso. Un test que rompe con `CorruptRowError` señala una fila del seed o
+   una lectura de movimientos tras un fill creado por la API.
 8. **`db/schema.sql` es un snapshot generado y viejo**; el DDL real es `prisma/migrations/**`.
-   Nunca cargar la DB de desarrollo desde `db/schema.sql`.
+   La DB de desarrollo no se carga desde `db/schema.sql`.
 
 ## 11. Mapa de tests (una suite por caso de uso; transversal al final)
 
@@ -186,8 +187,9 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 | `tests/docs/docs-consistency.test.ts` | D1–D4: paths citados, archivos de `src/`, exports y códigos/rutas de api.md en este mapa |
 | `tests/docs/openapi.test.ts` | sincronización json↔generador, rutas↔routers, códigos del contrato por operación, bodies del contrato y frontera del wire monetario (D7–D11) |
 
-## 13. Deuda conocida (no "arreglar" sin spec)
+## 13. Límites de alcance
 
-- `marketdata-price-source.ts` implementa `PriceSource` y **nadie lo cablea** (punto de enchufe del matching).
-- La migración no tiene `CHECK` de transiciones de estado: la guarda es a nivel app.
+- `marketdata-price-source.ts` implementa `PriceSource` y no está cableado: es el punto de enchufe
+  del matching continuo, sin disparador en producción.
+- La migración no tiene `CHECK` de transiciones de estado: la guarda vive en la aplicación.
 
