@@ -5,10 +5,14 @@ import { serverApp } from "./http/server.js";
 import { disconnectPrismaClient } from "./lib/prisma-client.js";
 
 const port = Number(process.env["PORT"] ?? "3000");
+// Bind exclusivo a loopback: la API es local y no tiene autenticación, así que
+// no debe quedar expuesta en las interfaces de red de la máquina. `listen(port)`
+// sin host se bindea a 0.0.0.0 (y ::), que es justo lo que hay que evitar.
+const host = "127.0.0.1";
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
-const server = serverApp.listen(port, () => {
-  console.log(`✓ cocos-challenge-backend escuchando en http://localhost:${port}`);
+const server = serverApp.listen(port, host, () => {
+  console.log(`✓ cocos-challenge-backend escuchando en http://${host}:${port}`);
 });
 
 // listen() reporta errores asíncronos (EADDRINUSE y afines) como evento
