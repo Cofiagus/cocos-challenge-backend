@@ -299,3 +299,56 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
   `TEST_DATABASE_URL` correcto y la base recreada desde migraciones + seed, la suite pasa completa.
 
 - **ROLLOUT CERRADO (2026-11-06)** con la decisión A del humano. Estado final verificado por el supervisor: `main` limpio, **1 worktree**, migración de grandes montos aplicada a la DB app con fingerprints económicos idénticos antes/después, API viva en `127.0.0.1:3000`, Yahoo en vivo funcionando por el camino real de código, y suite completa **42 / 581 en verde**. Sin push (no pedido).
+
+---
+
+## Activo — REMEDIACIÓN DE LA REVISIÓN DE CALIDAD (`specs/remediacion-revision-calidad.md`)
+
+**Fuente inmutable:** `specs/remediacion-revision-calidad.md` (borrador Rev. 1, `972746a`).
+**Decisiones humanas ya firmadas (2026-11-06):** **Q1 = A** (columna `requestFingerprint`, migración
+create-only; por eso en la Wave 3 el DDL lo define **F3-DB y lo consume F2-IDEM**) · **Q2 = A**
+(retorno con denominador `|costBasis|`: gana ⇒ positivo, pierde ⇒ negativo).
+
+**Entorno (medido, no asumido):** cluster userspace `~/.pg/cocos` en `127.0.0.1:5433`, que es lo que
+espera `.env.test`. **Pitfall:** `pg_isready -p 5433` usa el socket de `/var/run/postgresql` y da
+falso negativo; chequear por TCP (`pg_isready -h 127.0.0.1 -p 5433`). `npm run test:db:reset`
+recrea las bases y deja los setval golden 4 / 66 / 11 / 126.
+
+**Wave 1 — CERRADA E INTEGRADA** (4 células en worktrees propios, rutas disjuntas; gate completo
+re-corrido por el orquestador después de CADA merge):
+
+| Célula | Rama / SHA | Verify re-corrido por el orquestador | Merge |
+|---|---|---|---|
+| F1-PNL | `cell/f1-pnl` `0aa2143` | typecheck 0 · lint 0 · 6 suites / 74 tests | `8de100f` |
+| F5-EDGE | `cell/f5-edge` `5910734` | typecheck 0 · lint 0 · 3 suites / 29 tests · `openapi.json` sin diff | `597e0b4` |
+| F7-DOCS | `cell/f7-docs` `b9a4321` | typecheck 0 · lint 0 · 2 suites / 16 tests | `57c71d4` |
+| F8-VERIFY | `cell/f8-verify` `80eda82` | typecheck 0 · lint 0 · `test:no-db` 29 suites / 375 tests con DB muerta | `44bc3f2` |
+
+**Seams resueltos por el orquestador en el merge (no delegados a células nuevas):**
+1. `tests/functional/read/read-endpoints.test.ts:153` congelaba `totalReturnPct: -2.42` para BMA;
+   con Q2=A pasa a `+2.42` (costo base −15400,00 ⇒ ganancia 372,00). Corregido con su comentario.
+2. La guardia **D3** (aportada por F7) detectó que F5 agregó 7 exports a `src/http/shared/edge.ts`
+   sin documentarlos: **la guardia funcionó** y el gate quedó rojo hasta actualizar la fila de
+   CODEMAP (`28c2d7e`). Es la prueba de que D3 no es decorativa.
+3. `AGENTS.md` §2 no listaba `test:no-db` (agregado en `28c2d7e`).
+
+**Gate final de la Wave 1 (HEAD `28c2d7e`):** typecheck 0 · lint 0 · **44 suites / 596 tests** en
+verde, contra PostgreSQL real en 5433. Sin push (no pedido).
+
+**Deuda arrastrada, no introducida:** la corrida completa sigue emitiendo
+`A worker process has failed to exit gracefully` — hay handles sin cerrar en alguna suite. No rompe
+el gate, pero contradice el `openHandles=[]` que afirma la sección del rollout más arriba. Pendiente
+de diagnosticar (`--detectOpenHandles`), no bloquea las waves siguientes.
+
+**Worktrees vivos (ya integrados, pendientes de limpieza):** `coccb-wt-f1-pnl`, `coccb-wt-f5-edge`,
+`coccb-wt-f7-docs`, `coccb-wt-f8-verify`. Las ramas quedan por si hay que relanzar una célula.
+
+**Pendiente para las waves siguientes:**
+- **Q3** (F6-QUOTES): cache de cotizaciones — A) sin cache · B) TTL 15 s / 60 s.
+- **Q4** (F3-DB): A) sólo versionar la migración · B) versionar y ensayar en DB de test.
+- **Q5** (F4-RUNTIME): A) mantener `127.0.0.1` · B) `HOST` configurable.
+- **Wave 2:** F2-IDEM · F4-RUNTIME · F6-QUOTES. **Wave 3:** F3-DB ⇒ F2-IDEM (en ese orden por Q1=A).
+- **QUESTION documental (requiere decisión humana, afecta la evidencia de la entrega):** `README.md:7`
+  sigue afirmando «37 suites / 515 tests» y `README.md:140` «A4/A5 no verificados», mientras el
+  rollout cerró con 42/581 y G5 con Yahoo en vivo. Opciones: **A)** la ola dueña de README actualiza
+  ambos; **B)** dejarlos y marcar el bloque como histórico. F7 no lo editó por estar fuera de su fase.
