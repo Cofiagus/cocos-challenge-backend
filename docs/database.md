@@ -9,10 +9,13 @@ Si algo cambia en la base, se regenera el snapshot con `make db-snapshot` (ver �
 > (`db/schema.sql` + `db/seed.sql`), que es la fuente de los DATOS del challenge. El **esquema con
 > el que corre la app** es el **head versionado**: `prisma/schema.prisma` + `prisma/migrations/**`,
 > que agrega a `orders` las columnas
-> `"timeInForce"`, `filledPrice`, `filledAt`, `idempotencyKey` y crea la tabla `order_events`
-> (auditoría). El seed carga **sin ediciones** sobre el esquema migrado (las filas viejas quedan
-> en `GTC`/`filledPrice NULL`). Para levantar una base de la app: `npx prisma migrate deploy` +
-> `psql -f db/seed.sql` — **no** `make db-load LEGACY=1` (ese aplica el snapshot legacy). Ver §2 y §6.
+> `"timeInForce"`, `filledPrice`, `filledAt`, `idempotencyKey`, `requestFingerprint` y crea la tabla
+> `order_events` (auditoría). El seed carga **sin ediciones** sobre el esquema migrado (las filas
+> viejas quedan en `GTC`; el trigger de normalización de §10 copia `price` a `filledPrice`).
+> Encima del legacy el head agrega 10 CHECK constraints y el trigger
+> `orders_fill_execution_price_trigger`: el inventario completo de las **4 migraciones** está en §10.
+> Para levantar una base de la app: `npx prisma migrate deploy` + `psql -f db/seed.sql` — **no**
+> `make db-load LEGACY=1` (ese aplica el snapshot legacy). Ver §2 y §6.
 
 > ⚠️ **Grandes montos (spec aprobada, D1–D5).** El **head versionado** (`prisma/schema.prisma` +
 > migración `20261105104903_large_money`) declara `NUMERIC(24,2)` en los campos financieros:
@@ -104,10 +107,17 @@ Sin `UNIQUE` en `ticker`. Valores de `type`: `ACCIONES` (65) y `MONEDA` (1).
 
 Cobertura real: **solo 2023-07-13 y 2023-07-14**, 63 de los 66 instrumentos.
 Sin filas: `PGR` (id 3), `IRCP` (id 10) y `ARS` (id 66).
-Sin `UNIQUE (instrumentid, date)` → nada impide duplicar una vela.
+
+El **snapshot legacy** no tiene `UNIQUE (instrumentid, date)`: nada impide duplicar una vela. El
+**head versionado** sí lo tiene — el índice único `marketdata_instrumentid_date_key`
+(migración `20261106154910_db_integrity_constraints`, §10) — y además exige
+`instrumentid`, `date`, `close` y `previousclose` **NOT NULL** (`high`/`low`/`open` siguen
+nullable: el seed trae velas sin ellos).
 
 Los cinco precios son `numeric(10,2)` en el **snapshot legacy** y `numeric(24,2)` en el **head
-versionado** (`prisma/migrations/20261105104903_large_money`), que conserva nombres, mapeos y nullabilidad.
+versionado** (`prisma/migrations/20261105104903_large_money`), que conserva nombres y mapeos; la
+nullabilidad de `close`/`previousclose` la endurece después la migración
+`20261106154910_db_integrity_constraints` (§10).
 
 ### `orders`
 
@@ -135,6 +145,7 @@ son los del head versionado):
 | `filledPrice`   | `numeric(24,2)` | sí | — | **precio de ejecución** si `FILLED`; `NULL` si no ejecutó |
 | `filledAt`      | `timestamp(6)` | sí | — | cuándo ejecutó |
 | `idempotencyKey` | `text` | sí | — | claim idempotente; `UNIQUE(userid, idempotencyKey)` (múltiples `NULL` permitidos) |
+| `requestFingerprint` | `text` | sí | — | huella del payload canónico para **comparar** en la idempotencia; **sin** `UNIQUE` (dos órdenes legítimas del mismo usuario con el mismo payload deben coexistir) |
 
 Y la tabla nueva de **auditoría append-only**:
 
@@ -150,9 +161,12 @@ order_events(id, orderid → orders(id), eventType, reason NULL, metadata jsonb 
 > original **no se pierde** al llenar la orden.
 >
 > **El caso legacy:** las filas `FILLED` del seed fueron copiadas del dataset original, que tenía
-> una sola columna `price` con el precio de ejecución. Esas filas llevan la ejecución en `price`
-> y `filledPrice NULL`; el mapper de lectura aplica `filledPrice ?? price`, así el snapshot carga
-> tal cual sobre el esquema migrado y la app ve la ejecución correcta en las filas viejas.
+> una sola columna `price` con el precio de ejecución. En el archivo `db/seed.sql` esas filas
+> llevan la ejecución en `price` y **no** traen `filledPrice` (la columna no existe en el snapshot
+> legacy), así que entran con `NULL`. El head versionado no las deja así: la migración
+> `20261106180000_db_write_invariants` hace el backfill `filledPrice = price` y deja un trigger que
+> aplica la misma regla a toda escritura (§10). El mapper de lectura igual aplica
+> `filledPrice ?? price`, de modo que la ejecución se lee correcta por ambos caminos.
 
 Combinaciones presentes en el seed (11 órdenes, todas del user 1):
 
@@ -221,9 +235,10 @@ Resultado verificado con el seed (user 1):
 | BMA                | **−10** @ 1.540,00 → −15.028 ⚠️ |
 
 Las dos queries usan `coalesce("filledPrice", price)` porque la API guarda el precio de
-ejecución en `filledPrice` (y en `price` el límite, o `NULL` en `MARKET`); sólo las filas
-legacy del seed lo tienen en `price`. Los números de esta sección no cambian: el seed tiene
-`filledPrice NULL` en todas sus filas.
+ejecución en `filledPrice` (y en `price` el límite, o `NULL` en `MARKET`); en el archivo del seed
+las filas legacy lo tienen sólo en `price`, aunque al cargarlo sobre el head el trigger de §10
+copia `price` a `filledPrice`. Los números de esta sección no cambian: el `COALESCE` da el mismo
+resultado con `filledPrice` poblado o `NULL`.
 
 Tras la migración de grandes montos estas queries no cambian: operan sobre `numeric(24,2)` y
 devuelven `numeric` exacto (la API serializa el dinero como string de 2 decimales; el SQL nunca
@@ -318,7 +333,7 @@ Faltantes que sí importan cuando el volumen crezca (no ahora):
 | ---------------------------------------------------- | -------------------------------------------------------------- |
 | `orders (userid, datetime DESC)`                     | Es *la* query del portfolio y del historial                     |
 | `orders (status)` parcial `WHERE status='NEW'`       | Cancelar y matchear límites                                     |
-| `marketdata (instrumentid, date DESC)` **UNIQUE**    | El índice ya existe en la migración; falta el UNIQUE, que evita velas duplicadas |
+| `marketdata (instrumentid, date DESC)` **UNIQUE**    | Ya está: `marketdata_instrumentid_date_key` lo crea `20261106154910_db_integrity_constraints` (§10) y evita velas duplicadas |
 | `instruments (ticker)` **UNIQUE**                    | Búsqueda por ticker y dedupe                                     |
 | `users (email)` **UNIQUE**                           | Login / alta                                                    |
 | `CHECK (size > 0)`                                   | `size` no tiene validación general en la DB; la migración de grandes montos agrega CHECKs **acotados a los campos financieros modificados** (ver §9) — no esta regla amplia |
@@ -437,6 +452,11 @@ migraciones"; sólo la migración nueva, nunca la inicial ni los snapshots SQL):
   endurece en este trabajo.
 - No se agregan constraints de email/ticker, índices nuevos, triggers de estados ni cambios al
   mecanismo de idempotencia.
+
+> **Alcance de esta lista:** es el de `20261105104903_large_money`. Las dos migraciones
+> posteriores (§10) sí agregan un índice **UNIQUE** sobre `marketdata`, cuatro CHECKs de
+> coherencia de escritura en `orders` y un trigger que **normaliza** `filledPrice` desde `price`
+> (no es un trigger de estados ni toca la unicidad de idempotencia).
 
 **Límite honesto:** `NUMERIC(24,2)` puede redondear una entrada SQL con escala mayor a 2
 **antes** de que un CHECK la evalúe; el borde Zod la rechaza antes de persistir. Los CHECKs
