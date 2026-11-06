@@ -29,12 +29,30 @@ export const IDEMPOTENCY_KEY_HEADER = "idempotency-key" as const;
 export const IdempotencyKeySchema = z.string().min(1).max(64);
 export type IdempotencyKey = z.infer<typeof IdempotencyKeySchema>;
 
+/** Máximo de un INTEGER de Postgres (INT4): 2^31−1. */
+export const MAX_INT4 = 2147483647;
+
 /**
  * Cota de `size` de TRADING: la cantidad de acciones por orden sigue acotada
  * al máximo de INT4 (2^31−1), aunque la columna pase a NUMERIC(24,2). Sin
  * esta cota el valor pasa Zod y llega como 500 del INSERT en vez de 400.
  */
-export const MAX_ORDER_SIZE_SHARES = 2147483647;
+export const MAX_ORDER_SIZE_SHARES = MAX_INT4;
+
+/**
+ * Identificador positivo acotado a INT4 (1..2147483647): la misma cota que
+ * `MAX_ORDER_SIZE_SHARES`, aplicada a los IDs que se persisten en columnas
+ * `Int` (userId, orderId, instrumentId). Sin ella un id > INT4 pasa Zod y
+ * golpea el SELECT/INSERT como error de Postgres (SQLSTATE 22003, Prisma
+ * P2020) ⇒ 500, en vez del 400 del borde. `coerce` es para los params de
+ * ruta de Express (strings); un body numérico también lo satisface.
+ */
+export const PositiveIntParamSchema = z.coerce
+  .number()
+  .int()
+  .min(1)
+  .max(MAX_INT4);
+export type PositiveIntParam = z.infer<typeof PositiveIntParamSchema>;
 
 /** `null` explícito es "ausente" en campos opcionales del body. */
 const isPriceAbsent = (price: Decimal | null | undefined): boolean =>
@@ -42,12 +60,12 @@ const isPriceAbsent = (price: Decimal | null | undefined): boolean =>
 
 /** Params de ruta de POST (userId) y DELETE (orderId). */
 export const CreateOrderParamsSchema = z.strictObject({
-  userId: z.coerce.number().int().positive(),
+  userId: PositiveIntParamSchema,
 });
 export type CreateOrderParams = z.infer<typeof CreateOrderParamsSchema>;
 
 export const CancelOrderParamsSchema = z.strictObject({
-  orderId: z.coerce.number().int().positive(),
+  orderId: PositiveIntParamSchema,
 });
 export type CancelOrderParams = z.infer<typeof CancelOrderParamsSchema>;
 
@@ -65,7 +83,11 @@ export type CancelOrderParams = z.infer<typeof CancelOrderParamsSchema>;
  */
 export const CreateOrderRequestSchema = z
   .strictObject({
-    instrumentId: z.number().int().positive().optional(),
+    /**
+     * Instrumento por id: entero 1..INT4. Sin la cota, un id mayor pasa Zod
+     * y el SELECT contra la columna Int responde 500 (ver PositiveIntParamSchema).
+     */
+    instrumentId: PositiveIntParamSchema.optional(),
     ticker: z.string().min(1).max(10).optional(),
     side: TradingSideSchema,
     type: OrderTypeSchema,
