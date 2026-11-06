@@ -282,8 +282,8 @@ Query reutilizable con precio de mercado y P&L: `db/queries/portfolio.sql`.
 ## 4. Inconsistencias del seed (no son bugs tuyos)
 
 1. **BMA queda en −10.** Se vendieron 30 (orden 11, `FILLED`) con sólo 20 compradas `FILLED`
-   (orden 9); la compra de 60 quedó en `NEW` (orden 7). Si implementás la validación estricta
-   de "no vender más de lo que tenés", esa orden debería haber sido `REJECTED`.
+   (orden 9); la compra de 60 quedó en `NEW` (orden 7). La API rechaza vender más de lo que se
+   tiene, así que esa venta no se generaría desde cero: es una inconsistencia del dataset.
    Conclusión: **el seed no es un oráculo de negocio**, sólo un dataset de ejemplo.
 2. **El seed rechaza la venta de PAMP** (orden 6: vender 100 con 50 en cartera → `REJECTED`),
    lo cual sí es coherente. Es decir: la regla se aplica, pero el seed tiene una excepción.

@@ -60,27 +60,33 @@ las bases de test; nunca uses ahí la URL de la app).
 | [docs/database.md](docs/database.md) | esquema real, semántica de `orders` y diferencia entre el snapshot legacy y el head versionado |
 | [docs/schema-changes.md](docs/schema-changes.md) | cada cambio frente al esquema provisto por el challenge, con su motivo |
 
-## Supuestos (resumen)
+## Cómo funciona
 
-El detalle y las consecuencias de cada uno están en [DECISIONS.md](DECISIONS.md); acá, la versión de
-una línea:
+Cada regla está decidida y fundamentada en [DECISIONS.md](DECISIONS.md), con su contexto y sus
+consecuencias. Acá, la versión operativa:
 
-- **El dinero nunca es `number`.** Entra como string decimal estricto y sale como string con
-  2 decimales; un JSON `number` se rechaza con 400 porque el parser ya pudo perder cifras (D1).
-- **Cash y posiciones se derivan de `orders`**, no de tablas propias: una sola fuente de verdad
-  evita saldos desincronizados. `cash` es el disponible (`settled − reservado`) (D2).
-- **Precio de referencia = última fila de `marketdata` por `date`.** `MARKET` se ejecuta ahí y queda
-  `FILLED` en la misma transacción; `LIMIT GTC` queda `NEW` y reserva; `IOC`/`FOK` se evalúan una vez
-  contra esa referencia. Sin precio, nunca se inventa uno (D3).
-- **No hay motor de matching continuo:** `matchRestingOrders` existe testeada pero ningún flujo de
-  producción la llama, así que las órdenes `NEW` no se llenan cuando cambia el precio (D3).
-- **Una transferencia es una orden del instrumento `ARS`** (`price = "1.00"`) y mueve el monto exacto
-  con centavos, sin floor: `"0.01"` es válida (D4).
-- **Idempotencia opcional por `Idempotency-Key`**, con lock por usuario: misma key y mismo payload
-  devuelve la orden original; misma key y otro payload responde 409 (D5).
-- **`201` también para `REJECTED`/`CANCELLED` persistidas**: el endpoint recibió, evaluó y grabó la
-  orden. Input inválido es 400 sin escribir nada (D6).
-- **`MONEDA` no es operable**: no se compra, no se vende, no aparece en búsqueda ni en posiciones (D6).
+- **El dinero viaja como string.** Entra como string decimal estricto y sale como string con
+  2 decimales. Un JSON `number` se rechaza con 400: el parser ya pudo perder cifras antes de que la
+  aplicación vea el dato (D1).
+- **Cash y posiciones se derivan de `orders`.** No hay tabla de saldos, así que no pueden
+  desincronizarse: `orders` es la única fuente de verdad. `cash` es el disponible
+  (`settled − reservado`) y `reservedCash` viaja aparte para que la resta sea auditable (D2).
+- **El precio de referencia es la última fila de `marketdata` por `date`.** `MARKET` se ejecuta
+  contra ese precio y queda `FILLED` en la misma transacción. `LIMIT GTC` queda `NEW` y reserva.
+  `IOC`/`FOK` se evalúan una sola vez: si cruza, se ejecuta con mejora (BUY paga
+  `min(límite, referencia)`, SELL cobra `max(límite, referencia)`); si no cruza, `CANCELLED` con
+  `NO_IMMEDIATE_MATCH`. Sin precio no se inventa uno (D3).
+- **Las órdenes `NEW` no se ejecutan solas.** No hay motor de matching continuo: `matchRestingOrders`
+  está implementada y testeada como punto de enchufe, y ningún flujo de producción la dispara (D3).
+- **Una transferencia es una orden del instrumento `ARS`**, con precio unitario `"1.00"`, y mueve el
+  monto exacto con centavos: `"0.01"` es una transferencia válida (D4).
+- **La idempotencia se resuelve en la base, con lock por usuario.** Con `Idempotency-Key`: misma key
+  y mismo payload devuelve la orden original; misma key y otro payload responde 409. Sin key, cada
+  request crea una orden nueva (D5).
+- **`201` también para `REJECTED` y `CANCELLED` persistidas**: el endpoint recibió, evaluó y grabó la
+  orden. Un input inválido es 400 sin escribir nada (D6).
+- **`MONEDA` no es operable**: no se compra, no se vende, no aparece en la búsqueda ni en las
+  posiciones (D6).
 
 ## Calidad
 
