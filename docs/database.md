@@ -5,20 +5,36 @@ PostgreSQL compatible con el esquema migrado · esquema `public` · dataset de r
 Este documento describe **qué hay en la base** y **cómo iterar contra ella sin perder tiempo**.
 Si algo cambia en la base, se regenera el snapshot con `make db-snapshot` (ver §6).
 
-> ⚠️ **Snapshot legacy vs esquema vigente.** Este documento describe el **snapshot generado**
+> ⚠️ **Snapshot legacy vs head versionado.** Este documento describe el **snapshot generado**
 > (`db/schema.sql` + `db/seed.sql`), que es la fuente de los DATOS del challenge. El **esquema con
-> el que corre la app** es el **MIGRADO** (`prisma/migrations/**`): agrega a `orders` las columnas
+> el que corre la app** es el **head versionado**: `prisma/schema.prisma` + `prisma/migrations/**`,
+> que agrega a `orders` las columnas
 > `"timeInForce"`, `filledPrice`, `filledAt`, `idempotencyKey` y crea la tabla `order_events`
 > (auditoría). El seed carga **sin ediciones** sobre el esquema migrado (las filas viejas quedan
 > en `GTC`/`filledPrice NULL`). Para levantar una base de la app: `npx prisma migrate deploy` +
 > `psql -f db/seed.sql` — **no** `make db-load LEGACY=1` (ese aplica el snapshot legacy). Ver §2 y §6.
 
-> ⚠️ **Grandes montos (spec aprobada, D1–D5).** La migración **versionada nueva** (aún no aplicada;
-> el estado lo registra `PROGRESS.md`) amplia los campos financieros a `NUMERIC(24,2)`: `orders.price`,
-> `orders.filledPrice`, `orders.size` y los 5 precios de `marketdata`. Los IDs, FKs y secuencias
-> **quedan INTEGER** (sin UUID ni BIGINT de identificadores). La guía operativa de la ventana
-> coordinada vive en [`README.md` → Migración coordinada](../README.md#migración-coordinada-de-grandes-montos);
+> ⚠️ **Grandes montos (spec aprobada, D1–D5).** El **head versionado** (`prisma/schema.prisma` +
+> migración `20261105104903_large_money`) declara `NUMERIC(24,2)` en los campos financieros:
+> `orders.price`, `orders.filledPrice`, `orders.size` y los 5 precios de `marketdata`. Los IDs, FKs
+> y secuencias **quedan INTEGER** (sin UUID ni BIGINT de identificadores). Que el head esté aplicado
+> en la DB de la app **no se afirma acá**: el único registro es `PROGRESS.md`. La guía operativa de
+> la ventana coordinada vive en [`README.md` → Migración coordinada](../README.md#migración-coordinada-de-grandes-montos);
 > los tipos y CHECKs objetivo están en §9.
+
+> 🧭 **Convención de tipos monetarios — todo tipo citado declara su ALCANCE.** Un `numeric(p,s)` sin
+> alcance es una afirmación ambigua: el mismo campo tiene tipos distintos según qué se esté mirando.
+>
+> | Alcance | Fuente de verdad | Campos financieros |
+> | --- | --- | --- |
+> | **snapshot legacy** (datos de referencia del challenge) | `db/schema.sql` (generado) | `numeric(10,2)` |
+> | **head versionado** (lo que produce `npx prisma migrate deploy`) | `prisma/schema.prisma` + `prisma/migrations/**` | `numeric(24,2)` |
+> | **aplicado en la DB de la app** | `PROGRESS.md` (único registro; no se duplica acá) | el que registre `PROGRESS.md` |
+>
+> La regla es mecánica: `numeric(10,2)` sólo puede citarse como **snapshot legacy** (dentro del bloque
+> o la frase que lo rotula); el tipo del **head** es el que declara `prisma/schema.prisma`, así que un
+> cambio de schema obliga a actualizar este documento en el mismo commit. `tests/docs/docs-consistency.test.ts`
+> (D6) hace cumplir esta convención derivando los tipos del head desde `prisma/schema.prisma`.
 
 ---
 
@@ -75,7 +91,7 @@ Sin `UNIQUE` en `ticker`. Valores de `type`: `ACCIONES` (65) y `MONEDA` (1).
 
 ### `marketdata`
 
-| Columna         | Tipo          | Nulo |
+| Columna         | Tipo (snapshot legacy) | Nulo |
 | --------------- | ------------- | ---- |
 | `id`            | `integer`     | NO   |
 | `instrumentid`  | `integer`     | sí → `instruments(id)` |
@@ -90,7 +106,8 @@ Cobertura real: **solo 2023-07-13 y 2023-07-14**, 63 de los 66 instrumentos.
 Sin filas: `PGR` (id 3), `IRCP` (id 10) y `ARS` (id 66).
 Sin `UNIQUE (instrumentid, date)` → nada impide duplicar una vela.
 
-Los cinco precios quedan `numeric(10,2)` en el snapshot y en el esquema migrado vigente; la migración de grandes montos los amplia a `numeric(24,2)` conservando nombres, mapeos y nullabilidad.
+Los cinco precios son `numeric(10,2)` en el **snapshot legacy** y `numeric(24,2)` en el **head
+versionado** (`prisma/migrations/20261105104903_large_money`), que conserva nombres, mapeos y nullabilidad.
 
 ### `orders`
 
@@ -109,12 +126,13 @@ Tipos del **snapshot legacy**; en el esquema migrado `type`/`side`/`status` son 
 | `status`       | `varchar(20)`              | sí   | `NEW` \| `FILLED` \| `CANCELLED` \| `REJECTED`; enum `OrderStatus` en el migrado |
 | `datetime`     | `timestamp` (sin tz)       | sí   | hora local del mercado |
 
-**Columnas del esquema MIGRADO** (no están en el snapshot legacy — `prisma/migrations/**`):
+**Columnas del esquema MIGRADO** (no están en el snapshot legacy — `prisma/migrations/**`; los tipos
+son los del head versionado):
 
-| Columna         | Tipo        | Nulo | Default | Notas |
+| Columna         | Tipo (head versionado) | Nulo | Default | Notas |
 | --------------- | ----------- | ---- | ------- | ----- |
 | `"timeInForce"` | `TimeInForce` (enum) | NO | `'GTC'` | toda orden conoce su TIF; las filas del seed quedan en `GTC`; se ignora para `MARKET` |
-| `filledPrice`   | `numeric(10,2)` | sí | — | **precio de ejecución** si `FILLED`; `NULL` si no ejecutó |
+| `filledPrice`   | `numeric(24,2)` | sí | — | **precio de ejecución** si `FILLED`; `NULL` si no ejecutó |
 | `filledAt`      | `timestamp(6)` | sí | — | cuándo ejecutó |
 | `idempotencyKey` | `text` | sí | — | claim idempotente; `UNIQUE(userid, idempotencyKey)` (múltiples `NULL` permitidos) |
 
@@ -331,7 +349,7 @@ npm test
 Reglas:
 
 - `db/schema.sql` y `db/seed.sql` **son generados**, no se editan a mano.
-- El snapshot describe los datos de referencia; el DDL vigente son `prisma/migrations/**`.
+- El snapshot describe los datos de referencia; el DDL del head versionado son `prisma/migrations/**`.
 - La conexión de la app y la de tests son responsabilidades distintas: `DATABASE_URL` para runtime, `TEST_DATABASE_URL` para suites con escritura.
 - Los comandos de migración y seed afectan la DB indicada por `DATABASE_URL`; verificar el destino antes de ejecutarlos.
 
@@ -388,13 +406,14 @@ ORDER BY ticker LIMIT 20;
 ## 9. Grandes montos: tipos y CHECKs de la migración versionada
 
 Objetivo aprobado (spec `specs/datos-financieros-grandes-montos.md` §2, D1/D2/D5) — migración
-nueva versionada, create-only, **aún no aplicada**:
+nueva versionada, create-only, ya **parte del head versionado**; si está aplicada en la DB de la app
+lo registra `PROGRESS.md` (no se duplica acá, ver la convención del encabezado):
 
-| Campos | Hoy (migrado vigente) | Con la migración |
+| Campos | Snapshot legacy (`db/schema.sql`) | Head versionado (`prisma/schema.prisma` + migraciones) |
 | --- | --- | --- |
 | `orders.price`, `orders.filledPrice` | `numeric(10,2)` | `numeric(24,2)` — máximo por fila `9999999999999999999999.99`; NULL se conserva donde corresponde |
 | `orders.size` | `integer` | `numeric(24,2)`, **entero almacenado** en BUY/SELL; pesos con centavos en cash |
-| `marketdata.high`, `low`, `open`, `close`, `previousClose` | `numeric(10,2)` | `numeric(24,2)`, no negativos; se conserva el caso de precio 0 |
+| `marketdata.high`, `marketdata.low`, `marketdata.open`, `marketdata.close`, `marketdata.previousclose` | `numeric(10,2)` | `numeric(24,2)`, no negativos; se conserva el caso de precio 0 |
 | IDs, FKs, secuencias | `integer` | **Sin cambios** — no UUID, no BIGINT de identificadores |
 
 CHECKs acotados a los campos financieros modificados (excepción firmada D5 a "no editar

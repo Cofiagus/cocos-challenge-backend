@@ -60,7 +60,7 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 | archivo | responsabilidad | exports | llamado por | test |
 |---|---|---|---|---|
 | `src/domain/index.ts` | barrel del dominio puro | (barrel) | `application` · `http/portfolio` | — |
-| `src/domain/matching/index.ts` | evaluación pura del cruce (`evaluateCross`) y `matchRestingOrders` como punto de enchufe SIN disparador | `PriceSource`, `EvaluateCrossInput`, `CrossDecision`, `evaluateCross`, `RestingOrderFill`, `matchRestingOrders` | `domain/index.ts` · `infra/marketdata-price-source.ts` | `unit/domain/matching` |
+| `src/domain/matching/index.ts` | evaluación pura del cruce (`evaluateCross`) y `matchRestingOrders` como punto de enchufe SIN disparador | `PriceSource`, `EvaluateCrossInput`, `CrossDecision`, `evaluateCross`, `RestingOrderFill`, `matchRestingOrders` | `domain/index.ts` (barrel) · `application/orders/decide-order.ts` (`evaluateCross`, IOC/FOK) · `infra/marketdata-price-source.ts` (sólo el tipo `PriceSource`: implementa el port, **no** llama `evaluateCross`) | `unit/domain/matching` |
 | `src/domain/portfolio/index.ts` | derivaciones puras: cash exacto, reservas bigint, costo promedio ponderado, posiciones, P&L y patrimonio (`deriveTotalAccountValue`) — agregados pueden superar el máximo de una fila | `deriveCash`, `deriveReservations`, `weightedAverageCost`, `derivePositions`, `deriveTotalAccountValue` | `domain/index.ts` | `unit/domain/portfolio*` |
 | `src/domain/sizing/index.ts` | `size = floor(amountArs / precio)` en Decimal — nunca compromete más que el monto; rango INT4 validado antes de `number` | `sizeSharesFromAmountArs` | `domain/index.ts` | `unit/domain/sizing` |
 
