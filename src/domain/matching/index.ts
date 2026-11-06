@@ -53,7 +53,36 @@ export type CrossDecision =
     }
   | { readonly outcome: "NEW" };
 
-/** Regla de cruce (DECISIONS.md): BUY cruza si ref ≤ límite; SELL si ref ≥ límite. */
+/**
+ * Referencia UTILIZABLE: presente y estrictamente positiva. Un close 0.00 (o
+ * negativo) no es un precio ejecutable. La aplicación la usa para decidir
+ * REJECTED NO_PRICE antes de escribir; el dominio la exige como precondición.
+ */
+export const isUsableReferencePrice = (
+  referencePriceArs: FinancialDecimal | null,
+): referencePriceArs is FinancialDecimal =>
+  referencePriceArs !== null && referencePriceArs.greaterThan(0);
+
+/**
+ * Precio de referencia VÁLIDO: estrictamente positivo. Un close 0.00 (o
+ * negativo) no es un precio ejecutable — usarlo llenaría a 0.00, que es un
+ * FILL corrupto. La capa de aplicación ya rechaza ese caso como REJECTED
+ * NO_PRICE; acá la precondición es dura, igual que los demás guards de datos
+ * "inalcanzables", para que ninguna llamada directa pueda llenar a 0.
+ */
+const assertPositiveReferencePrice = (
+  referencePriceArs: FinancialDecimal,
+): void => {
+  if (!isUsableReferencePrice(referencePriceArs)) {
+    throw new RangeError(
+      "Precio de referencia inválido: debe ser mayor a 0 (no se llena a 0.00).",
+    );
+  }
+};
+
+/**
+ * Regla de cruce (DECISIONS.md): BUY cruza si ref ≤ límite; SELL si ref ≥ límite.
+ */
 const crosses = (
   side: TradingSide,
   limitPriceArs: FinancialDecimal,
@@ -78,6 +107,9 @@ const filledPriceWithImprovement = (
     : FinancialDecimal.max(limitPriceArs, referencePriceArs);
 
 export const evaluateCross = (input: EvaluateCrossInput): CrossDecision => {
+  // Precondición: sin referencia positiva no hay evaluación posible.
+  assertPositiveReferencePrice(input.referencePriceArs);
+
   // GTC nunca se llena al enviar (DECISIONS.md): siempre NEW, sin importar
   // lo que haría el cruce — no se evalúa.
   if (input.timeInForce === "GTC") {
@@ -120,6 +152,9 @@ export const matchRestingOrders = (
   referencePriceArs: FinancialDecimal,
   restingOrders: readonly RestingOrder[],
 ): readonly RestingOrderFill[] => {
+  // Misma precondición que evaluateCross: un ref 0/negativo no llena nada.
+  assertPositiveReferencePrice(referencePriceArs);
+
   const fills: RestingOrderFill[] = [];
 
   for (const order of restingOrders) {
