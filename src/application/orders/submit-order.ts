@@ -54,6 +54,9 @@ import {
   type TradingOrderDraftBase,
   type PersistedOrderDecision,
 } from "./persist-order-decision.js";
+// F2-IDEM: la huella canónica del request vive en el borde (pura, sin
+// Express); application la aplica antes de derivar el `size`.
+import { requestFingerprintOf } from "../../contracts/request-fingerprint.js";
 
 /**
  * Código de error del envío: los códigos estables del contrato
@@ -194,6 +197,10 @@ const buildDraftBase = ({
     priceArs: limitPriceArs,
     idempotencyKey: input.idempotencyKey,
     datetime,
+    // F2-IDEM: huella del REQUEST original (amountArs incluido, no el size
+    // derivado) con el instrumento YA resuelto. Se calcula acá, antes de
+    // `decideOrder`/`resolveSizing`, que es donde el monto se pierde.
+    requestFingerprint: requestFingerprintOf(input.request, instrumentId),
   };
   return input.request.side === "BUY"
     ? { ...common, side: "BUY" }

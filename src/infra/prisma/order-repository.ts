@@ -50,6 +50,8 @@ interface OrderWriteParams {
   readonly size: string;
   readonly price: string | null;
   readonly filledPrice: string | null;
+  /** Huella del request original; null si el draft no la trae (legacy). */
+  readonly requestFingerprint: string | null;
 }
 
 const orderWriteParams = (draft: OrderDraft): OrderWriteParams => ({
@@ -62,6 +64,8 @@ const orderWriteParams = (draft: OrderDraft): OrderWriteParams => ({
   price: draft.priceArs === null ? null : decimalToDbParam(draft.priceArs),
   filledPrice:
     draft.filledPriceArs === null ? null : decimalToDbParam(draft.filledPriceArs),
+  // F2-IDEM: `?: string` (exactOptionalPropertyTypes) ⇒ ausente es null.
+  requestFingerprint: draft.requestFingerprint ?? null,
 });
 
 /** Datos del INSERT directo (sin idempotencyKey no hay claim que defender). */
@@ -81,6 +85,7 @@ const orderCreateData = (
   filledPrice: params.filledPrice,
   filledAt: draft.filledAt,
   idempotencyKey: null,
+  requestFingerprint: params.requestFingerprint,
 });
 
 /** price de la fila vs price del draft (Decimal por string, nunca float). */
@@ -117,6 +122,22 @@ const sameTradingSize = (row: Order, draft: OrderDraft): boolean => {
   return decimalFromDb(row.size).equals(String(draft.sizeShares));
 };
 
+/**
+ * Mismo REQUEST de trading (F2-IDEM, R3). Con huella en AMBOS lados la huella
+ * MANDA: el monto original (amountArs "1000.00" vs "1000.50") viaja ahí, no en
+ * el `size` derivado por floor — compararlos por size devolvía REPLAY cuando
+ * el contrato promete 409. Si falta la huella en alguno de los dos (fila
+ * legacy, o draft sin huella) se cae a la comparación histórica: comportamiento
+ * vigente y conservador.
+ */
+const sameTradingRequest = (row: Order, draft: OrderDraft): boolean => {
+  const draftFingerprint = draft.requestFingerprint ?? null;
+  if (row.requestFingerprint !== null && draftFingerprint !== null) {
+    return row.requestFingerprint === draftFingerprint;
+  }
+  return sameTradingSize(row, draft);
+};
+
 interface ClaimedOrderRow {
   /** true si ESTE envío insertó la fila; false si la key ya estaba reclamada. */
   readonly inserted: boolean;
@@ -137,12 +158,13 @@ const claimOrderRow = async (
   const inserted = await db.$executeRaw`
     INSERT INTO orders
       ("instrumentid", "userid", "size", "price", "type", "side", "status",
-       "datetime", "timeInForce", "filledPrice", "filledAt", "idempotencyKey")
+       "datetime", "timeInForce", "filledPrice", "filledAt", "idempotencyKey",
+       "requestFingerprint")
     VALUES
       (${draft.instrumentId}, ${draft.userId}, ${params.size}, ${params.price},
        ${draft.type}, ${draft.side}, ${draft.status}, ${draft.datetime},
        ${draft.timeInForce}, ${params.filledPrice}, ${draft.filledAt},
-       ${draft.idempotencyKey})
+       ${draft.idempotencyKey}, ${params.requestFingerprint})
     ON CONFLICT ("userid", "idempotencyKey") DO NOTHING
   `;
   if (inserted !== 0 && inserted !== 1) {
@@ -211,13 +233,14 @@ export class PrismaOrderRepository implements OrderRepository {
       return { outcome: "CREATED", order: mapOrderRow(row) };
     }
 
-    // Conflicto: identidad + unidad de size deciden REPLAY vs CONFLICT.
+    // Conflicto: identidad + (huella del request | unidad de size) deciden
+    // REPLAY vs CONFLICT.
     if (!sameIdentityPayload(row, draft)) {
       return { outcome: "IDEMPOTENT_CONFLICT", order: mapOrderRow(row) };
     }
     const outcome: CreateOrderResult["outcome"] =
       draft.side === "BUY" || draft.side === "SELL"
-        ? sameTradingSize(row, draft)
+        ? sameTradingRequest(row, draft)
           ? "IDEMPOTENT_REPLAY"
           : "IDEMPOTENT_CONFLICT"
         : await cashIdempotencyOutcome(db, row, draft.amountArs);

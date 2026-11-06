@@ -11,3 +11,4 @@ export * from "./portfolio.js";
 export * from "./instruments.js";
 export * from "./orders.js";
 export * from "./transfers.js";
+export * from "./request-fingerprint.js";

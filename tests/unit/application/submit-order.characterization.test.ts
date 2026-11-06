@@ -256,6 +256,10 @@ const expectDraft = (
     filledAt: expected.filledAt === null ? null : expect.any(Date),
     idempotencyKey: expected.idempotencyKey,
     datetime: expect.any(Date),
+    // F2-IDEM: la huella del request viaja en el draft; su valor exacto (dep.
+    // del instrumento resuelto) se fija en unit/http/request-fingerprint, acá
+    // sólo se caracteriza su forma y que SIEMPRE esté presente.
+    requestFingerprint: expect.stringMatching(/^fp1:[0-9a-f]{32}$/),
   });
   expect(filledPriceArs === null ? null : filledPriceArs.toFixed(2)).toBe(
     expected.filledPriceArs,
@@ -1483,7 +1487,10 @@ const throwCases: ThrowCase[] = [
         price: new Decimal("900.00"),
       },
       "type",
-      ["LIMIT", "LIMIT", "LIMIT", "LIMIT", "MARKET"],
+      // F2-IDEM: buildDraftBase lee `type` una vez para el draft y otra para
+      // la huella del request ANTES de decidir; el MARKET sigue llegando
+      // recién al decidir el estado (lo que el guard caracteriza).
+      ["LIMIT", "LIMIT", "LIMIT", "LIMIT", "LIMIT", "MARKET"],
     ),
     seed: {
       instruments: CATALOG,
@@ -1544,7 +1551,9 @@ const throwCases: ThrowCase[] = [
         price: new Decimal("950.00"),
       },
       "timeInForce",
-      ["IOC", "IOC", "IOC", "GTC"],
+      // F2-IDEM: buildDraftBase lee `timeInForce` una vez para el draft y otra
+      // para la huella antes de evaluar el cruce (que sigue viendo GTC).
+      ["IOC", "IOC", "IOC", "IOC", "GTC"],
     ),
     seed: {
       instruments: CATALOG,
