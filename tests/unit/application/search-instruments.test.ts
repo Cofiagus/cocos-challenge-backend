@@ -4,8 +4,11 @@
 // política aprobada de omitir sin cotización y completar el cupo, la
 // variación en FinancialDecimal (64 cifras; positiva y negativa), el aborto
 // tipado ante MarketDataServiceUnavailableError después de éxito parcial, la
-// propagación de errores inesperados, la concurrencia acotada a 1 y la
-// ausencia de fallback al seed.
+// propagación de errores inesperados, la concurrencia ACOTADA al presupuesto
+// inyectado y la ausencia de fallback al seed.
+//
+// Presupuesto (deadline de request + concurrencia): tests dedicados en
+// search-instruments-budget.test.ts.
 //
 // Dinero: FinancialDecimal (precisión 64) construido desde STRING (D1/D3),
 // nunca el Decimal base de decimal.js ni un number.
@@ -18,6 +21,7 @@ import type { InstrumentRecord } from "../../../src/contracts/index.js";
 import { searchInstruments } from "../../../src/application/instruments/search-instruments.js";
 import type {
   InstrumentSearchView,
+  QuoteBudget,
   SearchInstrumentsDeps,
 } from "../../../src/application/instruments/search-instruments.js";
 import type {
@@ -115,7 +119,11 @@ const buildQuoteSource = (
 const buildDeps = (
   catalog: InstrumentRepository,
   quotes: InstrumentQuoteSource,
-): SearchInstrumentsDeps => ({ instruments: catalog, quotes });
+  quoteBudget?: Partial<QuoteBudget>,
+): SearchInstrumentsDeps =>
+  quoteBudget === undefined
+    ? { instruments: catalog, quotes }
+    : { instruments: catalog, quotes, quoteBudget };
 
 // ---------------------------------------------------------------------------
 // Lectura del resultado (sin `!`: el test falla con un mensaje claro)
@@ -403,27 +411,37 @@ describe("searchInstruments — caso de uso de búsqueda con cotizaciones", () =
     ).rejects.toThrow("Parser del proveedor roto.");
   });
 
-  it("concurrencia acotada a 1: nunca dos cotizaciones en simultáneo", async () => {
+  it("concurrencia acotada al presupuesto inyectado: nunca más de 2 cotizaciones en simultáneo", async () => {
+    // Antes del presupuesto (Q3=A) la fuente se consultaba SECUENCIALMENTE;
+    // ahora se paraleliza con un tope explícito. Este test fija ese tope
+    // (concurrency 2) y comprueba que el fan-out no lo excede nunca.
     const catalog = buildCatalog([
       instrument(1, "ALUA", "Aluar Aluminio Argentino S.A.I.C."),
       instrument(2, "BMA", "Banco Macro S.A."),
       instrument(3, "CRES", "Cresud S.A.C.I.F."),
+      instrument(4, "GGAL", "Grupo Financiero Galicia S.A."),
     ]);
     const quotes = buildQuoteSource({
       quotes: new Map([
         ["ALUA", { priceArs: "800.00", previousCloseArs: "790.00" }],
         ["BMA", { priceArs: "1500.00", previousCloseArs: "1480.00" }],
         ["CRES", { priceArs: "1100.00", previousCloseArs: "1090.00" }],
+        ["GGAL", { priceArs: "900.00", previousCloseArs: "890.00" }],
       ]),
     });
 
-    const views = await searchInstruments(buildDeps(catalog, quotes), {
-      query: "",
-      limit: 3,
-    });
+    const views = await searchInstruments(
+      buildDeps(catalog, quotes, { concurrency: 2 }),
+      { query: "", limit: 4 },
+    );
 
-    expect(views).toHaveLength(3);
-    expect(quotes.maxConcurrentCalls()).toBe(1);
+    expect(views.map((view) => view.ticker)).toEqual([
+      "ALUA",
+      "BMA",
+      "CRES",
+      "GGAL",
+    ]);
+    expect(quotes.maxConcurrentCalls()).toBe(2);
   });
 
   it("no consulta más candidatos que los necesarios: cupo completo en la primera página corta la iteración", async () => {
