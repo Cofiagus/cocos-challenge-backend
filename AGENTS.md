@@ -92,7 +92,12 @@ eso, está desactualizado.
    validación de fondos lee DENTRO de esa tx. Nunca read-modify-write ingenuo.
 4. **Auditoría append-only** en `order_events`, escrita en la MISMA tx que la mutación.
 5. **Máquina de estados explícita**: transiciones válidas codificadas y guardadas por estado
-   (`WHERE status='NEW'`). No hay `CHECK` en la migración — es deuda conocida, no una garantía.
+   (`WHERE status='NEW'` en `markFilled`/`markCancelled`). Lo que la DB **no** garantiza es la
+   transición: no hay `CHECK` de estados (deuda conocida, la guarda es de la app). Lo que la DB
+   **sí** garantiza son los 6 CHECKs financieros de
+   `prisma/migrations/20261105104903_large_money/migration.sql` (precio finito y positivo, `size`
+   finito y no negativo, `size = 0` sólo en `REJECTED`, entero ≤ INT4 en BUY/SELL, precios de
+   `marketdata` finitos y no negativos); el detalle está en `docs/references/db-schema-before-after.md`.
    El borde y el sizing derivado acotan acciones (`MAX_ORDER_SIZE_SHARES`): fuera de rango es
    400 sin escribir, no 500. Cash usa monto Decimal exacto, no el floor de acciones.
 6. **Zod `strict()` en el borde.** Nunca confiar en `req.body`. Input inválido → 400 **sin escribir nada**.
