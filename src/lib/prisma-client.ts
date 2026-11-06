@@ -15,6 +15,25 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
+/**
+ * Dimensionado EXPLÍCITO del pool (T4.d). El default del adapter es opaco y
+ * sin timeouts: una base caída deja requests colgadas y una query trabada
+ * retiene la conexión (y el advisory lock por usuario del submit) sin límite.
+ *
+ * - max 10: un proceso Node atiende I/O concurrente con pocas conexiones; 10
+ *   cubre el paralelismo real de esta API y deja margen bajo el default de
+ *   Postgres (100) para varias instancias y para las suites de test.
+ * - connectionTimeoutMillis 5000: si no hay conexión en 5 s, fallar rápido.
+ *   Es lo que hace que /health/ready devuelva 503 en vez de colgarse cuando
+ *   la base no está, y que un request no quede esperando al pool.
+ * - statement_timeout 15000: techo por sentencia; una query de más de 15 s en
+ *   este dominio es un bug (o un lock retenido), no carga legítima. Evita que
+ *   una transacción con advisory lock bloquee al usuario indefinidamente.
+ */
+const POOL_MAX_CONNECTIONS = 10;
+const POOL_CONNECTION_TIMEOUT_MS = 5_000;
+const STATEMENT_TIMEOUT_MS = 15_000;
+
 let singleton: PrismaClient | undefined;
 
 /**
@@ -29,7 +48,12 @@ export const getPrismaClient = (): PrismaClient => {
         "DATABASE_URL no definida: falta .env (runtime) o .env.test (tests).",
       );
     }
-    const adapter = new PrismaPg({ connectionString: databaseUrl });
+    const adapter = new PrismaPg({
+      connectionString: databaseUrl,
+      max: POOL_MAX_CONNECTIONS,
+      connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
+      statement_timeout: STATEMENT_TIMEOUT_MS,
+    });
     singleton = new PrismaClient({ adapter });
   }
   return singleton;
