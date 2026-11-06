@@ -97,10 +97,12 @@ export interface SubmitTransferInput {
 export type SubmitTransferResult = PersistedOrderDecision;
 
 /**
- * Metadata de auditoría común: el monto va como string canónico de 2
- * decimales (ningún float y ningún Decimal crudo en el jsonb).
+ * Metadata de auditoría común de una transferencia de CASH: el monto va como
+ * string canónico de 2 decimales (ningún float y ningún Decimal crudo en el
+ * jsonb). Es la unidad MONTO, no acciones: por eso no comparte el builder del
+ * envío de trading.
  */
-const buildAuditBase = (
+const buildCashAuditBase = (
   instrument: InstrumentRecord,
   amountArs: FinancialDecimal,
 ): OrderEventMetadata => ({
@@ -190,21 +192,22 @@ const requireCashInstrument = async (
   return cashInstrument;
 };
 
-interface DraftBaseInput {
+interface CashDraftBaseInput {
   readonly input: SubmitTransferInput;
   readonly instrumentId: number;
   readonly datetime: Date;
 }
 
 /**
- * Campos comunes del draft de CASH (el status/fill se decide después). El
- * `side` se ramifica para conservar el literal discriminado del contrato.
+ * Campos comunes del draft de CASH — monto exacto en ARS, sin acciones — (el
+ * status/fill se decide después). El `side` se ramifica para conservar el
+ * literal discriminado del contrato.
  */
-const buildDraftBase = ({
+const buildCashDraftBase = ({
   input,
   instrumentId,
   datetime,
-}: DraftBaseInput): CashOrderDraftBase => {
+}: CashDraftBaseInput): CashOrderDraftBase => {
   const common = {
     userId: input.userId,
     instrumentId,
@@ -288,12 +291,12 @@ const submitInsideTransaction = async (
   const cashInstrument = await requireCashInstrument(deps, tx);
 
   const datetime = new Date(); // hora de envío/aceptación
-  const base = buildDraftBase({
+  const base = buildCashDraftBase({
     input,
     instrumentId: cashInstrument.id,
     datetime,
   });
-  const auditBase = buildAuditBase(cashInstrument, amountArs);
+  const auditBase = buildCashAuditBase(cashInstrument, amountArs);
 
   const decided = await decideTransfer({
     deps,

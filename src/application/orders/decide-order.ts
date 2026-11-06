@@ -121,8 +121,11 @@ export const resolveSizing = (
   return { sizeShares, sizingPriceArs, residualArs };
 };
 
-/** Metadata de auditoría común (dinero como string de 2 decimales, nunca float). */
-export const buildAuditBase = (
+/**
+ * Metadata de auditoría común de un envío de TRADING (acciones y precios):
+ * dinero como string de 2 decimales, nunca float.
+ */
+export const buildTradingAuditBase = (
   instrument: InstrumentRecord,
   request: CreateOrderRequest,
   referencePriceArs: FinancialDecimal | null,

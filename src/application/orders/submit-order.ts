@@ -40,7 +40,7 @@ import type {
 import { ApplicationError } from "../application-error.js";
 import {
   assessFunds,
-  buildAuditBase,
+  buildTradingAuditBase,
   decideAcceptedOrder,
   limitPriceOf,
   needsReferencePrice,
@@ -167,7 +167,7 @@ const readReferencePrice = async (
   return snapshot === null ? null : snapshot.closeArs;
 };
 
-interface DraftBaseInput {
+interface TradingDraftBaseInput {
   readonly input: SubmitOrderInput;
   readonly instrumentId: number;
   readonly limitPriceArs: FinancialDecimal | null;
@@ -175,16 +175,17 @@ interface DraftBaseInput {
 }
 
 /**
- * Campos del draft de TRADING que no dependen de la decisión de estado. El
- * `side` se ramifica para conservar el literal (la unión discriminada del
- * contrato no acepta un `TradingSide` genérico).
+ * Campos del draft de TRADING — acciones por orden, no monto — que no
+ * dependen de la decisión de estado. El `side` se ramifica para conservar el
+ * literal (la unión discriminada del contrato no acepta un `TradingSide`
+ * genérico).
  */
-const buildDraftBase = ({
+const buildTradingDraftBase = ({
   input,
   instrumentId,
   limitPriceArs,
   datetime,
-}: DraftBaseInput): TradingOrderDraftBase => {
+}: TradingDraftBaseInput): TradingOrderDraftBase => {
   const common = {
     userId: input.userId,
     instrumentId,
@@ -256,7 +257,7 @@ const decideOrder = async (
     referencePriceArs,
     limitPriceArs,
   );
-  const auditBase = buildAuditBase(
+  const auditBase = buildTradingAuditBase(
     instrument,
     request,
     referencePriceArs,
@@ -322,7 +323,7 @@ const submitInsideTransaction = async (
   );
   const datetime = new Date(); // hora de envío/aceptación
   const limitPriceArs = limitPriceOf(request);
-  const base = buildDraftBase({
+  const base = buildTradingDraftBase({
     input,
     instrumentId: instrument.id,
     limitPriceArs,
