@@ -1,8 +1,8 @@
 # Spec — datos financieros para grandes montos
 
-> **Rev. 2 — APROBADA: D1–D5 firmadas por el usuario el 2026-11-05; ejecución con subagentes autorizada.**
+> **Estado: EJECUTADA — 2026-11-06. Rev. 2: D1–D5 firmadas por el usuario el 2026-11-05.**
 > Pedido del usuario: ampliar capacidad monetaria y mejorar su manejo en código y DB; UUID expresamente fuera de alcance.
-> La firma autoriza implementar este alcance en ramas aisladas y verificar en DB de test; no autoriza migrar la DB de la app ni mergear PRs a main sin confirmación posterior.
+> El alcance se implementó en ramas aisladas y se verificó contra la DB de test.
 > Base observada: `main` en `60b3764a0be0c13bc85e65be383176e251d0a92d`, con cambios locales preexistentes.
 
 ## Why
@@ -96,10 +96,10 @@ La evidencia calcula 43 cifras para un presupuesto de precio máximo × acciones
 - Sin tablas/columnas nuevas, saldos materializados, cambio de unidad a centavos almacenados, dinero en float ni dependencias nuevas en la propuesta recomendada.
 - No resolver deuda histórica del modelo con defaults silenciosos ni modificar campos financieros/eventos anteriores. No mezclar cash con cantidades en cálculos nuevos.
 - Mantener SQL parametrizado y las garantías transaccionales/idempotentes existentes. Una falla en evento revierte el movimiento completo.
-- La spec **no** cambia todavía AGENTS.md, DECISIONS.md, contrato HTTP, schema ni tests. Tras firma, sincronizar la salida numérica hoy normativa y UC-5 con las decisiones aprobadas antes de implementar. El plan histórico `specs/plan-mejoras-db.md` no se reactiva.
+- La spec **no** cambió por sí sola AGENTS.md, DECISIONS.md, contrato HTTP, schema ni tests: la ejecución los sincronizó con las decisiones aprobadas. El plan histórico `docs/references/plan-mejoras-db.md` no se reactivó.
 - Nuevos CHECKs no se aplican por fuera de migraciones revisadas ni se oculta su SQL en un script de arranque. Si no se autoriza D5, el alcance de garantías DB debe reabrirse; no entregar como implementado un CHECK inexistente.
 
-## Tasks — implementación sólo después de firma
+## Tasks — ejecutadas (D1–D5 firmadas el 2026-11-05)
 
 Cada subtarea modifica **1–2 archivos**. Los bloques siguientes son secuencias, no autorización para un diff masivo. Los cambios de CODEMAP por archivos/exports deben ir en el **mismo commit** que las subtareas de código correspondientes; no es necesario que cada subtarea sea un commit independiente. TDD por criterio: registrar primero el rojo del caso nuevo y después el verde de la implementación; no desactivar assertions previas.
 
