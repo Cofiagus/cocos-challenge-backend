@@ -7,14 +7,14 @@
 > matching continuo. `matchRestingOrders` existe como punto de enchufe del dominio puro, sin
 > disparador. UC-2 consulta Yahoo en el request; UC-1/3/4/5 usan `marketdata` local.
 
-## Why
+## Motivo
 
 El challenge pide una API que exponga portfolio, búsqueda de activos, envío de
-órdenes (MARKET/LIMIT) y gestión de estados. El usuario elevó la vara: reserva de
+órdenes (MARKET/LIMIT) y gestión de estados. El sistema agrega reserva de
 buying power al aceptar, TIF explícito en el envío y la cotización de UC-2 contra
 Yahoo en vez del dataset estático. El matching estilo exchange real —prioridad
-precio-tiempo, ticks, sweep— quedó fuera de alcance por `DECISIONS.md`; este documento describe
-el comportamiento vigente.
+precio-tiempo, ticks, sweep— es una decisión de alcance de `DECISIONS.md`; este
+documento describe el comportamiento vigente.
 
 ## Fuente de datos de mercado
 
@@ -72,12 +72,12 @@ envío ── validación OK ──┬─ MARKET ──────────�
 ```
 
 - No hay fills parciales: el precio de referencia no expone profundidad de libro,
-  así que una orden se llena completa contra ese precio o no se llena. Limitación
-  documentada frente a un exchange real (que llena por tramos según volumen).
+  así que una orden se llena completa contra ese precio o no se llena. Es una regla
+  del diseño frente a un exchange real, que llena por tramos según volumen.
 - `REJECTED` es un hecho de negocio que se **persiste**; los errores de input
   inválido son errores de API (400) y no crean orden.
 - `FILLED`, `CANCELLED` y `REJECTED` son terminales.
-- `NEW` no tiene disparador automático de llenado en este build (ver D1/D9).
+- `NEW` no se llena sola: no hay disparador automático de llenado (D1/D9).
 
 ## Evaluación de cruce (implementada)
 
@@ -191,9 +191,9 @@ de `size` (acciones) o `amountArs`; `price` > 0 obligatorio para LIMIT.
 - Si cruza → `FILLED` completo con mejora (D8). Si no → `CANCELLED` con razón
   `NO_IMMEDIATE_MATCH` (no `REJECTED`: no es falta de fondos, es falta de
   contraoferta al instante).
-- Sin profundidad de libro, IOC y FOK son all-or-none sobre el precio observado;
-  la diferencia teórica (IOC admite fill parcial) queda documentada como
-  limitación del feed, no como comportamiento inventado.
+- Sin profundidad de libro, IOC y FOK son all-or-none sobre el precio observado.
+  IOC admite fill parcial en un libro real; la API no simula esa profundidad ni
+  inventa tramos que el feed no expone.
 
 **Errores de API (no crean orden):**
 - Input inválido (Zod), instrumento inexistente u `MONEDA`, `size ≤ 0`,
@@ -216,15 +216,15 @@ de `size` (acciones) o `amountArs`; `price` > 0 obligatorio para LIMIT.
 - `CASH_OUT`: si `amountArs > cashSettled − cashReserved` → `REJECTED` persistida;
   si no → FILLED. Validación del monto exacto dentro de la misma tx con lock por usuario.
 
-## Constraints
+## Restricciones
 
 - Dinero **nunca en float**: Decimal financiero desde string con precisión 64;
   entrada string decimal estricta y salida string con dos decimales; precios/size NUMERIC(24,2).
   Quantities agregadas bigint y representación JSON entera string. Detalle, límites y
   compatibilidad histórica: spec financiera vigente.
-- Acciones enteras: sin fracciones, sin fills parciales (limitación documentada).
-- Toda multi-escritura (fill + evento + derivados) en una transacción DB.
-- Transición de estado siempre guardada por el estado actual
+- Acciones enteras: sin fracciones ni fills parciales; una orden se llena completa o no se llena.
+- Toda multi-escritura (fill + evento + derivados) ocurre en una transacción DB.
+- La transición de estado está guardada por el estado actual
   (`WHERE status='NEW'`): idempotencia ante reintentos concurrentes.
 - Auditable: `orders` (salvo status/ejecución) y `order_events` append-only.
 - Validación estricta con Zod en el borde HTTP; sin `any`; TS strict.
@@ -232,36 +232,36 @@ de `size` (acciones) o `amountArs`; `price` > 0 obligatorio para LIMIT.
   local y no consultan Yahoo por request; el matching continuo sigue fuera de
   alcance (`DECISIONS.md`). UC-2 sí consulta Yahoo en el request y ante
   indisponibilidad responde `503 MARKET_DATA_SERVICE_UNAVAILABLE`.
-- Test funcional obligatorio sobre UC-3: MARKET BUY/SELL con fondos suficientes e
+- La cobertura funcional de UC-3 incluye MARKET BUY/SELL con fondos suficientes e
   insuficientes, orden por monto (floor), REJECTED persistido, LIMIT marketable
   IOC/FOK que llena al envío, IOC/FOK que no cruza → CANCELLED inmediato, y doble
   DELETE concurrente sobre la misma `NEW` con un solo efecto.
 
-## Tasks (cada una con su verificación)
+## Componentes implementados
 
-1. **T1 — Schema Prisma + migración**: `users`, `instruments`, `marketdata`
-   (dataset del challenge), `orders` con `timeInForce`, `filledPrice`, `filledAt`,
-   `status`; `order_events`; índices `(status, instrumentId)` y `(userId, status)`.
-   ✔ `prisma migrate dev` aplica y `prisma validate` pasa.
-2. **T2 — Capa de dominio de cálculo**: funciones puras `deriveCash`,
-   `derivePositions`, `weightedAverageCost`, `deriveReservations`. ✔ Unit tests
-   con escenarios entrelazados (compras/ventas/transferencias/reservas),
-   exactos a centavos.
-3. **T3 — Caso de uso enviar orden con TIF**: transacción de aceptación con
-   validación, reserva y evaluación única (MARKET fill, IOC/FOK fill o cancel,
-   GTC resting). ✔ Tests funcionales de UC-3 (constraint de arriba) pasan.
-4. **T4 — Adaptador Yahoo de UC-2**: símbolo derivado `ticker + ".BA"`, respuesta
-   validada con Zod, `FinancialDecimal` en el borde y traducción de fallas a
-   `MarketDataServiceUnavailableError`. ✔ Unit tests con fixture de chart +
-   verificación manual contra la API viva documentada.
-5. **T5 — Evaluación de cruce**: `evaluateCross` con mejora, `matchRestingOrders`
-   como punto de enchufe sin disparador, transición atómica guardada por estado.
-   ✔ Unit tests con precios sintéticos (cruce exacto, gap con mejora, referencia
-   inválida, doble DELETE concurrente con un solo efecto).
-6. **T6 — Endpoints portfolio + búsqueda**: ✔ contrato UC-1/UC-2 verificado con
-   datos del seed (valores esperados calculados a mano en el test).
-7. **T7 — Endpoints cancelar + transferencias**: ✔ UC-4/UC-5: cancelar NEW libera
-   reserva, 422 en terminal, CASH_OUT que rechaza por insuficiencia.
-8. **T8 — Documentación + colección**: decisiones D1–D9 y supuestos en docs +
-   colección Postman/REST Client con ejemplos (nice-to-have del enunciado). ✔
-   Cada decisión del enunciado tiene rastro en la doc.
+1. **Esquema y migraciones.** `prisma/schema.prisma` + `prisma/migrations/**` definen
+   `users`, `instruments`, `marketdata` (dataset del challenge), `orders` con
+   `timeInForce`, `filledPrice`, `filledAt` y `status`, y `order_events`, con los índices
+   `(status, instrumentId)` y `(userId, status)`. `npx prisma migrate deploy` lo aplica y
+   `prisma validate` pasa.
+2. **Dominio de cálculo.** Funciones puras `deriveCash`, `derivePositions`,
+   `weightedAverageCost` y `deriveReservations`, con tests unitarios de escenarios
+   entrelazados (compras/ventas/transferencias/reservas) exactos a centavos.
+3. **Caso de uso de envío con TIF.** Transacción de aceptación con validación, reserva y
+   evaluación única (MARKET fill, IOC/FOK fill o cancel, GTC resting); la matriz
+   funcional de UC-3 la cubre.
+4. **Adaptador Yahoo de UC-2.** Símbolo derivado `ticker + ".BA"`, respuesta validada con
+   Zod, `FinancialDecimal` en el borde y traducción de fallas a
+   `MarketDataServiceUnavailableError`; tests unitarios con fixture de chart y
+   verificación contra la API viva documentada.
+5. **Evaluación de cruce.** `evaluateCross` con mejora y `matchRestingOrders` como punto de
+   enchufe sin disparador, con transición atómica guardada por estado; tests unitarios de
+   cruce exacto, gap con mejora, referencia inválida y doble DELETE concurrente con un solo
+   efecto.
+6. **Endpoints de portfolio y búsqueda.** Contrato UC-1/UC-2 verificado con datos del seed y
+   valores esperados calculados a mano en el test.
+7. **Endpoints de cancelación y transferencias.** UC-4/UC-5 verificados: cancelar una `NEW`
+   libera la reserva, estado terminal responde 422 y CASH_OUT se rechaza por insuficiencia.
+8. **Documentación del dominio.** D1–D9 viven en la tabla de decisiones de este documento y
+   en `DECISIONS.md`, y la colección Postman/REST Client trae ejemplos ejecutables. Cada
+   decisión del enunciado tiene su rastro en la doc.
