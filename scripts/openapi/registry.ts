@@ -36,6 +36,7 @@ export const KNOWN_ERROR_CODES = [
   "IDEMPOTENCY_CONFLICT",
   "ORDER_NOT_CANCELLABLE",
   "MARKET_DATA_SERVICE_UNAVAILABLE",
+  "DATABASE_UNAVAILABLE",
   "NOT_FOUND",
   "INVALID_JSON",
   "PAYLOAD_TOO_LARGE",
@@ -49,6 +50,14 @@ export interface ResponseDoc {
   readonly description: string;
   readonly schema: z.ZodTypeAny;
   readonly example?: unknown;
+  /** Cabeceras de la respuesta (p. ej. `Retry-After` del 503 reintentable). */
+  readonly headers?: readonly ResponseHeaderDoc[];
+}
+
+export interface ResponseHeaderDoc {
+  readonly name: string;
+  readonly description: string;
+  readonly schema: z.ZodTypeAny;
 }
 
 export interface OperationDoc {
@@ -61,6 +70,12 @@ export interface OperationDoc {
   readonly query?: z.ZodTypeAny;
   /** `Idempotency-Key` opcional. */
   readonly idempotencyHeader?: boolean;
+  /**
+   * `false` en los probes: no dejan que una falla de la base llegue al
+   * manejador central, así que su 503 (si existe) es otro contrato —
+   * readiness responde `{status,database}`. Default: `true`.
+   */
+  readonly propagatesDatabaseErrors?: boolean;
   readonly body?: z.ZodTypeAny;
   readonly responses: readonly ResponseDoc[];
   readonly errorCodes: readonly KnownErrorCode[];
@@ -75,17 +90,44 @@ const errorBody = (
   code: KnownErrorCode,
   description: string,
   message: string,
+  headers?: readonly ResponseHeaderDoc[],
 ): ResponseDoc => ({
   status,
   description: `${description} Código: \`${code}\`.`,
   schema: ApiErrorBodySchema,
   example: { error: { code, message } },
+  ...(headers === undefined ? {} : { headers }),
 });
 
 interface TransversalError {
   readonly code: KnownErrorCode;
   readonly response: ResponseDoc;
 }
+
+/**
+ * 503 reintentable por contención/saturación de PostgreSQL (defecto D-03):
+ * `statement_timeout` (57014), P2028, P2024, `ETIMEDOUT` y el timeout del pool.
+ * Lo responde el manejador central con `Retry-After`, así que existe en toda
+ * operación cuyo handler lo deja propagar (las 5 de negocio; no en los probes).
+ */
+const DATABASE_ERRORS: readonly TransversalError[] = [
+  {
+    code: "DATABASE_UNAVAILABLE",
+    response: errorBody(
+      503,
+      "DATABASE_UNAVAILABLE",
+      "La base no atendió el pedido a tiempo (contención del pool, `statement_timeout` o timeout de conexión): el pedido es válido y se puede reintentar.",
+      "La base de datos está momentáneamente saturada. Reintentá en unos segundos.",
+      [
+        {
+          name: "Retry-After",
+          description: "Segundos que el cliente debe esperar antes de reintentar.",
+          schema: z.number().int(),
+        },
+      ],
+    ),
+  },
+];
 
 /**
  * Errores que no dependen de la operación: los agrega `withTransversalErrors` a TODAS, así
@@ -136,10 +178,11 @@ const BODY_TRANSVERSAL_ERRORS: readonly TransversalError[] = [
 
 /** Agrega a la operación los errores transversales (y los de body si tiene body). */
 const withTransversalErrors = (operation: OperationDoc): OperationDoc => {
-  const transversal =
-    operation.body === undefined
-      ? TRANSVERSAL_ERRORS
-      : [...TRANSVERSAL_ERRORS, ...BODY_TRANSVERSAL_ERRORS];
+  const transversal = [
+    ...TRANSVERSAL_ERRORS,
+    ...(operation.propagatesDatabaseErrors === false ? [] : DATABASE_ERRORS),
+    ...(operation.body === undefined ? [] : BODY_TRANSVERSAL_ERRORS),
+  ];
   return {
     ...operation,
     responses: [
@@ -170,6 +213,7 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
     description:
       "El proceso está vivo. No consulta la base de datos: responde 200 mientras el servidor " +
       "atienda, y es el probe que usa el orquestador para no matar un arranque lento.",
+    propagatesDatabaseErrors: false,
     responses: [
       {
         status: 200,
@@ -188,6 +232,9 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
       "El proceso puede servir tráfico: ejecuta `SELECT 1` contra la base. 200 con " +
       "`database: \"up\"`; 503 con `database: \"down\"` si la base no responde dentro del " +
       "timeout del pool. Es el probe para sacar la instancia de rotación, no para reiniciarla.",
+    // El 503 de readiness lo responde el propio probe con `{status,database}`, no el
+    // manejador central: documentar acá DATABASE_UNAVAILABLE pisaría ese body.
+    propagatesDatabaseErrors: false,
     responses: [
       {
         status: 200,
