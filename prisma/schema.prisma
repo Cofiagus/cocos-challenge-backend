@@ -103,18 +103,24 @@ model Instrument {
 
 model Marketdata {
   id            Int          @id @default(autoincrement())
-  instrumentId  Int?         @map("instrumentid")
+  // instrumentId/date/close/previousClose NOT NULL (migración
+  // db_integrity_constraints): son la clave de la vela y el precio de
+  // referencia que el dominio exige; el preflight del seed midió 0 NULLs.
+  // high/low/open siguen nullable: el seed tiene 2 velas sin esos valores.
+  instrumentId  Int          @map("instrumentid")
   // Precios ARS por acción: NUMERIC(24,2) (spec grandes montos, D1/D2).
   high          Decimal?     @db.Decimal(24, 2)
   low           Decimal?     @db.Decimal(24, 2)
   open          Decimal?     @db.Decimal(24, 2)
-  close         Decimal?     @db.Decimal(24, 2)
-  previousClose Decimal?     @map("previousclose") @db.Decimal(24, 2)
-  date          DateTime?    @db.Date
-  instrument    Instrument?  @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  close         Decimal      @db.Decimal(24, 2)
+  previousClose Decimal      @map("previousclose") @db.Decimal(24, 2)
+  date          DateTime     @db.Date
+  instrument    Instrument   @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   // DECISIONS.md: marketdata(instrumentId, date DESC) — "último precio".
   @@index([instrumentId, date(sort: Desc)], map: "marketdata_instrumentid_date_idx")
+  // Una vela por instrumento y fecha (preflight: 0 duplicados en el seed).
+  @@unique([instrumentId, date], map: "marketdata_instrumentid_date_key")
 
   @@map("marketdata")
 }
@@ -127,10 +133,15 @@ model Order {
   // ambos NUMERIC(24,2) — máximo 9999999999999999999999.99 (D1/D2).
   size          Decimal?     @db.Decimal(24, 2)
   price         Decimal?     @db.Decimal(24, 2)
-  type          OrderType?
-  side          OrderSide?
+  // type/side/datetime NOT NULL (migración db_integrity_constraints): toda
+  // fila es una orden con tipo, lado y hora de envío; el preflight midió 0
+  // NULLs. instrumentid/userid/size/price siguen nullable: el contrato
+  // (OrderRecordCommon) las modela nullables para las filas legacy y una
+  // MARKET FILLED legítima tiene price NULL.
+  type          OrderType
+  side          OrderSide
   status        OrderStatus?
-  datetime      DateTime?    @db.Timestamp(6)
+  datetime      DateTime     @db.Timestamp(6)
 
   // --- Columnas nuevas (no están en el seed; el seed las deja en default/null) ---
   // timeInForce NOT NULL + DEFAULT 'GTC': toda orden conoce su TIF; las filas
@@ -143,6 +154,11 @@ model Order {
   filledPrice   Decimal?     @db.Decimal(24, 2)
   filledAt      DateTime?    @db.Timestamp(6)
   idempotencyKey String?
+  // Huella del payload canónico para COMPARAR (Q1=A, F2-IDEM). Nullable:
+  // filas legacy y órdenes sin Idempotency-Key no tienen huella. SIN UNIQUE:
+  // dos órdenes legítimas del mismo usuario con el mismo payload coexisten
+  // (la unicidad la da (userId, idempotencyKey)).
+  requestFingerprint String?
 
   instrument    Instrument? @relation(fields: [instrumentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user          User?       @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
