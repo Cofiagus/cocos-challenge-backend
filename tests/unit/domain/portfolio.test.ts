@@ -339,8 +339,9 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
     expect(bma.weightedAverageCostArs.toFixed(2)).toBe("1540.00");
     expect(bma.marketValueArs?.toFixed(2)).toBe("-15028.00"); // −10 × 1502.80
     expect(bma.priceAvailable).toBe(true);
-    // (−15.028 − (−15.400)) / (−15.400) × 100 = −2.4155…% → −2.42 (2 dec.)
-    expect(bma.totalReturnPctX100?.toFixed(2)).toBe("-2.42");
+    // (−15.028 − (−15.400)) / |−15.400| × 100 = +2.4155…% → +2.42 (2 dec.)
+    // Q2=A: la posición negativa que GANA $372 da retorno POSITIVO.
+    expect(bma.totalReturnPctX100?.toFixed(2)).toBe("2.42");
 
     // PAMP: 50 − 10 = 40 @ 930 de promedio (una sola compra).
     const pamp = positionOfInstrument(positions, SEED_INSTRUMENT_PAMP_ID);
@@ -387,7 +388,10 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
     expect(derivePositions(movements, [buildSnapshot()])).toEqual([]);
   });
 
-  it("posición negativa se devuelve tal cual, con retorno exacto negativo", () => {
+  it("posición negativa que GANA: retorno POSITIVO (denominador |costBasis|)", () => {
+    // Compró 20 @ 150 y vendió 30 @ 150: queda corto 10 con costo unitario
+    // 150 y el precio de referencia bajó a 135 ⇒ recomprar cuesta 1.350 y el
+    // costo de la posición era 1.500: GANÓ 150.
     const movements = [
       buildTradingMovement({
         instrumentId: SEED_INSTRUMENT_BMA_ID,
@@ -399,7 +403,7 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
         instrumentId: SEED_INSTRUMENT_BMA_ID,
         side: "SELL",
         sizeShares: 30,
-        priceArs: "148.00",
+        priceArs: "150.00",
       }),
     ];
     const positions = derivePositions(
@@ -411,8 +415,8 @@ describe("derivePositions — posiciones con P&L no realizado", () => {
     expect(bma.quantityShares).toBe(-10n);
     expect(bma.weightedAverageCostArs.toFixed(2)).toBe("150.00");
     expect(bma.marketValueArs?.toFixed(2)).toBe("-1350.00");
-    // (−1.350 − (−1.500)) / (−1.500) × 100 = −10.00 exacto.
-    expect(bma.totalReturnPctX100?.toFixed(2)).toBe("-10.00");
+    // (−1.350 − (−1.500)) / |−1.500| × 100 = +10.00 exacto (Q2=A).
+    expect(bma.totalReturnPctX100?.toFixed(2)).toBe("10.00");
   });
 
   it("CASH_IN/CASH_OUT no son posiciones: se ignoran sin tocar campos de acciones", () => {

@@ -108,69 +108,103 @@ export const deriveReservations = (
 };
 
 /**
- * Costo promedio ponderado de las compras (side BUY) de UN instrumento:
- * Σ(size × price) / Σ size. Las ventas bajan la cantidad SIN tocar el
- * promedio (DECISIONS.md: P&L no realizado sobre costo promedio ponderado);
- * por eso esta función sólo mira las compras. 0 si no hay compras
- * (posición heredada sin buys).
+ * Acumulado de la POSICIÓN VIVA de un instrumento: cantidad neta firmada y
+ * las compras que la sostienen, contadas desde el último punto en que la
+ * cantidad neta volvió a 0.
+ */
+interface LiveCost {
+  readonly netShares: bigint;
+  readonly boughtShares: bigint;
+  readonly boughtCostArs: FinancialDecimal;
+}
+
+/** Posición plana: sin acciones netas ni costo acumulado. */
+const FLAT_LIVE_COST: LiveCost = {
+  netShares: 0n,
+  boughtShares: 0n,
+  boughtCostArs: new FinancialDecimal("0"),
+};
+
+/**
+ * Aplica UN movimiento de trading al acumulado de la posición viva. BUY suma
+ * acciones y costo; SELL resta acciones SIN tocar el promedio (DECISIONS.md).
+ * Si la cantidad neta queda en 0 la posición se cerró: vuelve a FLAT y el
+ * costo de la ida y vuelta ya realizada no contamina la posición que se
+ * reabra después.
+ */
+const accumulateLiveCost = (
+  live: LiveCost,
+  movement: TradingSettledOrderMovement,
+): LiveCost => {
+  const signedShares = BigInt(movement.sizeShares);
+  const isBuy = movement.side === "BUY";
+  const netShares = live.netShares + (isBuy ? signedShares : -signedShares);
+
+  if (netShares === 0n) return FLAT_LIVE_COST;
+  if (!isBuy) return { ...live, netShares };
+
+  return {
+    netShares,
+    boughtShares: live.boughtShares + signedShares,
+    boughtCostArs: live.boughtCostArs.plus(notionalArs(movement)),
+  };
+};
+
+/** Promedio vivo: Σ costo / Σ acciones compradas; 0 sin compras vivas. */
+const averageCostOf = (live: LiveCost): FinancialDecimal =>
+  live.boughtShares === 0n
+    ? new FinancialDecimal("0")
+    : live.boughtCostArs.div(quantityAsDecimal(live.boughtShares));
+
+/**
+ * Costo promedio ponderado de las compras de la POSICIÓN VIVA de UN
+ * instrumento: Σ(size × price) / Σ size de las compras hechas desde que la
+ * cantidad neta volvió a 0. Las ventas bajan la cantidad SIN tocar el
+ * promedio (DECISIONS.md: P&L no realizado sobre costo promedio ponderado),
+ * pero una posición cerrada reinicia el acumulado: BUY 10@100, SELL 10@100,
+ * BUY 10@200 ⇒ 200, no 150. 0 si no hay compras vivas (posición heredada sin
+ * buys).
+ *
+ * ASUNCIÓN DE ORDEN: los movimientos llegan en orden CRONOLÓGICO — el repo
+ * entrega los FILLED por id ASC (portfolio-read-repository.ts). Ese orden es
+ * el que permite detectar el paso por cantidad 0.
  *
  * El llamador agrupa por instrumento antes de llamar (no hay filtrado
  * acá): la agrupación es de la capa de aplicación o de derivePositions.
  */
 export const weightedAverageCost = (
-  buyMovements: readonly SettledOrderMovement[],
-): FinancialDecimal => {
-  let totalCostArs = new FinancialDecimal("0");
-  let totalShares = 0n;
-
-  for (const movement of buyMovements) {
-    if (movement.side !== "BUY") continue;
-    totalCostArs = totalCostArs.plus(notionalArs(movement));
-    totalShares += BigInt(movement.sizeShares);
-  }
-
-  if (totalShares === 0n) return new FinancialDecimal("0");
-  return totalCostArs.div(quantityAsDecimal(totalShares));
-};
-
-/** Actividad de trading de UN instrumento: cantidad neta y sus compras. */
-interface InstrumentActivity {
-  quantityShares: bigint;
-  readonly buyMovements: SettledOrderMovement[];
-}
+  movements: readonly SettledOrderMovement[],
+): FinancialDecimal =>
+  averageCostOf(
+    movements.filter(isTradingMovement).reduce(accumulateLiveCost, FLAT_LIVE_COST),
+  );
 
 /**
  * Acumula UN movimiento de trading en su instrumento: cantidad firmada
- * (BUY suma, SELL resta) y, sólo en BUY, la compra que alimenta el costo
- * promedio. Muta el mapa de trabajo privado de la derivación.
+ * (BUY suma, SELL resta) y costo de la posición viva (con reset al quedar
+ * en 0). Muta el mapa de trabajo privado de la derivación.
  */
 const addTradingMovement = (
-  activityByInstrument: Map<number, InstrumentActivity>,
+  liveByInstrument: Map<number, LiveCost>,
   movement: TradingSettledOrderMovement,
 ): void => {
-  const activity = activityByInstrument.get(movement.instrumentId) ?? {
-    quantityShares: 0n,
-    buyMovements: [],
-  };
-  const signedShares = BigInt(movement.sizeShares);
-  activity.quantityShares +=
-    movement.side === "BUY" ? signedShares : -signedShares;
-  if (movement.side === "BUY") {
-    activity.buyMovements.push(movement);
-  }
-  activityByInstrument.set(movement.instrumentId, activity);
+  const live = liveByInstrument.get(movement.instrumentId) ?? FLAT_LIVE_COST;
+  liveByInstrument.set(
+    movement.instrumentId,
+    accumulateLiveCost(live, movement),
+  );
 };
 
 /** Agrupa los movimientos FILLED por instrumento (ignora CASH_IN/CASH_OUT). */
 const groupTradingActivity = (
   settledMovements: readonly SettledOrderMovement[],
-): ReadonlyMap<number, InstrumentActivity> => {
-  const activityByInstrument = new Map<number, InstrumentActivity>();
+): ReadonlyMap<number, LiveCost> => {
+  const liveByInstrument = new Map<number, LiveCost>();
   for (const movement of settledMovements) {
     if (!isTradingMovement(movement)) continue;
-    addTradingMovement(activityByInstrument, movement);
+    addTradingMovement(liveByInstrument, movement);
   }
-  return activityByInstrument;
+  return liveByInstrument;
 };
 
 /**
@@ -196,24 +230,30 @@ const latestSnapshotPerInstrument = (
  * Posición con P&L no realizado de UN instrumento. `snapshot` undefined
  * significa sin precio (NO_PRICE): marketValue y totalReturn null, y la
  * posición no suma al total. Costo 0 (sin compras) ⇒ retorno indefinido.
+ *
+ * RETORNO CON DENOMINADOR |costBasis| (Q2=A firmado): el costo de una
+ * posición negativa es negativo, y dividir por él invertiría el signo. Con
+ * |costBasis| el signo lo da el P&L económico: gana ⇒ positivo, pierde ⇒
+ * negativo, nunca null por ser negativa.
  */
 const toPositionPnl = (
   instrumentId: number,
-  activity: InstrumentActivity,
+  live: LiveCost,
   snapshot: MarketdataSnapshot | undefined,
 ): PositionPnl => {
-  const { quantityShares } = activity;
-  const weightedAverageCostArs = weightedAverageCost(activity.buyMovements);
+  const quantityShares = live.netShares;
+  const weightedAverageCostArs = averageCostOf(live);
   const quantityAsDec = quantityAsDecimal(quantityShares);
   const marketValueArs =
     snapshot === undefined ? null : quantityAsDec.mul(snapshot.closeArs);
 
   // Costo de la posición: quantity × costo promedio (negativo si la
-  // posición es negativa).
+  // posición es negativa). El retorno divide por su VALOR ABSOLUTO.
   const costBasisArs = quantityAsDec.mul(weightedAverageCostArs);
+  const returnDenominatorArs = costBasisArs.abs();
   const totalReturnPctX100 =
-    marketValueArs !== null && !costBasisArs.isZero()
-      ? marketValueArs.minus(costBasisArs).div(costBasisArs).mul(HUNDRED)
+    marketValueArs !== null && !returnDenominatorArs.isZero()
+      ? marketValueArs.minus(costBasisArs).div(returnDenominatorArs).mul(HUNDRED)
       : null;
 
   return {
@@ -236,10 +276,16 @@ const toPositionPnl = (
  *  - quantity = Σ size BUY − Σ size SELL, por instrumento, en bigint;
  *  - posición con cantidad 0 NO se lista;
  *  - posición negativa (BMA −10 del seed) se devuelve tal cual;
- *  - costo promedio ponderado sobre las COMPRAS (las ventas no lo tocan);
+ *  - costo promedio ponderado de la POSICIÓN VIVA: las ventas no lo tocan y
+ *    una posición cerrada (cantidad neta 0) lo reinicia;
  *  - sin snapshot de marketdata: marketValueArs null, priceAvailable false,
  *    totalReturnPctX100 null (la posición no suma al total, arriba);
- *  - costo 0 (posición sin compras): totalReturnPctX100 null.
+ *  - costo 0 (posición sin compras): totalReturnPctX100 null;
+ *  - retorno sobre |costBasis|: una posición negativa que gana da positivo.
+ *
+ * ASUNCIÓN DE ORDEN: los movimientos llegan en orden CRONOLÓGICO (el repo
+ * entrega los FILLED por id ASC). El reset del costo al quedar plano depende
+ * de ese orden.
  *
  * ORDEN DETERMINÍSTICO: el resultado sale ordenado por instrumentId
  * ASCENDENTE, sin depender del orden de las filas leídas ni del mapa
@@ -250,17 +296,17 @@ export const derivePositions = (
   settledMovements: readonly SettledOrderMovement[],
   marketdataSnapshots: readonly MarketdataSnapshot[],
 ): readonly PositionPnl[] => {
-  const activityByInstrument = groupTradingActivity(settledMovements);
+  const liveByInstrument = groupTradingActivity(settledMovements);
   const latestSnapshotByInstrument =
     latestSnapshotPerInstrument(marketdataSnapshots);
 
-  return [...activityByInstrument.entries()]
-    .filter(([, activity]) => activity.quantityShares !== 0n) // cerrada: no se lista
+  return [...liveByInstrument.entries()]
+    .filter(([, live]) => live.netShares !== 0n) // cerrada: no se lista
     .sort(([leftId], [rightId]) => leftId - rightId)
-    .map(([instrumentId, activity]) =>
+    .map(([instrumentId, live]) =>
       toPositionPnl(
         instrumentId,
-        activity,
+        live,
         latestSnapshotByInstrument.get(instrumentId),
       ),
     );
