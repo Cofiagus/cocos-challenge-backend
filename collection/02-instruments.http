@@ -3,20 +3,30 @@
 @base_url = http://localhost:3000
 
 ### Búsqueda por ticker — 200, array plano (sin wrapper)
-# price = close de la última marketdata por date (2023-07-14) como string monetario
-# ("229.50" para METR); previousClose "232.00"; dailyVariationPct sigue siendo number.
-# MONEDA (ARS) nunca aparece en los resultados.
+# Cotización ACTUAL de Yahoo Finance (`ticker + ".BA"`, spec instruments-current-quotes Rev. 2):
+# price = `regularMarketPrice` de la sesión vigente como string monetario; previousClose = cierre
+# de la sesión ANTERIOR; dailyVariationPct sigue siendo number. Ya NO sale de `marketdata`: el
+# "229.50" de METR era el close del seed 2023-07-14 y no se usa acá. Con el mercado cerrado puede
+# ser el último precio de sesión (sin promesa de precio instantáneo). MONEDA (ARS) nunca aparece
+# en los resultados. Si Yahoo no responde ⇒ 503 MARKET_DATA_SERVICE_UNAVAILABLE (no un []).
 GET {{base_url}}/api/instruments?query=METR
 
 ### Búsqueda por nombre parcial (case-insensitive) — 200
 GET {{base_url}}/api/instruments?query=pampa
 
-### Instrumento sin marketdata — 200 con price null
-# PGR no tiene filas en marketdata: price/previousClose/dailyVariationPct en null.
+### Instrumento sin cotización computable — se OMITE del listado
+# PGR no tiene filas en marketdata y Yahoo no resuelve PGR.BA (delistada): la quote es null, el
+# caso de uso lo omite — el contrato no admite price null — y la query exacta devuelve [] con 200.
+# El cupo se completa con los siguientes candidatos del catálogo, sin precio del seed.
 GET {{base_url}}/api/instruments?query=PGR
 
-### Query vacía — 400 VALIDATION_ERROR
+### Query vacía — 200 (listado inicial, NO 400)
+# query ausente, vacía o sólo espacios ⇒ "" tras trim = listado inicial: default 10, ticker ASC,
+# omitiendo los tickers sin cotización.
 GET {{base_url}}/api/instruments?query=
+
+### Query sólo espacios — 200 (mismo listado inicial)
+GET {{base_url}}/api/instruments?query=%20%20
 
 ### limit fuera de rango (> 100) — 400 VALIDATION_ERROR
 GET {{base_url}}/api/instruments?query=A&limit=5000
