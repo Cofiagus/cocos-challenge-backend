@@ -17,6 +17,7 @@ import type {
   OrderDraft,
   OrderEventDraft,
   OrderEventRecord,
+  OrderRejectionReason,
   OrderRecord,
   RestingOrder,
   SettledOrderMovement,
@@ -54,6 +55,12 @@ export interface SubmitOrderFakeSeed {
   readonly createOutcome?: CreateOrderOutcome;
   /** Orden que devuelve el claim cuando el outcome NO es CREATED. */
   readonly existingOrder?: OrderRecord;
+  /**
+   * Razón ORIGINAL que el claim devuelve en un REPLAY (D-05): en la DB vive en
+   * order_events, así que el repo la lee y la trae en `CreateOrderResult`.
+   * Default null (NEW/FILLED o cancelación pedida por el usuario).
+   */
+  readonly replayReason?: OrderRejectionReason | null;
 }
 
 export interface SubmitOrderFakes {
@@ -139,7 +146,12 @@ export const buildSubmitOrderFakes = (
       if (outcome === "CREATED") {
         return { outcome, order: orderFromDraft(draft, 501) };
       }
-      return { outcome, order: seed.existingOrder ?? DEFAULT_EXISTING_ORDER };
+      const order = seed.existingOrder ?? DEFAULT_EXISTING_ORDER;
+      if (outcome === "IDEMPOTENT_REPLAY") {
+        // D-05: el claim devuelve la orden original CON su razón.
+        return { outcome, order, reason: seed.replayReason ?? null };
+      }
+      return { outcome, order };
     },
     appendOrderEvent: async (event, tx) => {
       record("orders", "appendOrderEvent", [event], tx);

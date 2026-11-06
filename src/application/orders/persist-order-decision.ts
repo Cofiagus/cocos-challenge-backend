@@ -20,6 +20,17 @@
 // `draftOf` la arrastra al draft completo — acá no se recalcula nada — y el
 // claim la persiste y la compara. Sin huella el claim cae a la comparación
 // histórica de `size`, así que este camino no cambia para quien no la manda.
+//
+// R-02: las transferencias de cash NO tienen body HTTP del que el borde pueda
+// sacar la huella; su request es (side, amountArs) + el instrumento resuelto.
+// Por eso `draftOf` la deriva acá con `cashRequestFingerprintOf` desde el monto
+// EXACTO (D4, sin floor): el replay deja de depender sólo de
+// `metadata.amountArs` del evento de auditoría.
+//
+// D-05: en un REPLAY se devuelve la razón ORIGINAL. La razón de una
+// REJECTED/CANCELLED vive en `order_events`, no en `orders`; el repositorio la
+// lee en el claim y la trae en `created.reason` (null en NEW/FILLED), así la
+// respuesta del replay es la MISMA que la del envío original.
 
 import {
   API_ERROR_CODES,
@@ -30,6 +41,7 @@ import {
   type TradingOrderDraft,
   type TransactionContext,
 } from "../../contracts/index.js";
+import { cashRequestFingerprintOf } from "../../contracts/request-fingerprint.js";
 import type { OrderRepository } from "../../domain/ports/index.js";
 import type { DecidedCashOrder, DecidedOrder } from "./decide-order.js";
 
@@ -113,6 +125,18 @@ const draftOf = (input: PersistedOrderDecisionInput): OrderDraft =>
         amountArs: input.decided.amountArs,
         filledPriceArs: input.decided.filledPriceArs,
         filledAt: input.decided.filledAt,
+        // R-02: huella del pedido cash con el monto EXACTO (el que el floor
+        // histórico perdía). Un `base.requestFingerprint` explícito manda.
+        requestFingerprint:
+          input.base.requestFingerprint ??
+          cashRequestFingerprintOf({
+            instrumentId: input.base.instrumentId,
+            side: input.base.side,
+            type: input.base.type,
+            timeInForce: input.base.timeInForce,
+            priceArs: input.base.priceArs,
+            amountArs: input.decided.amountArs,
+          }),
       };
 
 /**
@@ -132,9 +156,9 @@ export const persistOrderDecision = async (
     throw new IdempotencyConflictError(created.order.id);
   }
   if (created.outcome === "IDEMPOTENT_REPLAY") {
-    // Misma key + mismo payload: la orden ORIGINAL, 201 sin nuevo evento (el
-    // reason del original vive en order_events).
-    return { order: created.order, reason: null };
+    // Misma key + mismo payload: la orden ORIGINAL, 201 sin nuevo evento y
+    // con la razón ORIGINAL (D-05) — el repositorio la lee de order_events.
+    return { order: created.order, reason: created.reason };
   }
 
   // Auditoría en la MISMA tx que la mutación (DECISIONS.md).

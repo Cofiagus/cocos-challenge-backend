@@ -241,9 +241,10 @@ interface OrderDraftCommon {
    * Huella canónica del REQUEST original (F2-IDEM, Q1=A): la calcula el borde
    * (`requestFingerprintOf` en src/contracts/request-fingerprint.ts) sobre el body ya
    * validado, ANTES de derivar `size`, y `createOrder` la persiste para
-   * comparar dos envíos con la misma Idempotency-Key. Ausente/null en filas
-   * legacy y en los envíos que no pasan por el borde con monto original
-   * (drafts de tests, transferencias): ahí el claim cae a la comparación
+   * comparar dos envíos con la misma Idempotency-Key. Las transferencias de
+   * cash (UC-5) no tienen body HTTP: su huella (`cashRequestFingerprintOf`,
+   * R-02) la deriva la persistencia desde el monto EXACTO. Ausente/null sólo en
+   * filas legacy y en drafts sin request: ahí el claim cae a la comparación
    * histórica de `size`.
    */
   readonly requestFingerprint?: string;
@@ -313,8 +314,18 @@ export interface OrderEventRecord extends OrderEventDraft {
  */
 export type CreateOrderResult =
   | { readonly outcome: "CREATED"; readonly order: OrderRecord }
-  /** Misma key + mismo payload: se devuelve la orden original. */
-  | { readonly outcome: "IDEMPOTENT_REPLAY"; readonly order: OrderRecord }
+  /**
+   * Misma key + mismo payload: se devuelve la orden original CON su razón
+   * (D-05). La razón de una REJECTED/CANCELLED no vive en `orders`: el
+   * repositorio la lee del evento de auditoría de la orden (null en NEW/FILLED
+   * y en una cancelación pedida por el usuario). Así el replay cumple la
+   * promesa de devolver la orden original cuerpo a cuerpo.
+   */
+  | {
+      readonly outcome: "IDEMPOTENT_REPLAY";
+      readonly order: OrderRecord;
+      readonly reason: OrderRejectionReason | null;
+    }
   /** Misma key + payload distinto: 409 en la API. */
   | { readonly outcome: "IDEMPOTENT_CONFLICT"; readonly order: OrderRecord };
 

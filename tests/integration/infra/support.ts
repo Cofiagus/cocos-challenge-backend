@@ -89,6 +89,8 @@ export interface CashDraftOverrides {
   readonly filledAt?: Date | null;
   readonly idempotencyKey?: string | null;
   readonly datetime?: Date;
+  /** Huella del pedido cash (R-02); ausente = draft sin huella (histórico). */
+  readonly requestFingerprint?: string;
 }
 
 /**
@@ -111,6 +113,10 @@ export const buildCashDraft = (
   filledAt: valueOr(overrides.filledAt, null),
   idempotencyKey: uuidOr(overrides.idempotencyKey),
   datetime: valueOr(overrides.datetime, new Date()),
+  // `?: string` con exactOptionalPropertyTypes: sólo se agrega si vino.
+  ...(overrides.requestFingerprint === undefined
+    ? {}
+    : { requestFingerprint: overrides.requestFingerprint }),
 });
 
 export const expectCreated = (result: CreateOrderResult): OrderRecord => {

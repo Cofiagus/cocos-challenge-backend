@@ -338,6 +338,71 @@ describe("UC-3 submit · idempotencia", () => {
     expect(await countSubmitOrdersWithIdempotencyKey(userId, key)).toBe(before);
   });
 
+  // D-05: el replay devuelve la orden ORIGINAL cuerpo a cuerpo, incluida la
+  // razón de una REJECTED — que vive en order_events, no en `orders`. Antes
+  // volvía null y la MISMA key implicaba un cuerpo DISTINTO al del envío.
+  it("replay de una REJECTED ⇒ la MISMA orden CON su razón original", async () => {
+    const userId = await freshUserWithCash("100.00");
+    const key = "celle-e-idem-replay-rejected";
+    const rejectedPayload = {
+      instrumentId: SEED_INSTRUMENT_PAMP_ID,
+      side: "BUY",
+      type: "MARKET",
+      size: 10, // 10 × 925.85 ≫ 100 ⇒ INSUFFICIENT_FUNDS
+    };
+
+    const firstRes = await postOrder(userId, rejectedPayload, key);
+    expect(firstRes.status).toBe(201);
+    const first = firstRes.body as Record<string, unknown>;
+    expect(first["status"]).toBe("REJECTED");
+    expect(first["reason"]).toBe("INSUFFICIENT_FUNDS");
+
+    const replayRes = await postOrder(userId, rejectedPayload, key);
+    expect(replayRes.status).toBe(201);
+    const replay = replayRes.body as Record<string, unknown>;
+    expect(replay["id"]).toBe(first["id"]); // la MISMA orden
+    expect(replay["status"]).toBe("REJECTED");
+    expect(replay["reason"]).toBe("INSUFFICIENT_FUNDS"); // preservada, no null
+
+    // Sin evento nuevo ni plata movida: el replay no reejecuta nada.
+    const events = await fetchSubmitOrderEvents(first["id"] as number);
+    expect(events).toEqual([{ eventType: "REJECTED", reason: "INSUFFICIENT_FUNDS" }]);
+    expect(await countSubmitOrdersWithIdempotencyKey(userId, key)).toBe(1);
+    expectMoneyArs((await getPortfolio(userId)).cash, "100.00");
+  });
+
+  it("replay de una CANCELLED ⇒ la MISMA orden CON su razón original", async () => {
+    const userId = await freshUserWithCash("10000.00");
+    const key = "celle-e-idem-replay-cancelled";
+    const cancelledPayload = {
+      instrumentId: SEED_INSTRUMENT_PAMP_ID,
+      side: "BUY",
+      type: "LIMIT",
+      timeInForce: "IOC",
+      size: 2,
+      price: "900", // ref 925.85 ⇒ no cruza
+    };
+
+    const firstRes = await postOrder(userId, cancelledPayload, key);
+    expect(firstRes.status).toBe(201);
+    const first = firstRes.body as Record<string, unknown>;
+    expect(first["status"]).toBe("CANCELLED");
+    expect(first["reason"]).toBe("NO_IMMEDIATE_MATCH");
+
+    const replayRes = await postOrder(userId, cancelledPayload, key);
+    expect(replayRes.status).toBe(201);
+    const replay = replayRes.body as Record<string, unknown>;
+    expect(replay["id"]).toBe(first["id"]);
+    expect(replay["status"]).toBe("CANCELLED");
+    expect(replay["reason"]).toBe("NO_IMMEDIATE_MATCH");
+
+    const events = await fetchSubmitOrderEvents(first["id"] as number);
+    expect(events).toEqual([
+      { eventType: "CANCELLED", reason: "NO_IMMEDIATE_MATCH" },
+    ]);
+    expectMoneyArs((await getPortfolio(userId)).cash, "10000.00");
+  });
+
   it("doble-submit CONCURRENTE con la misma key ⇒ EXACTAMENTE una orden (claim idempotente)", async () => {
     const userId = await freshUserWithCash("5000.00");
     const key = "celle-e-idem-concurrente";

@@ -7,7 +7,13 @@
 //  - Idempotencia: createOrder es la PRIMERA escritura del envío, con
 //    ON CONFLICT DO NOTHING sobre UNIQUE(userid, idempotencyKey); misma
 //    key + mismo payload ⇒ devuelve la original (REPLAY); payload distinto
-//    ⇒ IDEMPOTENT_CONFLICT (la API lo resuelve 409).
+//    ⇒ IDEMPOTENT_CONFLICT (la API lo resuelve 409). Un REPLAY no escribe
+//    NADA: ni fila, ni evento, ni movimiento de dinero.
+//    · Trading: la huella del request (fp1) manda si está en ambos lados.
+//    · Cash: idem con su propia huella (fpc1, monto EXACTO — R-02); sin
+//      huella se mantiene la evidencia estricta del evento de origen.
+//    · La razón ORIGINAL de una REJECTED/CANCELLED se lee de order_events en
+//      el replay (D-05): el cuerpo del retry es el del envío original.
 //  - Auditoría: appendOrderEvent inserta en la MISMA tx que la mutación.
 //  - markFilled/markCancelled: guard por estado (WHERE status='NEW'),
 //    null si no estaba NEW.
@@ -19,6 +25,7 @@ import type {
   OrderDraft,
   OrderEventDraft,
   OrderEventRecord,
+  OrderRejectionReason,
   OrderRecord,
   TransactionContext,
 } from "../../contracts/index.js";
@@ -125,6 +132,45 @@ interface ClaimedOrderRow {
 }
 
 /**
+ * Razón ORIGINAL de una orden terminal (D-05). `orders` no guarda la razón: la
+ * de una REJECTED/CANCELLED vive en su evento de auditoría. Se toma el último
+ * evento, y sólo si su tipo coincide con el estado terminal (una cancelación
+ * pedida por el usuario es CANCELLED con reason null). NEW/FILLED ⇒ null.
+ */
+const replayReasonOf = async (
+  db: Prisma.TransactionClient,
+  row: Order,
+): Promise<OrderRejectionReason | null> => {
+  if (row.status !== "REJECTED" && row.status !== "CANCELLED") {
+    return null;
+  }
+  const lastEvent = await db.orderEvent.findFirst({
+    where: { orderId: row.id },
+    orderBy: { id: "desc" },
+  });
+  return lastEvent !== null && lastEvent.eventType === row.status
+    ? lastEvent.reason
+    : null;
+};
+
+/** Resultado del claim cuando la key ya estaba reclamada (REPLAY/CONFLICT). */
+const idempotentResultOf = async (
+  db: Prisma.TransactionClient,
+  row: Order,
+  outcome: "IDEMPOTENT_REPLAY" | "IDEMPOTENT_CONFLICT",
+): Promise<CreateOrderResult> => {
+  if (outcome === "IDEMPOTENT_CONFLICT") {
+    return { outcome, order: mapOrderRow(row) };
+  }
+  // D-05: la orden ORIGINAL con su razón original, sin escribir nada.
+  return {
+    outcome,
+    order: mapOrderRow(row),
+    reason: await replayReasonOf(db, row),
+  };
+};
+
+/**
  * Claim idempotente: INSERT ... ON CONFLICT DO NOTHING sobre
  * UNIQUE(userid, idempotencyKey) — PRIMERA escritura del envío. Count 1 ⇒
  * insertamos; 0 ⇒ otra orden YA reclamó la key. Devuelve la fila única
@@ -219,13 +265,20 @@ export class PrismaOrderRepository implements OrderRepository {
     const payload = comparisonPayload(draft, params);
     if (draft.side === "BUY" || draft.side === "SELL") {
       const outcome = classifyTradingRequest(requestRow, payload);
-      return { outcome, order: mapOrderRow(row) };
+      return idempotentResultOf(db, row, outcome);
     }
     if (!sameIdentityPayload(requestRow, payload)) {
       return { outcome: "IDEMPOTENT_CONFLICT", order: mapOrderRow(row) };
     }
-    const outcome = await cashIdempotencyOutcome(db, row, draft.amountArs);
-    return { outcome, order: mapOrderRow(row) };
+    // Cash: la huella manda si está en AMBOS lados (R-02); sin ella, evidencia
+    // estricta del evento de origen (cash-idempotency.ts).
+    const outcome = await cashIdempotencyOutcome(
+      db,
+      row,
+      draft.amountArs,
+      payload.requestFingerprint,
+    );
+    return idempotentResultOf(db, row, outcome);
   };
 
   // -------------------------------------------------------------------------
