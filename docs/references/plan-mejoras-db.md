@@ -1,5 +1,10 @@
 # Borrador — Plan de mejoras de DB y arquitectura (fundamentado en casos de uso)
 
+> **Archivado 2026-11-06 — documento histórico; no es fuente de verdad ni plan vigente.**
+> Motivo: su contenido ya se ejecutó en las migraciones `20261106154910_db_integrity_constraints`
+> y `20261106180000_db_write_invariants`. Esquema vigente: `prisma/schema.prisma` y
+> `docs/database.md`.
+
 > Estado: **parcialmente implementado**. M3 (idempotencia en DB) se implementó; M1 se resolvió
 > con `Decimal(10,2)` + `decimal.js` en lugar de centavos `BigInt`; M2 (CHECKs e índices extra)
 > **no** se aplicó — es deuda conocida (`docs/CODEMAP.md` §Deuda). Se conserva como registro del

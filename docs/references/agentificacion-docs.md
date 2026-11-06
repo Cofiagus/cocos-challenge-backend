@@ -1,7 +1,14 @@
 # Agentificación de la documentación — docs como fuente de verdad operativa
 
-> Estado: **BORRADOR — A1 y A2 resueltos por el humano (2026-11-03); A3 pendiente.**
-> A1: dinero = número JSON con 2 decimales (se alinea la regla escrita al código).
+> **Archivado 2026-11-06 — documento histórico; no es fuente de verdad ni plan vigente.**
+> Motivo: fijaba el dinero como número JSON, lo contrario del contrato vigente (string decimal
+> de dos cifras). Nunca se ejecutó y se la había declarado vigente por error.
+> Vigentes: `docs/api.md` y `openapi.json` para el contrato; `specs/trading-api-domain.md` para
+> el dominio.
+
+> Estado al escribirse: **BORRADOR — A1 y A2 resueltos por el humano (2026-11-03); A3 pendiente.**
+> A1: dinero = número JSON con 2 decimales (se alinea la regla escrita al código). **Contradicho
+> después por el contrato vigente: el dinero es string decimal.**
 > A2: OpenAPI 3.1 **generado desde los schemas Zod** (`z.toJSONSchema`, sin dependencias nuevas):
 > el contrato machine-readable es un artefacto derivado, no una copia a mano.
 > Fuente del diagnóstico: `AGENTS.md`, `README.md`, `DECISIONS.md`, `PROGRESS.md`, `docs/**`,

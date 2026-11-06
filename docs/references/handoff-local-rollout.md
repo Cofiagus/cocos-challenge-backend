@@ -8,7 +8,7 @@
 - Código integrado: `bd60d65` (merge de candidata `63e65ac`, QA independiente ACCEPT **9.5/10**).
 - Último commit antes del corte: `55ea2ee` (cierra G0 autorizado). El commit que incorpora este handoff sólo cambia documentación; obtener su SHA con `git log -1`.
 - Estado operativo único: sección **Activo** de `PROGRESS.md`. Leerla antes de actuar; después `AGENTS.md` y `docs/CODEMAP.md`.
-- Plan aprobado: `specs/integracion-instrumentos-despliegue-local.md`, Rev. 3, firma humana «SI APRUEBO». No reabrir D1–D5 ni UC-2. El padre supervisa/verifica/integra; implementación delegada a DS/GLM.
+- Plan aprobado: `docs/references/integracion-instrumentos-despliegue-local.md`, Rev. 3, firma humana «SI APRUEBO». No reabrir D1–D5 ni UC-2. El padre supervisa/verifica/integra; implementación delegada a DS/GLM.
 
 ## Qué está realmente verificado
 

@@ -1,5 +1,9 @@
 # Spec — plan de delegación: integrar UC-2 (cotizaciones Yahoo) sobre grandes montos, migrar sólo la DB local, dejar la API arriba y verificar con supervisión estricta
 
+> **Archivado 2026-11-06 — documento histórico; no es fuente de verdad ni plan vigente.**
+> Motivo: registro del rollout local de UC-2 sobre grandes montos, ya ejecutado y mergeado.
+> Vigentes: `specs/instruments-current-quotes.md` y `specs/datos-financieros-grandes-montos.md`.
+
 > **Rev. 3 — VALIDADA por el usuario el 2026-11-05: «SI APRUEBO».** Aprobación explícita del plan y sus cuatro puntos pendientes.
 > Re-escrito tras revisión por hallazgos contrastados del
 > supervisor (semántica Git, scopes reales, gates supervisados, writers de DB, preflight y runtime). Sigue siendo un PLAN:

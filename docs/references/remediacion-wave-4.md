@@ -1,7 +1,12 @@
 # Spec — Wave 4: garantías de escritura y cierre de la deuda de cobertura
 
-**Estado: BORRADOR Rev. 1 — ejecución autorizada por el humano (2026-11-06).**
-**Continúa:** `specs/remediacion-revision-calidad.md`. **Base:** HEAD `6d39749`.
+> **Archivado 2026-11-06 — documento histórico; no es fuente de verdad ni plan vigente.**
+> Motivo: la Wave 4 se ejecutó y se mergeó; el "BORRADOR" de abajo es el estado que tenía al
+> escribirse. Comportamiento vigente: `specs/trading-api-domain.md`; estado del código:
+> `docs/CODEMAP.md`.
+
+**Estado al escribirse: BORRADOR Rev. 1 — ejecución autorizada por el humano (2026-11-06).**
+**Continúa:** `docs/references/remediacion-revision-calidad.md`. **Base:** HEAD `6d39749`.
 
 ---
 

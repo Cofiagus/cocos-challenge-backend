@@ -1,5 +1,10 @@
 # Spec — configuración externa de PostgreSQL y limpieza de entorno
 
+> **Archivado 2026-11-06 — documento histórico; no es fuente de verdad ni plan vigente.**
+> Motivo: ejecutada — el runtime se configura con `DATABASE_URL`, la DB de test con
+> `TEST_DATABASE_URL` y la dependencia de Neon se eliminó.
+> Configuración vigente: `README.md` y `docs/database.md`.
+
 > Rev. 2 — El runtime admite cualquier PostgreSQL vía `DATABASE_URL`; la DB de integración se configura aparte con `TEST_DATABASE_URL` y puede ser local. Decisión del usuario, 2026-11-04.
 
 ## Why

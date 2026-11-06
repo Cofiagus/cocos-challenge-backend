@@ -1,6 +1,11 @@
 # Spec — Remediación de la revisión de calidad (post-UC-2)
 
-**Estado: BORRADOR Rev. 1 — requiere aprobación humana explícita antes de cualquier célula.**
+> **Archivado 2026-11-06 — documento histórico; no es fuente de verdad ni plan vigente.**
+> Motivo: la remediación se ejecutó y se mergeó; el "BORRADOR" de abajo es el estado que tenía
+> al escribirse. Comportamiento vigente: `specs/trading-api-domain.md`; estado del código:
+> `docs/CODEMAP.md`.
+
+**Estado al escribirse: BORRADOR Rev. 1 — requiere aprobación humana explícita antes de cualquier célula.**
 **Referencia:** `AGENTS.md` §5 (reglas no negociables), §6 (spec antes de código), §7 (límites).
 **Base:** HEAD `e6f9a22` · 5.470 LOC en `src/` · 42 archivos `.test.ts`.
 
