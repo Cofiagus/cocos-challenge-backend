@@ -20,29 +20,18 @@
 // de integración: 201 es para creación; DECISIONS.md no fija el
 // status de cancelación.
 
-import {
-  API_ERROR_CODES,
-  type ApiErrorCode,
-  type OrderRecord,
-} from "../../contracts/index.js";
+import { API_ERROR_CODES, type OrderRecord } from "../../contracts/index.js";
 import type { OrderRepository } from "../../domain/ports/index.js";
+import { ApplicationError } from "../application-error.js";
 
 /**
  * Error de aplicación de la cancelación: el router lo mapea a status +
  * apiErrorBody. A diferencia del envío (UC-3), NO hay códigos fuera del
  * contrato: 404 ORDER_NOT_FOUND y 422 ORDER_NOT_CANCELLABLE ya viven en
  * API_ERROR_CODES (la validación del borde es 400 del router, no de acá).
+ * El contrato de error — status, código y mensaje — es el de ApplicationError.
  */
-export class CancelOrderError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: ApiErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = "CancelOrderError";
-  }
-}
+export class CancelOrderError extends ApplicationError {}
 
 /** Deps del caso de uso: la INTERFAZ del port, nunca una concreción. */
 export interface CancelOrderDeps {

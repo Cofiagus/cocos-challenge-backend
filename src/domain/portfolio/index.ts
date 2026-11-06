@@ -108,6 +108,21 @@ export const deriveReservations = (
 };
 
 /**
+ * Cash DISPONIBLE de un usuario: `cashSettled − cashReservedArs`
+ * (DECISIONS.md). Es LA regla que decide si un BUY o un CASH_OUT tiene fondos,
+ * así que vive una sola vez acá: cualquier copia `deriveCash(...).minus(...)`
+ * en la capa de aplicación puede divergir en silencio.
+ *
+ * PURA: recibe el cash liquidado y las reservas ya derivados; no lee ni
+ * recalcula nada. Reservar cash (BUY NEW) no mueve patrimonio: sólo baja el
+ * disponible.
+ */
+export const deriveAvailableCash = (
+  cashSettledArs: FinancialDecimal,
+  reservations: Reservations,
+): FinancialDecimal => cashSettledArs.minus(reservations.cashReservedArs);
+
+/**
  * Acumulado de la POSICIÓN VIVA de un instrumento: cantidad neta firmada y
  * las compras que la sostienen, contadas desde el último punto en que la
  * cantidad neta volvió a 0.

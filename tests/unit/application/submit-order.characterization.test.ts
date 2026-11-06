@@ -1489,7 +1489,7 @@ const throwCases: ThrowCase[] = [
         price: new Decimal("900.00"),
       },
       "type",
-      // F2-IDEM: buildDraftBase lee `type` una vez para el draft y otra para
+      // F2-IDEM: buildTradingDraftBase lee `type` una vez para el draft y otra para
       // la huella del request ANTES de decidir; el MARKET sigue llegando
       // recién al decidir el estado (lo que el guard caracteriza).
       ["LIMIT", "LIMIT", "LIMIT", "LIMIT", "LIMIT", "MARKET"],
@@ -1553,7 +1553,7 @@ const throwCases: ThrowCase[] = [
         price: new Decimal("950.00"),
       },
       "timeInForce",
-      // F2-IDEM: buildDraftBase lee `timeInForce` una vez para el draft y otra
+      // F2-IDEM: buildTradingDraftBase lee `timeInForce` una vez para el draft y otra
       // para la huella antes de evaluar el cruce (que sigue viendo GTC).
       ["IOC", "IOC", "IOC", "IOC", "GTC"],
     ),

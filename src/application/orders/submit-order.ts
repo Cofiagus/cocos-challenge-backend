@@ -37,9 +37,10 @@ import type {
   OrderRepository,
   PortfolioReadRepository,
 } from "../../domain/ports/index.js";
+import { ApplicationError } from "../application-error.js";
 import {
   assessFunds,
-  buildAuditBase,
+  buildTradingAuditBase,
   decideAcceptedOrder,
   limitPriceOf,
   needsReferencePrice,
@@ -65,17 +66,12 @@ import { requestFingerprintOf } from "../../contracts/request-fingerprint.js";
  */
 export type SubmitOrderErrorCode = ApiErrorCode;
 
-/** Error de aplicación del envío: el router lo mapea a status + apiErrorBody. */
-export class SubmitOrderError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: SubmitOrderErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = "SubmitOrderError";
-  }
-}
+/**
+ * Error de aplicación del envío: el router lo mapea a status + apiErrorBody.
+ * Sólo fija la identidad (nombre y `instanceof`); el contrato de error —
+ * status, código y mensaje — es el de ApplicationError.
+ */
+export class SubmitOrderError extends ApplicationError {}
 
 /** Deps del caso de uso: las INTERFACES de src/domain/ports, nunca concreciones. */
 export interface SubmitOrderDeps {
@@ -171,7 +167,7 @@ const readReferencePrice = async (
   return snapshot === null ? null : snapshot.closeArs;
 };
 
-interface DraftBaseInput {
+interface TradingDraftBaseInput {
   readonly input: SubmitOrderInput;
   readonly instrumentId: number;
   readonly limitPriceArs: FinancialDecimal | null;
@@ -179,16 +175,17 @@ interface DraftBaseInput {
 }
 
 /**
- * Campos del draft de TRADING que no dependen de la decisión de estado. El
- * `side` se ramifica para conservar el literal (la unión discriminada del
- * contrato no acepta un `TradingSide` genérico).
+ * Campos del draft de TRADING — acciones por orden, no monto — que no
+ * dependen de la decisión de estado. El `side` se ramifica para conservar el
+ * literal (la unión discriminada del contrato no acepta un `TradingSide`
+ * genérico).
  */
-const buildDraftBase = ({
+const buildTradingDraftBase = ({
   input,
   instrumentId,
   limitPriceArs,
   datetime,
-}: DraftBaseInput): TradingOrderDraftBase => {
+}: TradingDraftBaseInput): TradingOrderDraftBase => {
   const common = {
     userId: input.userId,
     instrumentId,
@@ -260,7 +257,7 @@ const decideOrder = async (
     referencePriceArs,
     limitPriceArs,
   );
-  const auditBase = buildAuditBase(
+  const auditBase = buildTradingAuditBase(
     instrument,
     request,
     referencePriceArs,
@@ -326,7 +323,7 @@ const submitInsideTransaction = async (
   );
   const datetime = new Date(); // hora de envío/aceptación
   const limitPriceArs = limitPriceOf(request);
-  const base = buildDraftBase({
+  const base = buildTradingDraftBase({
     input,
     instrumentId: instrument.id,
     limitPriceArs,

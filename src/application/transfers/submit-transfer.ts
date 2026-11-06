@@ -36,18 +36,22 @@ import {
   API_ERROR_CODES,
   FinancialDecimal,
   serializeMoneyArs,
-  type ApiErrorCode,
   type InstrumentRecord,
   type OrderEventMetadata,
   type TransactionContext,
   type TransferSide,
 } from "../../contracts/index.js";
-import { deriveCash, deriveReservations } from "../../domain/index.js";
+import {
+  deriveAvailableCash,
+  deriveCash,
+  deriveReservations,
+} from "../../domain/index.js";
 import type {
   InstrumentRepository,
   OrderRepository,
   PortfolioReadRepository,
 } from "../../domain/ports/index.js";
+import { ApplicationError } from "../application-error.js";
 import type { DecidedCashOrder } from "../orders/decide-order.js";
 import {
   persistOrderDecision,
@@ -64,18 +68,10 @@ const CASH_UNIT_PRICE_ARS = new FinancialDecimal("1.00");
 /**
  * Error de aplicación de la transferencia: el router lo mapea a status +
  * apiErrorBody. NO hay códigos extra: USER_NOT_FOUND ya vive en
- * API_ERROR_CODES (el 409 de idempotencia es la clase compartida).
+ * API_ERROR_CODES (el 409 de idempotencia es la clase compartida). El
+ * contrato de error — status, código y mensaje — es el de ApplicationError.
  */
-export class SubmitTransferError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: ApiErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = "SubmitTransferError";
-  }
-}
+export class SubmitTransferError extends ApplicationError {}
 
 /** Deps del caso de uso: las INTERFACES de src/domain/ports, nunca concreciones. */
 export interface SubmitTransferDeps {
@@ -101,10 +97,12 @@ export interface SubmitTransferInput {
 export type SubmitTransferResult = PersistedOrderDecision;
 
 /**
- * Metadata de auditoría común: el monto va como string canónico de 2
- * decimales (ningún float y ningún Decimal crudo en el jsonb).
+ * Metadata de auditoría común de una transferencia de CASH: el monto va como
+ * string canónico de 2 decimales (ningún float y ningún Decimal crudo en el
+ * jsonb). Es la unidad MONTO, no acciones: por eso no comparte el builder del
+ * envío de trading.
  */
-const buildAuditBase = (
+const buildCashAuditBase = (
   instrument: InstrumentRecord,
   amountArs: FinancialDecimal,
 ): OrderEventMetadata => ({
@@ -194,21 +192,22 @@ const requireCashInstrument = async (
   return cashInstrument;
 };
 
-interface DraftBaseInput {
+interface CashDraftBaseInput {
   readonly input: SubmitTransferInput;
   readonly instrumentId: number;
   readonly datetime: Date;
 }
 
 /**
- * Campos comunes del draft de CASH (el status/fill se decide después). El
- * `side` se ramifica para conservar el literal discriminado del contrato.
+ * Campos comunes del draft de CASH — monto exacto en ARS, sin acciones — (el
+ * status/fill se decide después). El `side` se ramifica para conservar el
+ * literal discriminado del contrato.
  */
-const buildDraftBase = ({
+const buildCashDraftBase = ({
   input,
   instrumentId,
   datetime,
-}: DraftBaseInput): CashOrderDraftBase => {
+}: CashDraftBaseInput): CashOrderDraftBase => {
   const common = {
     userId: input.userId,
     instrumentId,
@@ -250,8 +249,11 @@ const readCashAvailable = async (
     context.userId,
     context.tx,
   );
-  return deriveCash(movements).minus(
-    deriveReservations(restingOrders).cashReservedArs,
+  // Cash disponible = liquidado − reservas: la MISMA función pura que usan el
+  // portfolio y el envío de órdenes (deriveAvailableCash).
+  return deriveAvailableCash(
+    deriveCash(movements),
+    deriveReservations(restingOrders),
   );
 };
 
@@ -289,12 +291,12 @@ const submitInsideTransaction = async (
   const cashInstrument = await requireCashInstrument(deps, tx);
 
   const datetime = new Date(); // hora de envío/aceptación
-  const base = buildDraftBase({
+  const base = buildCashDraftBase({
     input,
     instrumentId: cashInstrument.id,
     datetime,
   });
-  const auditBase = buildAuditBase(cashInstrument, amountArs);
+  const auditBase = buildCashAuditBase(cashInstrument, amountArs);
 
   const decided = await decideTransfer({
     deps,

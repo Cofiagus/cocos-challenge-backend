@@ -7,7 +7,7 @@ import { Decimal } from "decimal.js";
 import { FinancialDecimal } from "../../../src/contracts/index.js";
 import {
   assessFunds,
-  buildAuditBase,
+  buildTradingAuditBase,
   decideAcceptedOrder,
   decideLimitOrder,
   decideMarketFill,
@@ -283,13 +283,13 @@ describe("resolveSizing", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildAuditBase / rejectForZeroSize
+// buildTradingAuditBase / rejectForZeroSize
 // ---------------------------------------------------------------------------
 
-describe("buildAuditBase", () => {
+describe("buildTradingAuditBase", () => {
   it("size explícito: referencia en 2 decimales, sin sizing ni residuo", () => {
     expect(
-      buildAuditBase(
+      buildTradingAuditBase(
         PAMP,
         marketRequest({ size: 3 }),
         new Decimal("925.85"),
@@ -306,7 +306,7 @@ describe("buildAuditBase", () => {
 
   it("size derivado del monto: sizing y residuo como strings de 2 decimales", () => {
     expect(
-      buildAuditBase(
+      buildTradingAuditBase(
         PAMP,
         marketRequest({ amountArs: new Decimal("10000.00") }),
         new Decimal("925.85"),
@@ -327,7 +327,7 @@ describe("buildAuditBase", () => {
 
   it("sin referencia ni sizing ⇒ nulls (LIMIT GTC)", () => {
     expect(
-      buildAuditBase(PAMP, limitRequest({ size: 2, price: new Decimal("250.00") }), null, sizing()),
+      buildTradingAuditBase(PAMP, limitRequest({ size: 2, price: new Decimal("250.00") }), null, sizing()),
     ).toEqual({
       ticker: "PAMP",
       referencePriceArs: null,

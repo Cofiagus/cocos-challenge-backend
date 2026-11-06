@@ -22,6 +22,7 @@ import type {
   SettledOrderMovement,
 } from "../../contracts/index.js";
 import {
+  deriveAvailableCash,
   deriveCash,
   evaluateCross,
   isUsableReferencePrice,
@@ -120,8 +121,11 @@ export const resolveSizing = (
   return { sizeShares, sizingPriceArs, residualArs };
 };
 
-/** Metadata de auditoría común (dinero como string de 2 decimales, nunca float). */
-export const buildAuditBase = (
+/**
+ * Metadata de auditoría común de un envío de TRADING (acciones y precios):
+ * dinero como string de 2 decimales, nunca float.
+ */
+export const buildTradingAuditBase = (
   instrument: InstrumentRecord,
   request: CreateOrderRequest,
   referencePriceArs: FinancialDecimal | null,
@@ -190,9 +194,9 @@ const assessBuyFunds = (
   const costArs = new FinancialDecimal(String(input.sizeShares)).mul(
     validationPriceArs,
   );
-  const cashAvailableArs = deriveCash(input.movements).minus(
-    input.reservations.cashReservedArs,
-  );
+  // Cash disponible = liquidado − reservas: la MISMA función pura que usan el
+  // portfolio y las transferencias (deriveAvailableCash).
+  const cashAvailableArs = deriveAvailableCash(deriveCash(input.movements), input.reservations);
   if (!costArs.greaterThan(cashAvailableArs)) return null;
   return {
     status: "REJECTED",
