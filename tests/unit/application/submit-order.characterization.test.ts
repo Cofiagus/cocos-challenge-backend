@@ -10,7 +10,7 @@
 //
 // Dinero SIEMPRE Decimal desde string (AGENTS.md): ningún fixture usa float.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import {
   SubmitOrderError,
   submitOrder,
@@ -65,14 +65,14 @@ const snapshot = (
 ): MarketdataSnapshot => ({
   instrumentId,
   date: "2023-07-14",
-  closeArs: new Decimal(closeArs),
-  previousCloseArs: new Decimal(closeArs),
+  closeArs: new FinancialDecimal(closeArs),
+  previousCloseArs: new FinancialDecimal(closeArs),
 });
 
 /** CASH_IN de un monto exacto en ARS (el cash no lleva acciones). */
 const cashIn = (amountArs: string): SettledOrderMovement => ({
   side: "CASH_IN",
-  amountArs: new Decimal(amountArs),
+  amountArs: new FinancialDecimal(amountArs),
 });
 
 const trade = (
@@ -84,7 +84,7 @@ const trade = (
   instrumentId,
   side,
   sizeShares,
-  priceArs: new Decimal(priceArs),
+  priceArs: new FinancialDecimal(priceArs),
 });
 
 const resting = (
@@ -97,7 +97,7 @@ const resting = (
   instrumentId,
   side,
   sizeShares,
-  limitPriceArs: new Decimal(limitPriceArs),
+  limitPriceArs: new FinancialDecimal(limitPriceArs),
 });
 
 // ---------------------------------------------------------------------------
@@ -252,7 +252,7 @@ const expectDraft = (
     status: expected.status,
     sizeShares: expected.sizeShares,
     priceArs:
-      expected.priceArs === null ? null : new Decimal(expected.priceArs),
+      expected.priceArs === null ? null : new FinancialDecimal(expected.priceArs),
     filledAt: expected.filledAt === null ? null : expect.any(Date),
     idempotencyKey: expected.idempotencyKey,
     datetime: expect.any(Date),
@@ -582,7 +582,7 @@ const persistedCases: PersistedCase[] = [
       side: "BUY",
       type: "MARKET",
       timeInForce: "GTC",
-      amountArs: new Decimal("5000.00"),
+      amountArs: new FinancialDecimal("5000.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -619,7 +619,7 @@ const persistedCases: PersistedCase[] = [
       side: "BUY",
       type: "MARKET",
       timeInForce: "GTC",
-      amountArs: new Decimal("10000.00"),
+      amountArs: new FinancialDecimal("10000.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -662,7 +662,7 @@ const persistedCases: PersistedCase[] = [
       side: "BUY",
       type: "MARKET",
       timeInForce: "GTC",
-      amountArs: new Decimal("100.00"),
+      amountArs: new FinancialDecimal("100.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -706,7 +706,7 @@ const persistedCases: PersistedCase[] = [
       type: "LIMIT",
       timeInForce: "GTC",
       size: 2,
-      price: new Decimal("250.00"),
+      price: new FinancialDecimal("250.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -740,7 +740,7 @@ const persistedCases: PersistedCase[] = [
       type: "LIMIT",
       timeInForce: "GTC",
       size: 3,
-      price: new Decimal("250.00"),
+      price: new FinancialDecimal("250.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -774,7 +774,7 @@ const persistedCases: PersistedCase[] = [
       type: "LIMIT",
       timeInForce: "GTC",
       size: 5,
-      price: new Decimal("250.00"),
+      price: new FinancialDecimal("250.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -816,7 +816,7 @@ const persistedCases: PersistedCase[] = [
       type: "LIMIT",
       timeInForce: "IOC",
       size: 2,
-      price: new Decimal("950.00"),
+      price: new FinancialDecimal("950.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -854,7 +854,7 @@ const persistedCases: PersistedCase[] = [
       type: "LIMIT",
       timeInForce: "IOC",
       size: 2,
-      price: new Decimal("900.00"),
+      price: new FinancialDecimal("900.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -892,7 +892,7 @@ const persistedCases: PersistedCase[] = [
       type: "LIMIT",
       timeInForce: "IOC",
       size: 2,
-      price: new Decimal("900.00"),
+      price: new FinancialDecimal("900.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -930,7 +930,7 @@ const persistedCases: PersistedCase[] = [
       type: "LIMIT",
       timeInForce: "FOK",
       size: 2,
-      price: new Decimal("950.00"),
+      price: new FinancialDecimal("950.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -968,7 +968,7 @@ const persistedCases: PersistedCase[] = [
       type: "LIMIT",
       timeInForce: "FOK",
       size: 2,
-      price: new Decimal("950.00"),
+      price: new FinancialDecimal("950.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -1101,7 +1101,7 @@ const persistedCases: PersistedCase[] = [
       movements: [
         cashIn("100000.00"),
         trade(1, "BUY", 10, "900.00"),
-        { side: "CASH_OUT", amountArs: new Decimal("3.00") },
+        { side: "CASH_OUT", amountArs: new FinancialDecimal("3.00") },
       ],
     },
     expected: {
@@ -1131,7 +1131,7 @@ const persistedCases: PersistedCase[] = [
       type: "LIMIT",
       timeInForce: "GTC",
       size: 1,
-      price: new Decimal("210.00"),
+      price: new FinancialDecimal("210.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -1167,7 +1167,7 @@ const persistedCases: PersistedCase[] = [
       type: "LIMIT",
       timeInForce: "GTC",
       size: 1000,
-      price: new Decimal("1000.00"),
+      price: new FinancialDecimal("1000.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -1185,7 +1185,7 @@ const persistedCases: PersistedCase[] = [
         timeInForce: "GTC",
         status: "REJECTED",
         sizeShares: 1000,
-        priceArs: new Decimal("1000.00"),
+        priceArs: new FinancialDecimal("1000.00"),
         filledPriceArs: null,
         filledAt: null,
         idempotencyKey: "idem-replay-rejected",
@@ -1328,7 +1328,7 @@ const errorCases: ErrorCase[] = [
       type: "LIMIT",
       timeInForce: "GTC",
       size: 1,
-      price: new Decimal("210.00"),
+      price: new FinancialDecimal("210.00"),
     },
     seed: {
       instruments: CATALOG,
@@ -1362,7 +1362,7 @@ const errorCases: ErrorCase[] = [
       side: "BUY",
       type: "MARKET",
       timeInForce: "GTC",
-      amountArs: new Decimal("9999999999999999999999.99"),
+      amountArs: new FinancialDecimal("9999999999999999999999.99"),
     },
     seed: {
       instruments: CATALOG,
@@ -1449,7 +1449,7 @@ const throwCases: ThrowCase[] = [
       side: "BUY",
       type: "LIMIT",
       timeInForce: "GTC",
-      amountArs: new Decimal("1000.00"),
+      amountArs: new FinancialDecimal("1000.00"),
     } as unknown as CreateOrderRequest,
     seed: {
       instruments: CATALOG,
@@ -1486,7 +1486,7 @@ const throwCases: ThrowCase[] = [
         side: "BUY",
         timeInForce: "GTC",
         size: 1,
-        price: new Decimal("900.00"),
+        price: new FinancialDecimal("900.00"),
       },
       "type",
       // F2-IDEM: buildTradingDraftBase lee `type` una vez para el draft y otra para
@@ -1511,7 +1511,7 @@ const throwCases: ThrowCase[] = [
         side: "BUY",
         type: "LIMIT",
         size: 1,
-        price: new Decimal("900.00"),
+        price: new FinancialDecimal("900.00"),
       },
       "timeInForce",
       ["GTC", "IOC", "IOC", "IOC"],
@@ -1550,7 +1550,7 @@ const throwCases: ThrowCase[] = [
         side: "BUY",
         type: "LIMIT",
         size: 1,
-        price: new Decimal("950.00"),
+        price: new FinancialDecimal("950.00"),
       },
       "timeInForce",
       // F2-IDEM: buildTradingDraftBase lee `timeInForce` una vez para el draft y otra

@@ -7,7 +7,7 @@
 // Express → parseWriteRequest, y comprueban que el 400 no toca NINGÚN port:
 // cero lecturas y cero escrituras. El header ÚNICO sigue igual.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import type { Express } from "express";
 import { createServer, request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -48,8 +48,8 @@ const PAMP: InstrumentRecord = {
 const snapshot: MarketdataSnapshot = {
   instrumentId: 1,
   date: "2023-07-14",
-  closeArs: new Decimal("925.85"),
-  previousCloseArs: new Decimal("925.85"),
+  closeArs: new FinancialDecimal("925.85"),
+  previousCloseArs: new FinancialDecimal("925.85"),
 };
 
 /** Fakes de los cuatro ports + app real con el router de orders montado. */
@@ -58,7 +58,7 @@ const buildOrdersApp = (): { app: Express; fakes: SubmitOrderFakes } => {
     userExists: true,
     instruments: [PAMP],
     snapshot,
-    movements: [{ side: "CASH_IN", amountArs: new Decimal("100000.00") }],
+    movements: [{ side: "CASH_IN", amountArs: new FinancialDecimal("100000.00") }],
   });
   return { app: buildApp([buildOrdersRouter(fakes.deps)]), fakes };
 };

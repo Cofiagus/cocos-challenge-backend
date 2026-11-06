@@ -7,7 +7,7 @@
 // auditoría va en la MISMA transacción. El draft está discriminado por unidad:
 // acciones (trading) o monto exacto (cash, D4) — nunca las dos.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import {
   IdempotencyConflictError,
   persistOrderDecision,
@@ -47,7 +47,7 @@ const CASH_BASE: CashOrderDraftBase = {
   side: "CASH_IN",
   type: "MARKET",
   timeInForce: "GTC",
-  priceArs: new Decimal("1.00"),
+  priceArs: new FinancialDecimal("1.00"),
   idempotencyKey: "idem-cash",
   datetime: DATETIME,
 };
@@ -55,7 +55,7 @@ const CASH_BASE: CashOrderDraftBase = {
 const FILLED: DecidedOrder = {
   status: "FILLED",
   sizeShares: 3,
-  filledPriceArs: new Decimal("925.85"),
+  filledPriceArs: new FinancialDecimal("925.85"),
   filledAt: FILLED_AT,
   eventType: "ACCEPTED",
   reason: null,
@@ -74,8 +74,8 @@ const REJECTED: DecidedOrder = {
 
 const CASH_FILLED: DecidedCashOrder = {
   status: "FILLED",
-  amountArs: new Decimal("123.45"),
-  filledPriceArs: new Decimal("1.00"),
+  amountArs: new FinancialDecimal("123.45"),
+  filledPriceArs: new FinancialDecimal("1.00"),
   filledAt: FILLED_AT,
   eventType: "ACCEPTED",
   reason: null,
@@ -92,7 +92,7 @@ const EXISTING_ORDER: OrderRecord = {
   status: "FILLED",
   sizeShares: 3,
   priceArs: null,
-  filledPriceArs: new Decimal("925.85"),
+  filledPriceArs: new FinancialDecimal("925.85"),
   filledAt: FILLED_AT,
   idempotencyKey: "idem-1",
   datetime: DATETIME,
@@ -123,7 +123,7 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
         ...BASE,
         status: "FILLED",
         sizeShares: 3,
-        filledPriceArs: new Decimal("925.85"),
+        filledPriceArs: new FinancialDecimal("925.85"),
         filledAt: FILLED_AT,
       },
     ]);
@@ -180,8 +180,8 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
       {
         ...CASH_BASE,
         status: "FILLED",
-        amountArs: new Decimal("123.45"),
-        filledPriceArs: new Decimal("1.00"),
+        amountArs: new FinancialDecimal("123.45"),
+        filledPriceArs: new FinancialDecimal("1.00"),
         filledAt: FILLED_AT,
         // R-02: la huella del pedido cash se deriva del monto EXACTO.
         requestFingerprint: cashRequestFingerprintOf({
@@ -190,7 +190,7 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
           type: CASH_BASE.type,
           timeInForce: CASH_BASE.timeInForce,
           priceArs: CASH_BASE.priceArs,
-          amountArs: new Decimal("123.45"),
+          amountArs: new FinancialDecimal("123.45"),
         }),
       },
     ]);

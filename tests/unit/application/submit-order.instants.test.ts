@@ -9,7 +9,7 @@
 // en T0+1000 cuando hubo snapshot (T0+0 en LIMIT GTC, que no lee vela) y
 // `filledAt` en T0+3000 sólo si se decidió un FILLED.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import type { SubmitOrderDeps } from "../../../src/application/orders/submit-order.js";
 import { submitOrder } from "../../../src/application/orders/submit-order.js";
 import type {
@@ -41,14 +41,14 @@ const snapshot = (
 ): MarketdataSnapshot => ({
   instrumentId,
   date: "2023-07-14",
-  closeArs: new Decimal(closeArs),
-  previousCloseArs: new Decimal(closeArs),
+  closeArs: new FinancialDecimal(closeArs),
+  previousCloseArs: new FinancialDecimal(closeArs),
 });
 
 /** CASH_IN de un monto exacto en ARS (el cash no lleva acciones). */
 const cashIn = (amountArs: string): SettledOrderMovement => ({
   side: "CASH_IN",
-  amountArs: new Decimal(amountArs),
+  amountArs: new FinancialDecimal(amountArs),
 });
 
 // ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ describe("submitOrder — los dos instantes del envío (UC-3)", () => {
         type: "LIMIT",
         timeInForce: "IOC",
         size: 2,
-        price: new Decimal("950.00"),
+        price: new FinancialDecimal("950.00"),
       },
       idempotencyKey: null,
     });
@@ -209,7 +209,7 @@ describe("submitOrder — los dos instantes del envío (UC-3)", () => {
         type: "LIMIT",
         timeInForce: "GTC",
         size: 1,
-        price: new Decimal("210.00"),
+        price: new FinancialDecimal("210.00"),
       },
       idempotencyKey: null,
     });
