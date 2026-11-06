@@ -35,6 +35,7 @@ npm run build                # tsc → dist/
 npm run typecheck            # tsc --noEmit (gate obligatorio)
 npm run lint                 # eslint 9 flat config (gate obligatorio)
 npm test                     # jest completo
+npm run test:no-db           # unit + docs + smoke ESM, sin PostgreSQL (para CI)
 npx jest tests/functional/cancel          # UNA suite
 npx jest -t "doble submit"               # UN test por nombre
 npm run test:db:reset        # (re)crea cocos_challenge_test desde migraciones + seed
