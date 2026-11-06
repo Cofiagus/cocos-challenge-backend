@@ -415,7 +415,7 @@ concreta se verifica con `npx prisma migrate status` (§10):
 | `marketdata.high`, `marketdata.low`, `marketdata.open`, `marketdata.close`, `marketdata.previousclose` | `numeric(10,2)` | `numeric(24,2)`, no negativos; se conserva el caso de precio 0 |
 | IDs, FKs, secuencias | `integer` | **Sin cambios** — no UUID, no BIGINT de identificadores |
 
-CHECKs acotados a los campos financieros modificados (excepción firmada D5 a "no editar
+CHECKs acotados a los campos financieros modificados (excepción acotada D5 a "no editar
 migraciones"; sólo la migración nueva, nunca la inicial ni los snapshots SQL):
 
 - Todo precio no nulo debe ser finito; precio de orden positivo.

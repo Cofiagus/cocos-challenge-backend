@@ -19,7 +19,7 @@ el comportamiento vigente.
 ## Fuente de datos de mercado
 
 - **UC-2** consulta la chart API de Yahoo Finance en el request, símbolo directo
-  `ticker + ".BA"` (sin tabla de mapping, Rev. 3), con `fetch` y respuesta validada
+  `ticker + ".BA"` (sin tabla de mapping), con `fetch` y respuesta validada
   por Zod. Precios en **ARS**, sin conversión. No hay lib `yahoo-finance2`.
 - Cobertura verificada: **61/65** tickers del seed con el símbolo directo. Los 4
   restantes no tienen precio (delistadas o renombradas, sin mapeo a su sucesor) y
@@ -221,7 +221,7 @@ de `size` (acciones) o `amountArs`; `price` > 0 obligatorio para LIMIT.
 - Dinero **nunca en float**: Decimal financiero desde string con precisión 64;
   entrada string decimal estricta y salida string con dos decimales; precios/size NUMERIC(24,2).
   Quantities agregadas bigint y representación JSON entera string. Detalle, límites y
-  compatibilidad histórica: spec financiera firmada.
+  compatibilidad histórica: spec financiera vigente.
 - Acciones enteras: sin fracciones, sin fills parciales (limitación documentada).
 - Toda multi-escritura (fill + evento + derivados) en una transacción DB.
 - Transición de estado siempre guardada por el estado actual

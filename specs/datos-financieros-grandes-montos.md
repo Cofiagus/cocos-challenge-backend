@@ -26,7 +26,7 @@ Evidencia reproducida, referencias de código y alternativas: `docs/references/p
 | D4 | Las nuevas transferencias mueven el **monto exacto con centavos**, sin floor. Las órdenes BUY/SELL conservan floor para convertir monto a acciones. | Corrige la limitación de cash entero. Cambia la semántica vigente de UC-5 y exige compatibilidad explícita de replays históricos, sin modificar el dinero ya movido. |
 | D5 | Migración coordinada con pausa de escrituras y **excepción acotada** para personalizar sólo la nueva migración aún no aplicada con CHECKs. | AGENTS.md prohíbe editar migrations a mano. No se elude esa regla: hace falta autorización y registrar la excepción antes de ejecutar. No se promete despliegue rolling ni downtime cero. |
 
-La validación de D1–D5 quedó satisfecha por la firma humana. Si cambia precisión, representación o política de transferencias, se requiere una nueva revisión y validación antes de cambiar código.
+La validación de D1–D5 es vigente. Si cambia precisión, representación o política de transferencias, se requiere una nueva revisión y validación antes de cambiar código.
 
 ### 2. DB: campos, unidades y garantías
 
@@ -127,7 +127,7 @@ Cada subtarea modifica **1–2 archivos**. Los bloques siguientes son secuencias
 | T12a | scripts/openapi/wire.ts + scripts/openapi/registry.ts | Reutiliza contrato monetario y actualiza ejemplos sin duplicar límites; no cambia rutas/códigos no aprobados. |
 | T12b | openapi.json regenerado + tests/docs/openapi.test.ts | Sincronización exacta y muestras de frontera entre wire/runtime; documenta cambio incompatible. |
 | T13 | Subtareas por cada consumidor de Decimal/cantidades afectado, **un archivo de src y su test directo como máximo** | Migrar también matching puro y price-source sólo en tipos/construcción, sin activarlos; prohibir mezcla de constructor financiero/default y conversiones monetarias a number. Inventario se registra antes del primer cambio, no refactor general. |
-| T14 | Subtareas de compatibilidad por cada fixture/suite afectada, **máximo dos archivos por subtarea** | Adaptar literales por el contrato firmado, conservar escenarios/assertions y valores económicos; cubrir funcionales read/orders/orders-submit/transfers/cancel y conteo de eventos. No borrar/re-escribir suites para ocultar regresiones. |
+| T14 | Subtareas de compatibilidad por cada fixture/suite afectada, **máximo dos archivos por subtarea** | Adaptar literales al contrato vigente, conservar escenarios/assertions y valores económicos; cubrir funcionales read/orders/orders-submit/transfers/cancel y conteo de eventos. No borrar/re-escribir suites para ocultar regresiones. |
 | T15a | docs/CODEMAP.md + docs/database.md | Mapa de exports y tipos reales; unidades y limitaciones de DB correctas; acompaña el mismo commit del cambio que documenta. |
 | T15b | docs/api.md + README.md | Contrato string, unidades de size, ejemplos exactos y procedimiento coordinado de migración. |
 | T16 | Sin cambios de archivos: verificación y diff final | typecheck + lint + unit/docs + integración/funcionales contra TEST_DATABASE_URL; output real, ninguna DB de app alterada y ningún cambio ajeno al alcance. |

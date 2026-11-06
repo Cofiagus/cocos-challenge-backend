@@ -127,7 +127,7 @@ Una transferencia es una **orden** del instrumento `ARS` (`price` = `"1.00"`, el
 
 ## 6. `GET /health` y `GET /health/ready` — probes de ciclo de vida (fuera de `/api`)
 
-No son parte del contrato de negocio: son los probes que usa el orquestador, y por eso viven en
+No son parte del contrato de negocio: son los probes de ciclo de vida del despliegue, y por eso viven en
 la raíz y no bajo `/api` (el `notFoundHandler` de `buildApp` es terminal y los absorbería).
 
 | Endpoint | Responde | Uso |

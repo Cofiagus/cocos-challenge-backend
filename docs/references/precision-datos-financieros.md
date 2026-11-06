@@ -75,4 +75,4 @@ La extracción directa de páginas no estuvo disponible en el backend configurad
 - **Prisma — Include unsupported database features**: migración nueva con create-only y personalización antes de aplicar. Debe verificarse el soporte concreto del CLI 7 instalado antes de ejecutar; la documentación no reemplaza las reglas del repo.
   Dirección: `https://www.prisma.io/docs/orm/prisma-migrate/workflows/unsupported-database-features`
 
-Esta evidencia no cambia la salida HTTP vigente, el seed, la configuración de DB ni las reglas firmadas de dominio.
+Esta evidencia no cambia la salida HTTP vigente, el seed, la configuración de DB ni las reglas de dominio.
