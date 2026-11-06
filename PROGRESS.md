@@ -1,6 +1,6 @@
 # PROGRESS.md — ejecución por células
 
-## Activo — G3 y G4 CERRADOS; documentos del diagrama integrados en main; Wave 3 en vuelo (A5)
+## Activo — G3, G4 y G5 CERRADOS; suite completa (gate final) en curso
 
 **Corte 2026-11-05 20:45 (-03):** el usuario pidió handoff para seguir las pruebas en otra sesión. No continuar pruebas, migraciones, runtime ni diagrama por notificaciones tardías. Punto de entrada: `docs/references/handoff-local-rollout.md`. Interrupción confirmada de la única célula activa; sus borradores coinciden byte a byte con el snapshot privado y no fueron integrados ni certificados.
 
@@ -42,7 +42,13 @@
 |          |          |          | golden de G0 (cash 627500.00 / reserved 125500.00 / TAV 889756.00). Ajuste MÍNIMO en
 |          |          |          | `src/index.ts`: `listen(port, "127.0.0.1")` (antes bindeaba 0.0.0.0). SIGTERM cierra el pool
 |          |          |          | y reinicia limpio. |
-| A5 / G5 HTTP real | DS; listener real + Yahoo en vivo | **EN CURSO** `sa-0-e04b8b6d` | Smoke read-only sobre DB app (UC-1, UC-2); escrituras/colecciones SÓLO en copia 55432; Yahoo sin fixtures con cobertura N/total medida; 429/503 ⇒ BLOQUEO declarado y escalar, sin tocar código. Luego QA independiente. |
+| A5 / G5 HTTP real | DS; listener real + Yahoo en vivo | **CERRADO, G5 VERDE** (`sa-0-e04b8b6d`) |
+|          |          |          | UC-1 HTTP 200 con golden exacto (627500.00 / 125500.00 / 889756.00). UC-2 default 10 ítems,
+|          |          |          | `?query=banco` 4 ítems, `?limit=100` 61 ítems. Integridad DB app: conteos idénticos
+|          |          |          | antes/después (4/66/12/1/126), 0 rolled_back, **ninguna escritura por HTTP**. |
+|          |          |          | Yahoo EN VIVO sin fixtures por el camino real de código: **61/65 acciones = 93.8%**;
+|          |          |          | DYCA/PGR/IRCP/MTR = 404 “symbol not found” (no es falla del proveedor). |
+
 | A6 fixes | DS, dueño del archivo | SÓLO si hay fallo reproducido | Sin scope propio hasta que A5 lo requiera |
 | DIAGRAM-FINISH (GLM) | docs/references/db-schema-before-after.{html,md} | **INTEGRADO EN MAIN** (`b99a68c` → merge `5645896`) |
 |          |          |          | QA independiente **ACCEPT 9/10** (`sa-1-1056c3fc`) con matriz claim→fuente completa: 5 tablas y 4 FK
@@ -274,3 +280,8 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 
 - **Wave 2 integrada (2026-11-06)**: `main` recibió `d7663d1` por fast-forward (bind loopback: único cambio de código, `src/index.ts`) y luego el merge `5645896` de los dos documentos del diagrama. Gate del padre sobre `main`: **typecheck exit 0 · lint exit 0 · `npx jest tests/docs` 2 suites / 15 tests verdes**; `git status` limpio. API viva (PID 142357) y PG activos al cierre de A4, como exige G4. Pendiente de cierre: suite completa (gate final, corre el padre) una vez que A5 reporte.
 - **Lección de A4 (para la skill)**: `listen(port)` sin host bindea `*:3000`; la URL del `.env` no prueba la URL efectiva porque `dotenv` inyecta después del `exec` (por eso `/proc/<pid>/environ` no la muestra). Verificar el bind REAL con `ss -lntp` y, si hace falta, corroborar la URL dentro del proceso o por `pg_stat_activity`.
+
+- **G5 cerrado, verificado por el supervisor (2026-11-06)**: ejecuté mi propio probe replicando `fetch(url, { signal })` **sin headers** (idéntico al adaptador) contra `query1` ⇒ **HTTP 200** con precios reales y `currency=ARS` de la sesión **2026-11-05 17:59 ART** (última rueda; mercado cerrado al medir). `GGAL 4997.50 / PAMP 4277.50 / BMA 9810.00 / METR 2228.00 / YPFD 6475.00`. Los 4 no cubiertos (DYCA, PGR, IRCP, MTR) confirman **404**. Cross-check decisivo: `GET /api/instruments?limit=100` devuelve **61 ítems** y sus precios coinciden **exactamente** con mi probe (5/5 muestreados) ⇒ lo que sirve la API ES Yahoo en vivo, sin caché ni seed. **Veredicto: integración exitosa completa** en el eje de proveedor; 0 respuestas 503 y 0 rate-limits desde la aplicación.
+- **Corrección de la medición del supervisor (importante)**: mi medición anterior («UA de navegador ⇒ 200») **ya no se reproduce**: `curl` con UA de navegador Y con UA default devuelven **429** hoy. El rate-limit de Yahoo es dependiente del cliente **y variable en el tiempo**. Conclusión: el 429 de `curl` **no es señal de salud del proveedor**; el camino real de la app (undici sin headers) sí responde. **No aplica el BLOQUEO** decidido por el humano y **no se toca el adaptador** (sin User-Agent, sin reintentos, sin caché).
+- **Pendiente de decisión humana (no bloqueante)**: DYCA / PGR / IRCP / MTR dan 404 en Yahoo (papeles desafectados o absorbidos — IRCP se fusionó con IRSA). Opción A: dejar el catálogo como está (el contrato ya los omite y el cupo se completa con los 61 restantes). Opción B: depurar/remapear esos tickers en el seed, lo cual es cambio de dataset y exige fase con DDL/seed permitido. **Recomendación: A para este rollout.**
+- **Limitación de UC-1 (registrada, no oculta)**: UC-1 **NO** ejercita Yahoo. `GET /api/users/{userId}/portfolio` toma precios de la tabla `marketdata` (`getLatestSnapshots`), y esos snapshots son del 2023-07-14 (BMA 1502.80, PAMP 925.85, METR 229.50) — son los que producen los `marketValue` del golden. Es decir: el golden de UC-1 valida la **aritmética** del portfolio sobre snapshots persistidos, **no** precios vivos. La única verificación de Yahoo en vivo es UC-2.
