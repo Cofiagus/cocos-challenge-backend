@@ -11,7 +11,7 @@ import { config } from "dotenv";
 config({ path: ".env.test" });
 
 import { Prisma, type PrismaClient } from "@prisma/client";
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import type { OrderDraft, OrderEventType } from "../../../src/contracts/index.js";
 import { CreateOrderRequestSchema } from "../../../src/contracts/index.js";
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
@@ -87,7 +87,7 @@ describe("PrismaOrderRepository — idempotencia (DB real)", () => {
       { type: "MARKET" },
       { timeInForce: "IOC" },
       { sizeShares: 25 },
-      { priceArs: new Decimal("999.00") },
+      { priceArs: new FinancialDecimal("999.00") },
     ];
     for (const overrides of conflictingDrafts) {
       const conflict = expectConflict(
@@ -112,7 +112,7 @@ describe("PrismaOrderRepository — idempotencia (DB real)", () => {
     expect(rows[0]?.size?.toString()).toBe("10");
     // Prisma.Decimal.toString() normaliza ceros finales ("930.00" → "930"):
     // comparar con toFixed(2), que es la repr del contrato.
-    expect(new Decimal(rows[0]?.price?.toString() ?? "0").toFixed(2)).toBe("930.00");
+    expect(new FinancialDecimal(rows[0]?.price?.toString() ?? "0").toFixed(2)).toBe("930.00");
   });
 
   it("key null ⇒ INSERT directo: dos envíos son dos filas CREATED distintas", async () => {
@@ -173,7 +173,7 @@ describe("PrismaOrderRepository — huella del request (F2-IDEM)", () => {
   ) =>
     buildDraft(userId, {
       sizeShares: 4,
-      priceArs: new Decimal("250.00"),
+      priceArs: new FinancialDecimal("250.00"),
       requestFingerprint: fingerprintOf(amountBody(amountArs)),
       ...overrides,
     });
@@ -260,7 +260,7 @@ describe("PrismaOrderRepository — huella del request (F2-IDEM)", () => {
         buildDraft(user.id, {
           idempotencyKey: draft.idempotencyKey,
           sizeShares: 5,
-          priceArs: new Decimal("250.00"),
+          priceArs: new FinancialDecimal("250.00"),
           requestFingerprint: fingerprint,
         }),
       ),
@@ -360,7 +360,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
 
   it("nueva key 123.01 persiste 123.01 exacto; replay idéntico no duplica fila", async () => {
     const user = await createTestUser(prisma);
-    const draft = buildCashDraft(user.id, { amountArs: new Decimal("123.01") });
+    const draft = buildCashDraft(user.id, { amountArs: new FinancialDecimal("123.01") });
 
     const created = expectCashRecord(expectCreated(await submit(draft)));
     expect(created.amountArs.toFixed(2)).toBe("123.01");
@@ -377,14 +377,14 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
 
   it("misma key 123.01 vs 123.99 ⇒ CONFLICT (no colapsa por floor)", async () => {
     const user = await createTestUser(prisma);
-    const draft = buildCashDraft(user.id, { amountArs: new Decimal("123.01") });
+    const draft = buildCashDraft(user.id, { amountArs: new FinancialDecimal("123.01") });
     const created = expectCreated(await submit(draft));
 
     const conflict = expectConflict(
       await submit(
         buildCashDraft(user.id, {
           idempotencyKey: draft.idempotencyKey,
-          amountArs: new Decimal("123.99"),
+          amountArs: new FinancialDecimal("123.99"),
         }),
       ),
     );
@@ -394,14 +394,14 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
 
   it("123.0 y 123.00 son el mismo monto ⇒ REPLAY", async () => {
     const user = await createTestUser(prisma);
-    const draft = buildCashDraft(user.id, { amountArs: new Decimal("123.0") });
+    const draft = buildCashDraft(user.id, { amountArs: new FinancialDecimal("123.0") });
     const created = expectCreated(await submit(draft));
 
     const replayed = expectReplay(
       await submit(
         buildCashDraft(user.id, {
           idempotencyKey: draft.idempotencyKey,
-          amountArs: new Decimal("123.00"),
+          amountArs: new FinancialDecimal("123.00"),
         }),
       ),
     );
@@ -425,7 +425,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
       await submit(
         buildCashDraft(user.id, {
           idempotencyKey: key,
-          amountArs: new Decimal("123.00"),
+          amountArs: new FinancialDecimal("123.00"),
         }),
       ),
     );
@@ -458,7 +458,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
         await submit(
           buildCashDraft(user.id, {
             idempotencyKey: key,
-            amountArs: new Decimal("123.00"),
+            amountArs: new FinancialDecimal("123.00"),
           }),
         ),
       );
@@ -487,7 +487,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
       await submit(
         buildCashDraft(user.id, {
           idempotencyKey: key,
-          amountArs: new Decimal("123.00"),
+          amountArs: new FinancialDecimal("123.00"),
         }),
       ),
     );
@@ -509,7 +509,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
       await submit(
         buildCashDraft(user.id, {
           idempotencyKey: key,
-          amountArs: new Decimal("123.45"),
+          amountArs: new FinancialDecimal("123.45"),
         }),
       ),
     );
@@ -547,7 +547,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
           await submit(
             buildCashDraft(user.id, {
               idempotencyKey: key,
-              amountArs: new Decimal(amountArs),
+              amountArs: new FinancialDecimal(amountArs),
             }),
           ),
         ),
@@ -573,7 +573,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
         await submit(
           buildCashDraft(user.id, {
             idempotencyKey: key,
-            amountArs: new Decimal("123.45"),
+            amountArs: new FinancialDecimal("123.45"),
           }),
         ),
       ),
@@ -588,7 +588,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
       await submit(
         buildCashDraft(user.id, {
           idempotencyKey: key,
-          amountArs: new Decimal("123.99"),
+          amountArs: new FinancialDecimal("123.99"),
         }),
       ),
     );
@@ -602,7 +602,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
     const created = expectCashRecord(
       expectCreated(
         await submit(
-          buildCashDraft(user.id, { amountArs: new Decimal("123.45") }),
+          buildCashDraft(user.id, { amountArs: new FinancialDecimal("123.45") }),
         ),
       ),
     );
@@ -631,7 +631,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
         await submit(
           buildCashDraft(user.id, {
             idempotencyKey: key,
-            amountArs: new Decimal("123.45"),
+            amountArs: new FinancialDecimal("123.45"),
           }),
         ),
       );
@@ -653,7 +653,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
       await submit(
         buildCashDraft(user.id, {
           idempotencyKey: key,
-          amountArs: new Decimal("123.45"),
+          amountArs: new FinancialDecimal("123.45"),
         }),
       ),
     );
@@ -671,7 +671,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
       await submit(
         buildCashDraft(user.id, {
           idempotencyKey: key,
-          amountArs: new Decimal("200.00"),
+          amountArs: new FinancialDecimal("200.00"),
         }),
       ),
     );
@@ -698,7 +698,7 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
         await submit(
           buildCashDraft(user.id, {
             idempotencyKey: key,
-            amountArs: new Decimal("123.45"),
+            amountArs: new FinancialDecimal("123.45"),
             ...overrides,
           }),
         ),
@@ -722,8 +722,8 @@ const cashRequestOf = (amountArs: string) => ({
   side: "CASH_IN" as const,
   type: "MARKET",
   timeInForce: "GTC",
-  priceArs: new Decimal("1.00"),
-  amountArs: new Decimal(amountArs),
+  priceArs: new FinancialDecimal("1.00"),
+  amountArs: new FinancialDecimal(amountArs),
 });
 
 /** Huella del pedido cash, como la deriva la persistencia (R-02). */
@@ -758,7 +758,7 @@ describe("PrismaOrderRepository — huella del pedido cash (R-02)", () => {
         await submit(
           buildCashDraft(user.id, {
             idempotencyKey: key,
-            amountArs: new Decimal("123.45"),
+            amountArs: new FinancialDecimal("123.45"),
             requestFingerprint: cashFingerprintOf("123.45"),
           }),
         ),
@@ -786,7 +786,7 @@ describe("PrismaOrderRepository — huella del pedido cash (R-02)", () => {
         await submit(
           buildCashDraft(user.id, {
             idempotencyKey: key,
-            amountArs: new Decimal("123.45"),
+            amountArs: new FinancialDecimal("123.45"),
             requestFingerprint: cashFingerprintOf("123.45"),
           }),
         ),
@@ -811,7 +811,7 @@ describe("PrismaOrderRepository — huella del pedido cash (R-02)", () => {
       await submit(
         buildCashDraft(user.id, {
           idempotencyKey: key,
-          amountArs: new Decimal("123.00"),
+          amountArs: new FinancialDecimal("123.00"),
           requestFingerprint: cashFingerprintOf("123.00"),
         }),
       ),
@@ -842,7 +842,7 @@ describe("PrismaOrderRepository — huella del pedido cash (R-02)", () => {
     const result = await submit(
       buildCashDraft(user.id, {
         idempotencyKey: key,
-        amountArs: new Decimal("0.45"),
+        amountArs: new FinancialDecimal("0.45"),
       }),
     );
     if (result.outcome !== "IDEMPOTENT_REPLAY") {
