@@ -377,7 +377,43 @@ la migración — es deuda conocida, no una garantía», mientras la migración 
 (archivo de instrucciones protegido). **No se reintentó ni se buscó un rodeo.** Texto propuesto
 en la conversación, pendiente de que el humano lo aplique o lo autorice.
 
-**Wave 3 (pendiente):** **F3-DB ⇒ F2-IDEM**, en ese orden por Q1=A (F3 define el DDL de
-`requestFingerprint`; F2 sólo lo escribe y lo compara). Q4=A: la migración se versiona y se
-ensaya en una DB de test **aislada**, sin tocar la DB de la app.
+**Wave 3 — CERRADA E INTEGRADA:**
+
+| Célula | Rama / SHA | Verify re-corrido por el orquestador | Merge |
+|---|---|---|---|
+| F3-DB | `cell/f3-db` `ef0ed42` | typecheck 0 · lint 0 · `prisma validate` ok · 8 suites / 103 tests en DB de ensayo · md5 de filas idéntico antes/después | `bda64a1` |
+| F2-IDEM | `cell/f2-idem` `87cd34d` (+`8bcfed6` del orquestador) | typecheck 0 · lint 0 · 48 suites / 641 tests | `f4920eb` |
+
+**F3-DB:** entraron la columna `requestFingerprint` (nullable, sin UNIQUE), `NOT NULL` en
+`orders.type/side/datetime` y `marketdata.instrumentid/date/close/previousclose`,
+`UNIQUE(marketdata.instrumentid, date)` y un CHECK de que un `FILLED` tenga precio de ejecución.
+Ensayada en `cocos_f3_rehearsal` (DB propia), sin tocar la DB de la app.
+**Tres constraints quedaron fuera por decisión fundamentada** (verificada por el orquestador
+leyendo los tests): `LIMIT ⇒ price NOT NULL`, `CASH ⇒ price = 1.00` y `CASH ⇒ instrumento = ARS`
+romperían 5 tests que caracterizan el CONFLICT contra filas históricas inconsistentes — ese
+comportamiento es deseado. `FILLED ⇒ filledPrice NOT NULL` estricto exige backfill de 7 filas
+legacy (el dataset guarda la ejecución en `price`): queda como decisión humana pendiente.
+
+**F2-IDEM:** la huella del request (`fp1:<sha256-32hex>` sobre instrumento resuelto · side ·
+type · timeInForce · dinero a 2 dp · `amountArs` ORIGINAL · `size` explícito) se calcula antes de
+`resolveSizing` y se compara en el claim: ambas huellas ⇒ manda la huella; huella NULL ⇒ cae a la
+comparación histórica. Cierra el 409 faltante (1000.00 vs 1000.50 con igual `floor`).
+
+**Corrección del orquestador sobre F2:** la célula dejó `submit-order.ts` (application)
+importando de `http/shared/edge.ts`, violando la regla de dependencias de CODEMAP §2. Se movió
+`requestFingerprintOf` a `src/contracts/request-fingerprint.ts` (capa neutral) en `8bcfed6`;
+`grep "http/shared" src/application/` da vacío.
+
+**INCIDENTE DEL BUILD (propio, registrado con su causa):** los worktrees compartían
+`node_modules` por symlink al repo principal y `git worktree remove --force` **vació el
+`node_modules` real**, dejando un symlink que se apuntaba a sí mismo (`FilesystemLoop`). Síntoma:
+`npx tsc` intentando instalar `tsc@2.0.4` y exit codes absurdos (216). Recuperado con
+`rm -f node_modules && npm ci && npx prisma generate`. Además, un `git add -A` del orquestador
+metió ese symlink al índice (modo 120000) en `8bcfed6`; se sacó con `git rm --cached` y se
+endureció `.gitignore` (`node_modules` con y sin barra) en `a57868d`. Lección ya cargada en la
+skill `cell-orchestration`.
+
+**ESTADO FINAL DEL BUILD (HEAD `a57868d`, árbol limpio): typecheck 0 · lint 0 · 48 suites /
+641 tests.** Sin worktrees vivos (sólo `main`); las ramas `cell/*` se conservan. Sin push.
+
 
