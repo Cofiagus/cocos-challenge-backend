@@ -22,7 +22,7 @@ Base: `http://localhost:3000/api` · JSON · errores siempre `{ "error": { "code
 | `reason` | Sólo en `REJECTED`/`CANCELLED`: `INSUFFICIENT_FUNDS`, `INSUFFICIENT_POSITION`, `ZERO_SIZE`, `NO_PRICE`, `NO_IMMEDIATE_MATCH`. En `NEW`/`FILLED` es `null`. |
 | `Idempotency-Key` | Header opcional, 1..64 chars, en `POST /orders` y `POST /transfers`. |
 | Validación | Zod `strict()`: campo desconocido o tipo inválido → **400 sin escribir nada**. |
-| 500 | Manejador central (`src/http/error-handler.ts`): cualquier fallo que no sea de dominio responde JSON `{ "error": { "code": "INTERNAL_ERROR", "message": "Error interno del servidor." } }` — mensaje genérico, sin stack ni rutas del disco; el detalle (stack en una línea) queda en stderr del proceso. |
+| 500 | Manejador central (`src/http/error-handler.ts`): cualquier fallo que no sea de dominio **ni contención de la base** responde JSON `{ "error": { "code": "INTERNAL_ERROR", "message": "Error interno del servidor." } }` — mensaje genérico, sin stack ni rutas del disco; el detalle (stack en una línea) queda en stderr del proceso. La contención de PostgreSQL no es 500: es el 503 `DATABASE_UNAVAILABLE` reintentable. |
 
 **Precedencia de validación en `POST /orders`** (el primer fallo gana): params → header → body
 (400) → usuario (404) → instrumento (404) → MONEDA (400) → precio → size → fondos.
@@ -148,14 +148,22 @@ salen con exit 1 y un mensaje accionable, nunca con un `RangeError` opaco de `li
 | `IDEMPOTENCY_CONFLICT` | 409 | misma key, otro payload |
 | `ORDER_NOT_CANCELLABLE` | 422 | cancelar una orden que no está `NEW` |
 | `MARKET_DATA_SERVICE_UNAVAILABLE` | 503 | el proveedor de cotizaciones (Yahoo) no responde, timeout o rate-limit — sólo `GET /instruments` |
+| `DATABASE_UNAVAILABLE` | 503 | la base no atendió a tiempo: contención del pool (P2024), `statement_timeout` (57014), transacción abortada (P2028) o timeout de conexión (`ETIMEDOUT`) — reintentable, con `Retry-After` |
 | `PAYLOAD_TOO_LARGE` | 413 | el body supera el límite de 100 KB de `express.json` |
 | `INTERNAL_ERROR` | 500 | error inesperado; mensaje genérico, el detalle queda en stderr |
 
-Los 12 códigos de la tabla integran `API_ERROR_CODES` (el contrato del error
+Los 13 códigos de la tabla integran `API_ERROR_CODES` (el contrato del error
 `{error:{code,message}}`). Los 8 de negocio los emiten los routers; los 4 transversales
-(`NOT_FOUND`, `INVALID_JSON`, `PAYLOAD_TOO_LARGE`, `INTERNAL_ERROR`) los responde el manejador
-central de `src/http/error-handler.ts`, registrado después de los routers en `src/http/app.ts`.
-`INSTRUMENT_NOT_FOUND` entró al contrato con status 404 en `POST /orders` (`instrumentId`|`ticker`
+(`NOT_FOUND`, `INVALID_JSON`, `PAYLOAD_TOO_LARGE`, `INTERNAL_ERROR`) y el 503
+`DATABASE_UNAVAILABLE` los responde el manejador central de `src/http/error-handler.ts`,
+registrado después de los routers en `src/http/app.ts`. `INSTRUMENT_NOT_FOUND` entró al contrato
+con status 404 en `POST /orders` (`instrumentId`|`ticker`
 inexistente, sin orden). `MARKET_DATA_SERVICE_UNAVAILABLE` (UC-2 Rev. 2) lo emite el router de
 instruments traduciendo `MarketDataServiceUnavailableError`; su mensaje es el del error de
 dominio, que también viaja validado en el ejemplo 503 del contrato.
+
+`DATABASE_UNAVAILABLE` (defecto D-03) es **reintentable**: el pedido era válido y la base no lo
+atendió a tiempo, así que el cliente recibe **503** con `Retry-After` (2 s) y no un 500. El
+detalle queda en stderr; el body es el mismo `{error:{code,message}}` y nunca incluye host, puerto
+ni SQLSTATE. El 503 de `GET /health/ready` es **otro** contrato (`{status,database}`): el probe
+responde su propio body y no deja escapar la falla al manejador central.

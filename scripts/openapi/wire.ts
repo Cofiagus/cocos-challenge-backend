@@ -17,6 +17,7 @@ import {
   MAX_ORDER_SIZE_SHARES,
   OrderTypeSchema,
   PositiveArsWireSchema,
+  PositiveIntParamSchema,
   TimeInForceSchema,
   TradingSideSchema,
   TransferSideSchema,
@@ -33,7 +34,10 @@ export { ArsWireSchema, PositiveArsWireSchema };
  */
 export const CreateOrderBodySchema = z
   .strictObject({
-    instrumentId: z.number().int().positive().optional(),
+    // La MISMA cota que el contrato (1..INT4, con coerción de string): el id se
+    // persiste en una columna `Int`, así que un valor mayor es 400 del borde y
+    // no un 500 de Postgres. D8 compara campo por campo contra el contrato.
+    instrumentId: PositiveIntParamSchema.optional(),
     ticker: z.string().min(1).max(10).optional(),
     side: TradingSideSchema,
     type: OrderTypeSchema,

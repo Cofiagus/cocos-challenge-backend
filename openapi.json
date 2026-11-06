@@ -302,8 +302,8 @@
             "required": true,
             "schema": {
               "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
+              "minimum": 1,
+              "maximum": 2147483647
             }
           }
         ],
@@ -543,6 +543,55 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "La base no atendió el pedido a tiempo (contención del pool, `statement_timeout` o timeout de conexión): el pedido es válido y se puede reintentar. Código: `DATABASE_UNAVAILABLE`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que el cliente debe esperar antes de reintentar.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "DATABASE_UNAVAILABLE",
+                    "message": "La base de datos está momentáneamente saturada. Reintentá en unos segundos."
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -746,7 +795,7 @@
             }
           },
           "503": {
-            "description": "El proveedor de cotizaciones no responde (timeout o rate-limit): no hay 200 parcial ni precios de seed. Código: `MARKET_DATA_SERVICE_UNAVAILABLE`.",
+            "description": "El proveedor de cotizaciones no responde (timeout o rate-limit): no hay 200 parcial ni precios de seed. Código: `MARKET_DATA_SERVICE_UNAVAILABLE`. Alternativa: La base no atendió el pedido a tiempo (contención del pool, `statement_timeout` o timeout de conexión): el pedido es válido y se puede reintentar. Código: `DATABASE_UNAVAILABLE`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -802,8 +851,8 @@
             "required": true,
             "schema": {
               "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
+              "minimum": 1,
+              "maximum": 2147483647
             }
           },
           {
@@ -827,8 +876,8 @@
                 "properties": {
                   "instrumentId": {
                     "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
+                    "minimum": 1,
+                    "maximum": 2147483647
                   },
                   "ticker": {
                     "type": "string",
@@ -1351,6 +1400,55 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "La base no atendió el pedido a tiempo (contención del pool, `statement_timeout` o timeout de conexión): el pedido es válido y se puede reintentar. Código: `DATABASE_UNAVAILABLE`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que el cliente debe esperar antes de reintentar.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "DATABASE_UNAVAILABLE",
+                    "message": "La base de datos está momentáneamente saturada. Reintentá en unos segundos."
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -1370,8 +1468,8 @@
             "required": true,
             "schema": {
               "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
+              "minimum": 1,
+              "maximum": 2147483647
             }
           }
         ],
@@ -1792,6 +1890,55 @@
                   "error": {
                     "code": "INTERNAL_ERROR",
                     "message": "Error interno del servidor."
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "La base no atendió el pedido a tiempo (contención del pool, `statement_timeout` o timeout de conexión): el pedido es válido y se puede reintentar. Código: `DATABASE_UNAVAILABLE`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que el cliente debe esperar antes de reintentar.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "DATABASE_UNAVAILABLE",
+                    "message": "La base de datos está momentáneamente saturada. Reintentá en unos segundos."
                   }
                 }
               }
@@ -2317,6 +2464,55 @@
                   "error": {
                     "code": "INTERNAL_ERROR",
                     "message": "Error interno del servidor."
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "La base no atendió el pedido a tiempo (contención del pool, `statement_timeout` o timeout de conexión): el pedido es válido y se puede reintentar. Código: `DATABASE_UNAVAILABLE`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que el cliente debe esperar antes de reintentar.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "DATABASE_UNAVAILABLE",
+                    "message": "La base de datos está momentáneamente saturada. Reintentá en unos segundos."
                   }
                 }
               }

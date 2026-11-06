@@ -72,6 +72,19 @@ const parametersOf = (operation: OperationDoc): readonly JsonObject[] => {
 
 const responseObject = (response: ResponseDoc): JsonObject => ({
   description: response.description,
+  ...(response.headers === undefined
+    ? {}
+    : {
+        headers: Object.fromEntries(
+          response.headers.map((header) => [
+            header.name,
+            {
+              description: header.description,
+              schema: jsonSchemaOf(header.schema, "input"),
+            },
+          ]),
+        ),
+      }),
   content: {
     "application/json": {
       schema: jsonSchemaOf(response.schema, "output"),
