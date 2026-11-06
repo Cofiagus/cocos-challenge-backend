@@ -58,6 +58,7 @@ las bases de test; nunca uses ahí la URL de la app).
 | [openapi.json](openapi.json) | contrato exacto: campos, tipos, status y códigos de error (generado desde los schemas Zod con `npm run openapi`) |
 | [DECISIONS.md](DECISIONS.md) | las seis decisiones de arquitectura, cada una con contexto, decisión y consecuencias |
 | [docs/database.md](docs/database.md) | esquema real, semántica de `orders` y diferencia entre el snapshot legacy y el head versionado |
+| [docs/schema-changes.md](docs/schema-changes.md) | cada cambio frente al esquema provisto por el challenge, con su motivo |
 
 ## Supuestos (resumen)
 
