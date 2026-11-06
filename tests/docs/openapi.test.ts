@@ -66,10 +66,42 @@ const routerRoutes = (): readonly string[] => {
 const shapeKeys = (schema: unknown): readonly string[] =>
   Object.keys((schema as { readonly shape: Record<string, unknown> }).shape).sort();
 
+/** Navega un nodo del documento OpenAPI generado; falla ruidosamente si falta. */
+const objectAt = (parent: unknown, key: string): Record<string, unknown> => {
+  if (typeof parent !== "object" || parent === null) {
+    throw new TypeError(`El documento OpenAPI generado no es un objeto al pedir "${key}".`);
+  }
+  const value = (parent as Record<string, unknown>)[key];
+  if (typeof value !== "object" || value === null) {
+    throw new TypeError(`Falta "${key}" en el documento OpenAPI generado.`);
+  }
+  return value as Record<string, unknown>;
+};
+
 describe("contrato OpenAPI", () => {
   it("D4a — openapi.json está sincronizado con el generador", () => {
     const committed = readFileSync(join(ROOT, "openapi.json"), "utf8");
     expect(committed).toBe(serializeOpenApiDocument());
+  });
+
+  it("D4c — la posición de portfolio es strictObject: OpenAPI emite additionalProperties false", () => {
+    // E-05: `PortfolioPositionSchema` era el único `z.object` NO estricto del
+    // contrato, así que el documento publicado dejaba la posición abierta
+    // (cualquier campo extra "valía"). Se verifica sobre el documento GENERADO
+    // por `scripts/openapi/build.ts`, no sobre el JSON commiteado (ese lo
+    // regenera el orquestador en el gate: ver OPEN/NEEDS_OPENAPI_REGEN).
+    const document = JSON.parse(serializeOpenApiDocument()) as Record<string, unknown>;
+    const operation = objectAt(
+      objectAt(objectAt(document, "paths"), "/api/users/{userId}/portfolio"),
+      "get",
+    );
+    const okResponse = objectAt(objectAt(operation, "responses"), "200");
+    const media = objectAt(objectAt(okResponse, "content"), "application/json");
+    const properties = objectAt(objectAt(media, "schema"), "properties");
+    const position = objectAt(objectAt(properties, "positions"), "items");
+    expect(position["additionalProperties"]).toBe(false);
+    // La respuesta completa ya era estricta: sigue siéndolo.
+    expect(objectAt(media, "schema")["additionalProperties"]).toBe(false);
   });
 
   it("D4b — el registro documenta exactamente las rutas de los routers", () => {

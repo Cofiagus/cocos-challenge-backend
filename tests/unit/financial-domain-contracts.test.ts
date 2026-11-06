@@ -332,4 +332,18 @@ describe("PortfolioResponseSchema — quantity string entero canónico", () => {
     const body = portfolio(serializeQuantityShares(9_007_199_254_740_993n));
     expect(JSON.parse(JSON.stringify(body))).toEqual(body);
   });
+
+  it("la posición es strictObject: un campo extra se rechaza en vez de descartarse", () => {
+    // Era el único z.object NO estricto del contrato (E-05): un campo de más
+    // debe romper el contrato (y OpenAPI lo declara con
+    // `additionalProperties: false`), no desaparecer en silencio con strip.
+    const withExtra = portfolio("10") as unknown as {
+      positions: Record<string, unknown>[];
+    };
+    withExtra.positions[0] = { ...withExtra.positions[0], unexpected: 1 };
+    expect(PortfolioResponseSchema.safeParse(withExtra).success).toBe(false);
+
+    const atTop = { ...portfolio("10"), unexpected: 1 };
+    expect(PortfolioResponseSchema.safeParse(atTop).success).toBe(false);
+  });
 });

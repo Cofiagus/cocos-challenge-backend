@@ -11,16 +11,20 @@
 // `.toFixed(2)`. NO se convierte a number: `Number("90071992547409.93")`
 // devuelve ...94 y perdía un centavo. El agregado (cash, patrimonio) puede
 // superar el máximo de una fila: es cota de columna, no de salida.
+//
+// Sin marcas nominales en la salida (decisión Q2=B de esta celda). Antes
+// existían `MoneyArs = string & { __brand }` y `Pct = number & { __brand }`,
+// pero el contrato HTTP se tipa con `z.infer`, que devuelve `string`/`number`:
+// la marca se borraba en la única frontera donde debía proteger, así que no
+// garantizaba nada y sugería una seguridad inexistente. Se eliminan en lugar
+// de sostenerlas. El tipo que SÍ protege es la ENTRADA: `ArsInputSchema`
+// transforma a `FinancialDecimal` (constructor aislado de 64 cifras) y los
+// serializadores sólo aceptan ese tipo, de modo que un `Decimal` global o un
+// `number` suelto no compila. La salida es, a propósito, `string`/`number`
+// planos: lo que la valida es `MoneyArsSchema`/`PctSchema` al parsear.
 
 import { z } from "zod";
-import { Decimal } from "decimal.js";
 import { FinancialDecimal } from "./financial-decimal.js";
-
-/** Dinero ARS serializado: string canónico con exactamente 2 decimales. */
-export type MoneyArs = string & { readonly __brand: "MoneyArs" };
-
-/** Porcentaje serializado (puntos porcentuales, 2 decimales). */
-export type Pct = number & { readonly __brand: "Pct" };
 
 /**
  * Gramática de un monto ARS SERIALIZADO (D3): string base 10 con exactamente
@@ -50,6 +54,7 @@ export const MoneyArsSchema = z
     description:
       "ARS como string con exactamente 2 decimales (cuantizado en Decimal antes de serializar).",
   });
+
 
 /** Valida un porcentaje serializado: número finito, 2 decimales. */
 export const PctSchema = z
@@ -147,25 +152,32 @@ export const PositiveArsInputSchema = PositiveArsWireSchema.transform(
  * (incluido `-0.001`) a `0.00`. Un no-finito (NaN/Infinity) es un error de
  * programación/corrupción: falla ruidosamente en vez de emitir "Infinity".
  */
-export const serializeMoneyArs = (amount: FinancialDecimal): MoneyArs => {
+export const serializeMoneyArs = (amount: FinancialDecimal): string => {
   if (!amount.isFinite()) {
     throw new RangeError("No se serializa un monto no finito (NaN o infinito).");
   }
   const quantized = amount.toDecimalPlaces(2, FinancialDecimal.ROUND_HALF_UP);
   const normalized = quantized.isZero() ? new FinancialDecimal(0) : quantized;
-  return normalized.toFixed(2) as MoneyArs;
+  return normalized.toFixed(2);
 };
 
 /**
- * Decimal (puntos porcentuales) → Pct: el contrato de porcentaje sigue siendo
- * `number` (D3) y sólo se convierte acá, con HALF_UP y finitud validada.
+ * Decimal FINANCIERO (puntos porcentuales) → Pct: el contrato de porcentaje
+ * sigue siendo `number` (D3) y sólo se convierte acá, con HALF_UP y finitud
+ * validada.
+ *
+ * El parámetro es `FinancialDecimal` (el constructor aislado de 64 cifras), no
+ * el `Decimal` global de 20: aceptar el global abría la puerta a un valor ya
+ * redondeado por el singleton (cualquier `Decimal` suelto es asignable a
+ * `Decimal`). Aceptar sólo el constructor del proyecto hace que el tipo
+ * verifique la procedencia del número.
  *
  * Un Decimal finito puede exceder el rango de `number` (p. ej. `1e1000`): la
  * conversión devolvería `Infinity` y contaminaría el contrato con un valor que
  * `PctSchema` rechaza. Por eso se valida la finitud también DESPUÉS de
  * convertir, no sólo la del Decimal de entrada.
  */
-export const serializePct = (pctX100: Decimal): Pct => {
+export const serializePct = (pctX100: FinancialDecimal): number => {
   if (!pctX100.isFinite()) {
     throw new RangeError("No se serializa un porcentaje no finito (NaN o infinito).");
   }
@@ -177,5 +189,5 @@ export const serializePct = (pctX100: Decimal): Pct => {
       "No se serializa un porcentaje fuera del rango de number (no finito al convertir).",
     );
   }
-  return pct as Pct;
+  return pct;
 };

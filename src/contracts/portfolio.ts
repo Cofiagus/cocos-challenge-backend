@@ -19,7 +19,6 @@ import { PositiveIntParamSchema } from "./orders.js";
 export const PortfolioParamsSchema = z.strictObject({
   userId: PositiveIntParamSchema,
 });
-export type PortfolioParams = z.infer<typeof PortfolioParamsSchema>;
 
 /**
  * Gramática de una cantidad de ACCIONES agregada (D3): string entero de base
@@ -37,7 +36,7 @@ export const serializeQuantityShares = (quantityShares: bigint): string =>
   quantityShares.toString();
 
 /** Posición con P&L no realizado sobre costo promedio ponderado. */
-export const PortfolioPositionSchema = z.object({
+export const PortfolioPositionSchema = z.strictObject({
   ticker: z.string(),
   name: z.string(),
   /**
@@ -64,7 +63,6 @@ export const PortfolioPositionSchema = z.object({
   /** % sobre costo promedio ponderado (2 decimales). Null si NO_PRICE o costo 0. */
   totalReturnPct: PctSchema.nullable(),
 });
-export type PortfolioPosition = z.infer<typeof PortfolioPositionSchema>;
 
 export const PortfolioResponseSchema = z.strictObject({
   /** Disponible para operar: cashSettled − cashReserved. */
