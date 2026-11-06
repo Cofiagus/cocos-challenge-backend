@@ -237,6 +237,16 @@ interface OrderDraftCommon {
   readonly filledAt: Date | null;
   readonly idempotencyKey: string | null;
   readonly datetime: Date;
+  /**
+   * Huella canónica del REQUEST original (F2-IDEM, Q1=A): la calcula el borde
+   * (`requestFingerprintOf` en src/http/shared/edge.ts) sobre el body ya
+   * validado, ANTES de derivar `size`, y `createOrder` la persiste para
+   * comparar dos envíos con la misma Idempotency-Key. Ausente/null en filas
+   * legacy y en los envíos que no pasan por el borde con monto original
+   * (drafts de tests, transferencias): ahí el claim cae a la comparación
+   * histórica de `size`.
+   */
+  readonly requestFingerprint?: string;
 }
 
 /** Campos de una orden de TRADING a persistir: `size` son acciones enteras. */

@@ -12,6 +12,7 @@
 // científica. Precios y fechas conservan sus nulls.
 
 import type { IncomingHttpHeaders } from "node:http";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   API_ERROR_CODES,
@@ -22,6 +23,7 @@ import {
   serializeMoneyArs,
   type ApiErrorBody,
   type ApiErrorCode,
+  type CreateOrderRequest,
   type OrderRecord,
   type OrderRejectionReason,
   type OrderResponse,
@@ -153,6 +155,57 @@ export function parseWriteRequest(
     idempotencyKey: header.key,
   };
 }
+
+/**
+ * Versión del formato canónico de la huella. Cambiarla invalida las huellas
+ * ya persistidas: una fila con otra versión NO se compara (el claim cae a la
+ * comparación histórica), así que sólo se sube al cambiar el payload canónico.
+ */
+const FINGERPRINT_VERSION = "fp1";
+
+/** Largo del sha256 hex truncado: 128 bits, corto y sin colisión práctica. */
+const FINGERPRINT_HASH_LENGTH = 32;
+
+/** Dinero canónico del request: string de 2 decimales ("123.0" ≡ "123.00"). */
+const canonicalMoney = (
+  value: CreateOrderRequest["price"] | CreateOrderRequest["amountArs"],
+): string =>
+  value === null || value === undefined ? "null" : serializeMoneyArs(value);
+
+/**
+ * Huella canónica del REQUEST original (F2-IDEM, R1/Q1=A): la calcula el
+ * borde con el body YA validado y ANTES de cualquier derivación.
+ *
+ * Campos, siempre en este orden: versión · `instrumentId` RESUELTO (nunca el
+ * ticker: `ticker` e `instrumentId` del mismo papel dan la MISMA huella) ·
+ * side · type · timeInForce · price canónico a 2 decimales · `amountArs`
+ * canónico · `size` explícito.
+ *
+ * El monto ORIGINAL viaja en la huella, no el `size` derivado por
+ * `resolveSizing` (floor(amount/precio)): 1000.00 y 1000.50 caen en el mismo
+ * floor y AUN ASÍ son pedidos distintos. La huella no es secreta ni PII — es
+ * un resumen del payload — y no depende de la DB ni del reloj.
+ */
+export const requestFingerprintOf = (
+  request: CreateOrderRequest,
+  instrumentId: number,
+): string => {
+  const canonical = [
+    FINGERPRINT_VERSION,
+    `instrumentId=${String(instrumentId)}`,
+    `side=${request.side}`,
+    `type=${request.type}`,
+    `timeInForce=${request.timeInForce}`,
+    `price=${canonicalMoney(request.price)}`,
+    `amountArs=${canonicalMoney(request.amountArs)}`,
+    `size=${request.size === undefined ? "null" : String(request.size)}`,
+  ].join("|");
+  const digest = createHash("sha256")
+    .update(canonical)
+    .digest("hex")
+    .slice(0, FINGERPRINT_HASH_LENGTH);
+  return `${FINGERPRINT_VERSION}:${digest}`;
+};
 
 /** Error de aplicación ya traducido al contrato HTTP. */
 export interface HttpError {
