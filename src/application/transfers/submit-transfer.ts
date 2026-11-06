@@ -36,7 +36,6 @@ import {
   API_ERROR_CODES,
   FinancialDecimal,
   serializeMoneyArs,
-  type ApiErrorCode,
   type InstrumentRecord,
   type OrderEventMetadata,
   type TransactionContext,
@@ -48,6 +47,7 @@ import type {
   OrderRepository,
   PortfolioReadRepository,
 } from "../../domain/ports/index.js";
+import { ApplicationError } from "../application-error.js";
 import type { DecidedCashOrder } from "../orders/decide-order.js";
 import {
   persistOrderDecision,
@@ -64,18 +64,10 @@ const CASH_UNIT_PRICE_ARS = new FinancialDecimal("1.00");
 /**
  * Error de aplicación de la transferencia: el router lo mapea a status +
  * apiErrorBody. NO hay códigos extra: USER_NOT_FOUND ya vive en
- * API_ERROR_CODES (el 409 de idempotencia es la clase compartida).
+ * API_ERROR_CODES (el 409 de idempotencia es la clase compartida). El
+ * contrato de error — status, código y mensaje — es el de ApplicationError.
  */
-export class SubmitTransferError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: ApiErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = "SubmitTransferError";
-  }
-}
+export class SubmitTransferError extends ApplicationError {}
 
 /** Deps del caso de uso: las INTERFACES de src/domain/ports, nunca concreciones. */
 export interface SubmitTransferDeps {

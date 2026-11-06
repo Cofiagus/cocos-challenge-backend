@@ -37,6 +37,7 @@ import type {
   OrderRepository,
   PortfolioReadRepository,
 } from "../../domain/ports/index.js";
+import { ApplicationError } from "../application-error.js";
 import {
   assessFunds,
   buildAuditBase,
@@ -65,17 +66,12 @@ import { requestFingerprintOf } from "../../contracts/request-fingerprint.js";
  */
 export type SubmitOrderErrorCode = ApiErrorCode;
 
-/** Error de aplicación del envío: el router lo mapea a status + apiErrorBody. */
-export class SubmitOrderError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: SubmitOrderErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = "SubmitOrderError";
-  }
-}
+/**
+ * Error de aplicación del envío: el router lo mapea a status + apiErrorBody.
+ * Sólo fija la identidad (nombre y `instanceof`); el contrato de error —
+ * status, código y mensaje — es el de ApplicationError.
+ */
+export class SubmitOrderError extends ApplicationError {}
 
 /** Deps del caso de uso: las INTERFACES de src/domain/ports, nunca concreciones. */
 export interface SubmitOrderDeps {
