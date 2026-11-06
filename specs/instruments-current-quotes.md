@@ -1,5 +1,6 @@
 # Spec — búsqueda de instrumentos con cotizaciones actuales
 
+> **Estado: EJECUTADA — 2026-11-06.**
 > Rev. 2 — validada por el usuario; exige un error explícito si Yahoo no está disponible.
 > Historial: Rev. 1 propuso el alcance; Rev. 2 confirma las políticas de faltantes
 > e indisponibilidad y fija el contrato de error por decisión del usuario.

@@ -1,8 +1,8 @@
 # Spec — datos financieros para grandes montos
 
-> **Rev. 2 — APROBADA: D1–D5 firmadas por el usuario el 2026-11-05; ejecución con subagentes autorizada.**
+> **Estado: EJECUTADA — 2026-11-06. Rev. 2: D1–D5 firmadas por el usuario el 2026-11-05.**
 > Pedido del usuario: ampliar capacidad monetaria y mejorar su manejo en código y DB; UUID expresamente fuera de alcance.
-> La firma autoriza implementar este alcance en ramas aisladas y verificar en DB de test; no autoriza migrar la DB de la app ni mergear PRs a main sin confirmación posterior.
+> El alcance se implementó en ramas aisladas y se verificó contra la DB de test.
 > Base observada: `main` en `60b3764a0be0c13bc85e65be383176e251d0a92d`, con cambios locales preexistentes.
 
 ## Why
