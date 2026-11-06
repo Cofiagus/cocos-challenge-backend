@@ -2,7 +2,8 @@
 // fila persistida al contrato (tests SIN DB).
 //
 // El header es OPCIONAL, su valor viaja al caso de uso TAL CUAL (no se
-// recortan espacios) y Express entrega un header repetido como array.
+// recortan espacios) y un header REPETIDO se rechaza (D-04): Node lo une en
+// `headers` como "a, b", así que la duplicación se detecta en `rawHeaders`.
 //
 // D3: `size` discrimina por side — number en trading, string monetario de 2
 // decimales en cash — y los precios salen como string, nunca como number.
@@ -19,56 +20,121 @@ import {
   toOrderResponse,
 } from "../../../src/http/shared/edge.js";
 
+/** Headers ya unidos por Node para un valor único (sin duplicación). */
+const singleHeader = (value: string | string[]) => ({
+  headers: { [IDEMPOTENCY_KEY_HEADER]: value },
+});
+
 describe("parseIdempotencyKeyHeader", () => {
   it("header ausente ⇒ key null (la key es opcional)", () => {
-    expect(parseIdempotencyKeyHeader({})).toEqual({ ok: true, key: null });
+    expect(parseIdempotencyKeyHeader({ headers: {} })).toEqual({
+      ok: true,
+      key: null,
+    });
   });
 
   it("header vacío ⇒ inválido (el contrato exige 1..64 caracteres)", () => {
-    expect(
-      parseIdempotencyKeyHeader({ [IDEMPOTENCY_KEY_HEADER]: "" }),
-    ).toEqual({ ok: false });
+    expect(parseIdempotencyKeyHeader(singleHeader(""))).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
   });
 
   it("sólo espacios ⇒ válido y SIN recortar (no se normaliza el valor)", () => {
-    expect(
-      parseIdempotencyKeyHeader({ [IDEMPOTENCY_KEY_HEADER]: "   " }),
-    ).toEqual({ ok: true, key: "   " });
+    expect(parseIdempotencyKeyHeader(singleHeader("   "))).toEqual({
+      ok: true,
+      key: "   ",
+    });
   });
 
-  it("header repetido (array) ⇒ toma el primero", () => {
+  it("dos valores en el array de headers ⇒ DUPLICADO (no toma el primero)", () => {
     expect(
-      parseIdempotencyKeyHeader({
-        [IDEMPOTENCY_KEY_HEADER]: ["primera", "segunda"],
-      }),
-    ).toEqual({ ok: true, key: "primera" });
+      parseIdempotencyKeyHeader(singleHeader(["primera", "segunda"])),
+    ).toEqual({ ok: false, reason: "duplicated" });
   });
 
   it("array vacío ⇒ se comporta como header ausente", () => {
-    expect(
-      parseIdempotencyKeyHeader({ [IDEMPOTENCY_KEY_HEADER]: [] }),
-    ).toEqual({ ok: true, key: null });
+    expect(parseIdempotencyKeyHeader(singleHeader([]))).toEqual({
+      ok: true,
+      key: null,
+    });
   });
 
-  it("array cuyo primer valor es vacío ⇒ inválido", () => {
-    expect(
-      parseIdempotencyKeyHeader({ [IDEMPOTENCY_KEY_HEADER]: ["", "segunda"] }),
-    ).toEqual({ ok: false });
+  it("array de UN valor ⇒ válido (equivale a un header único)", () => {
+    expect(parseIdempotencyKeyHeader(singleHeader(["unica"]))).toEqual({
+      ok: true,
+      key: "unica",
+    });
+  });
+
+  it("array de UN valor vacío ⇒ inválido", () => {
+    expect(parseIdempotencyKeyHeader(singleHeader([""]))).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+  });
+
+  it("array con un valor vacío y otro no ⇒ DUPLICADO", () => {
+    expect(parseIdempotencyKeyHeader(singleHeader(["", "segunda"]))).toEqual({
+      ok: false,
+      reason: "duplicated",
+    });
   });
 
   it("key normal ⇒ se devuelve tal cual", () => {
-    expect(
-      parseIdempotencyKeyHeader({ [IDEMPOTENCY_KEY_HEADER]: "orden-123" }),
-    ).toEqual({ ok: true, key: "orden-123" });
+    expect(parseIdempotencyKeyHeader(singleHeader("orden-123"))).toEqual({
+      ok: true,
+      key: "orden-123",
+    });
   });
 
   it("64 caracteres ⇒ válida; 65 ⇒ inválida (cota del contrato)", () => {
+    expect(parseIdempotencyKeyHeader(singleHeader("a".repeat(64)))).toEqual({
+      ok: true,
+      key: "a".repeat(64),
+    });
+    expect(parseIdempotencyKeyHeader(singleHeader("a".repeat(65)))).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+  });
+
+  it("D-04: dos headers iguales (headers unidos + rawHeaders) ⇒ DUPLICADO", () => {
+    // Lo que Node entrega: `headers` con la clave compuesta "a, b" — que el
+    // schema 1..64 aceptaría — y `rawHeaders` con las dos líneas originales.
     expect(
-      parseIdempotencyKeyHeader({ [IDEMPOTENCY_KEY_HEADER]: "a".repeat(64) }),
-    ).toEqual({ ok: true, key: "a".repeat(64) });
+      parseIdempotencyKeyHeader({
+        headers: { [IDEMPOTENCY_KEY_HEADER]: "a, b" },
+        rawHeaders: ["Idempotency-Key", "a", "Idempotency-Key", "b"],
+      }),
+    ).toEqual({ ok: false, reason: "duplicated" });
+  });
+
+  it("D-04: un header ÚNICO con coma en el valor sigue siendo válido", () => {
     expect(
-      parseIdempotencyKeyHeader({ [IDEMPOTENCY_KEY_HEADER]: "a".repeat(65) }),
-    ).toEqual({ ok: false });
+      parseIdempotencyKeyHeader({
+        headers: { [IDEMPOTENCY_KEY_HEADER]: "a, b" },
+        rawHeaders: ["Idempotency-Key", "a, b"],
+      }),
+    ).toEqual({ ok: true, key: "a, b" });
+  });
+
+  it("D-04: el nombre se compara sin distinguir mayúsculas (casing del cliente)", () => {
+    expect(
+      parseIdempotencyKeyHeader({
+        headers: { [IDEMPOTENCY_KEY_HEADER]: "x, y" },
+        rawHeaders: ["IDEMPOTENCY-KEY", "x", "idempotency-key", "y"],
+      }),
+    ).toEqual({ ok: false, reason: "duplicated" });
+  });
+
+  it("D-04: rawHeaders con otras cabeceras ⇒ el header está ausente", () => {
+    expect(
+      parseIdempotencyKeyHeader({
+        headers: {},
+        rawHeaders: ["Accept", "application/json", "Host", "localhost"],
+      }),
+    ).toEqual({ ok: true, key: null });
   });
 });
 

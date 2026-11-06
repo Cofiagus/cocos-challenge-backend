@@ -37,33 +37,89 @@ export const validationMessage = (error: z.ZodError): string =>
     .map((issue) => `${issue.path.map(String).join(".")}: ${issue.message}`)
     .join("; ");
 
+/** Motivo del rechazo: header repetido (D-04) o valor fuera de forma. */
+export type IdempotencyKeyHeaderRejection = "duplicated" | "invalid";
+
 /** Lectura del header Idempotency-Key: válida con key (o null) o inválida. */
 export type IdempotencyKeyHeader =
   | { readonly ok: true; readonly key: string | null }
-  | { readonly ok: false };
+  | { readonly ok: false; readonly reason: IdempotencyKeyHeaderRejection };
+
+/**
+ * Lo que el borde necesita para leer el Idempotency-Key: `headers` ya unido
+ * por Node y `rawHeaders` con los pares nombre/valor TAL CUAL llegaron.
+ */
+export interface IdempotencyKeyHeaderSource {
+  readonly headers: IncomingHttpHeaders;
+  /**
+   * Cabeceras crudas de Node (`[nombre, valor, ...]`): la ÚNICA forma de ver
+   * un header repetido, porque `headers` une los duplicados con ", " en un
+   * solo string (defecto D-04). Sin `rawHeaders` se mira el array de
+   * `headers` (mocks/tests que no emulan Node).
+   */
+  readonly rawHeaders?: readonly string[];
+}
+
+/** Nombre del header en minúsculas: `rawHeaders` conserva el casing del cliente. */
+const IDEMPOTENCY_KEY_HEADER_LOWER = IDEMPOTENCY_KEY_HEADER.toLowerCase();
+
+/** Pares nombre/valor crudos: cuenta las veces que llegó el Idempotency-Key. */
+const rawHeaderOccurrences = (rawHeaders: readonly string[]): number => {
+  let occurrences = 0;
+  for (let index = 0; index + 1 < rawHeaders.length; index += 2) {
+    const name = rawHeaders[index];
+    if (
+      typeof name === "string" &&
+      name.toLowerCase() === IDEMPOTENCY_KEY_HEADER_LOWER
+    ) {
+      occurrences += 1;
+    }
+  }
+  return occurrences;
+};
+
+/** Veces que el request trae el header (rawHeaders manda; si no, el array). */
+const idempotencyKeyOccurrences = (
+  source: IdempotencyKeyHeaderSource,
+): number => {
+  if (source.rawHeaders !== undefined) {
+    return rawHeaderOccurrences(source.rawHeaders);
+  }
+  const raw = source.headers[IDEMPOTENCY_KEY_HEADER];
+  if (Array.isArray(raw)) return raw.length;
+  return raw === undefined ? 0 : 1;
+};
 
 /**
  * Idempotency-Key del header (OPCIONAL): ausente ⇒ null; inválida
- * (no string / vacía / > 64) ⇒ invalid, y el borde responde 400 SIN crear
- * orden. Un header repetido llega como array: manda el primero.
+ * (no string / vacía / > 64) ⇒ `invalid`; repetida ⇒ `duplicated`. En los
+ * dos rechazos el borde responde 400 SIN crear orden.
+ *
+ * D-04: dos headers con el mismo nombre NO se resuelven tomando el primero.
+ * Node los une en `headers` como "a, b", una clave compuesta que el schema
+ * (1..64) acepta: se detectan contando `rawHeaders`, antes de mirar el valor.
  */
 export const parseIdempotencyKeyHeader = (
-  headers: IncomingHttpHeaders,
+  source: IdempotencyKeyHeaderSource,
 ): IdempotencyKeyHeader => {
-  const raw = headers[IDEMPOTENCY_KEY_HEADER];
+  if (idempotencyKeyOccurrences(source) > 1) {
+    return { ok: false, reason: "duplicated" };
+  }
+  const raw = source.headers[IDEMPOTENCY_KEY_HEADER];
   const value = Array.isArray(raw) ? raw[0] : raw;
   if (value === undefined) {
     return { ok: true, key: null };
   }
   const parsed = IdempotencyKeySchema.safeParse(value);
-  return parsed.success ? { ok: true, key: parsed.data } : { ok: false };
+  return parsed.success
+    ? { ok: true, key: parsed.data }
+    : { ok: false, reason: "invalid" };
 };
 
 /** Lo que el borde lee de un request: sin Express (puro y testeable). */
-export interface WriteRequestSource {
+export interface WriteRequestSource extends IdempotencyKeyHeaderSource {
   readonly params: unknown;
   readonly body: unknown;
-  readonly headers: IncomingHttpHeaders;
 }
 
 /** Lo único que el borde necesita de un schema: `safeParse` tipado. */
@@ -101,13 +157,21 @@ const invalidRequest = (message: string): { readonly ok: false; readonly error: 
   error: apiErrorBody(API_ERROR_CODES.VALIDATION_ERROR, message),
 });
 
+/** Mensaje del 400 por header rechazado (una forma por motivo). */
+const idempotencyKeyRejectionMessage = (
+  reason: IdempotencyKeyHeaderRejection,
+): string =>
+  reason === "duplicated"
+    ? `Header ${IDEMPOTENCY_KEY_HEADER} repetido: se acepta un único header de 1..64 caracteres.`
+    : `Header ${IDEMPOTENCY_KEY_HEADER} inválido: se espera string de 1..64 caracteres.`;
+
 /** Idempotency-Key del header, o null cuando la ruta no la admite. */
 const readWriteHeader = (
-  headers: IncomingHttpHeaders,
+  source: WriteRequestSource,
   enabled: boolean | undefined,
 ): IdempotencyKeyHeader =>
   enabled === true
-    ? parseIdempotencyKeyHeader(headers)
+    ? parseIdempotencyKeyHeader(source)
     : { ok: true, key: null };
 
 /**
@@ -134,11 +198,9 @@ export function parseWriteRequest(
     );
   }
 
-  const header = readWriteHeader(req.headers, schemas.header);
+  const header = readWriteHeader(req, schemas.header);
   if (!header.ok) {
-    return invalidRequest(
-      `Header ${IDEMPOTENCY_KEY_HEADER} inválido: se espera string de 1..64 caracteres.`,
-    );
+    return invalidRequest(idempotencyKeyRejectionMessage(header.reason));
   }
 
   const body = schemas.body?.safeParse(req.body);
