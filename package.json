@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "jest",
+    "test:no-db": "jest --selectProjects app --testPathIgnorePatterns /tests/integration/ /tests/functional/ /tests/db.smoke.test.ts",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:db:reset": "bash scripts/test-db-reset.sh",
