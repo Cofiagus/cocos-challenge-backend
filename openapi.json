@@ -12,6 +12,281 @@
     }
   ],
   "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Liveness",
+        "description": "El proceso está vivo. No consulta la base de datos: responde 200 mientras el servidor atienda, y es el probe que usa el orquestador para no matar un arranque lento.",
+        "operationId": "get-api-health",
+        "tags": [
+          "health"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Proceso vivo (no implica base disponible).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "ok"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "status": "ok"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ruta o método inexistente: método no soportado en esta ruta: el servidor responde 404, no 405. Código: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Ruta inexistente."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error inesperado; el detalle queda en el log del servidor y el cliente recibe un mensaje genérico. Código: `INTERNAL_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Error interno del servidor."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/ready": {
+      "get": {
+        "summary": "Readiness",
+        "description": "El proceso puede servir tráfico: ejecuta `SELECT 1` contra la base. 200 con `database: \"up\"`; 503 con `database: \"down\"` si la base no responde dentro del timeout del pool. Es el probe para sacar la instancia de rotación, no para reiniciarla.",
+        "operationId": "get-api-health-ready",
+        "tags": [
+          "health"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Base disponible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ready",
+                        "unavailable"
+                      ]
+                    },
+                    "database": {
+                      "type": "string",
+                      "enum": [
+                        "up",
+                        "down"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "database"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "status": "ready",
+                  "database": "up"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ruta o método inexistente: método no soportado en esta ruta: el servidor responde 404, no 405. Código: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Ruta inexistente."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error inesperado; el detalle queda en el log del servidor y el cliente recibe un mensaje genérico. Código: `INTERNAL_ERROR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Error interno del servidor."
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Base no disponible: la instancia no debe recibir tráfico.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ready",
+                        "unavailable"
+                      ]
+                    },
+                    "database": {
+                      "type": "string",
+                      "enum": [
+                        "up",
+                        "down"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "database"
+                  ],
+                  "additionalProperties": false
+                },
+                "example": {
+                  "status": "unavailable",
+                  "database": "down"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/users/{userId}/portfolio": {
       "get": {
         "summary": "Portfolio de un usuario",

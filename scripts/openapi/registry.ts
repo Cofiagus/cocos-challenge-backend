@@ -153,7 +153,57 @@ const withTransversalErrors = (operation: OperationDoc): OperationDoc => {
   };
 };
 
+/** Liveness: no toca la DB; siempre 200 mientras el proceso responda. */
+const HealthResponseSchema = z.object({ status: z.literal("ok") });
+
+/** Readiness: 200 si el `SELECT 1` responde, 503 si la base no está disponible. */
+const ReadyResponseSchema = z.object({
+  status: z.enum(["ready", "unavailable"]),
+  database: z.enum(["up", "down"]),
+});
+
 const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
+  {
+    expressPath: "/health",
+    method: "get",
+    summary: "Liveness",
+    description:
+      "El proceso está vivo. No consulta la base de datos: responde 200 mientras el servidor " +
+      "atienda, y es el probe que usa el orquestador para no matar un arranque lento.",
+    responses: [
+      {
+        status: 200,
+        description: "Proceso vivo (no implica base disponible).",
+        schema: HealthResponseSchema,
+        example: { status: "ok" },
+      },
+    ],
+    errorCodes: [],
+  },
+  {
+    expressPath: "/health/ready",
+    method: "get",
+    summary: "Readiness",
+    description:
+      "El proceso puede servir tráfico: ejecuta `SELECT 1` contra la base. 200 con " +
+      "`database: \"up\"`; 503 con `database: \"down\"` si la base no responde dentro del " +
+      "timeout del pool. Es el probe para sacar la instancia de rotación, no para reiniciarla.",
+    responses: [
+      {
+        status: 200,
+        description: "Base disponible.",
+        schema: ReadyResponseSchema,
+        example: { status: "ready", database: "up" },
+      },
+      {
+        status: 503,
+        description: "Base no disponible: la instancia no debe recibir tráfico.",
+        schema: ReadyResponseSchema,
+        example: { status: "unavailable", database: "down" },
+      },
+    ],
+    errorCodes: [],
+  },
   {
     expressPath: "/users/:userId/portfolio",
     method: "get",

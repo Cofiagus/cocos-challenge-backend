@@ -119,6 +119,21 @@ Una transferencia es una **orden** del instrumento `ARS` (`price` = `"1.00"`, el
   dos transferencias nuevas con montos que difieren por centavos (`"123.01"` vs `"123.99"`) son
   **409**, nunca colapsan por floor.
 
+## 6. `GET /health` y `GET /health/ready` — probes de ciclo de vida (fuera de `/api`)
+
+No son parte del contrato de negocio: son los probes que usa el orquestador, y por eso viven en
+la raíz y no bajo `/api` (el `notFoundHandler` de `buildApp` es terminal y los absorbería).
+
+| Endpoint | Responde | Uso |
+|---|---|---|
+| `GET /health` | **200** `{"status":"ok"}` siempre que el proceso atienda. **No toca la DB.** | Liveness: no reinicies una instancia que sólo está arrancando. |
+| `GET /health/ready` | **200** `{"status":"ready","database":"up"}` si un `SELECT 1` responde; **503** `{"status":"unavailable","database":"down"}` si no. | Readiness: sacá la instancia de rotación cuando la base no responde, no la reinicies. |
+
+El `SELECT 1` comparte el pool dimensionado del cliente Prisma, así que ante base caída el
+readiness falla en el orden del `connectionTimeoutMillis` (5 s) en vez de colgarse. El arranque
+valida la configuración **antes** de escuchar: un `PORT` inválido o una `DATABASE_URL` malformada
+salen con exit 1 y un mensaje accionable, nunca con un `RangeError` opaco de `listen`.
+
 ## Códigos de error
 
 | Código | Status | Cuándo |
