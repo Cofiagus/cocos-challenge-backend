@@ -1,6 +1,6 @@
 # Decisiones de arquitectura (ADR)
 
-Lista normativa de las decisiones del build. Cada una tiene **Contexto** (la restricción que obligó a
+Lista normativa de las decisiones del sistema. Cada una tiene **Contexto** (la restricción que obligó a
 decidir), **Decisión** (la regla vigente, verificable en el código) y **Consecuencias** (qué habilita,
 qué cuesta y qué queda fuera de alcance). El [README](README.md) resume estas reglas para quien recién
 llega; acá está el porqué. Un cambio de decisión se registra en este archivo, no en un commit suelto.
@@ -135,7 +135,7 @@ instrumentos es la única reapertura autorizada de Yahoo Finance.
 
 **Contexto.** El cash no es una posición operable, pero tiene que entrar y salir de la cuenta. El
 seed ya modela el efectivo como una orden del instrumento `MONEDA` `ARS` con `price = 1`, y la
-proyección de cash sabe procesar cualquier orden `FILLED`. La spec firmada de grandes montos exigió que
+proyección de cash sabe procesar cualquier orden `FILLED`. La spec de grandes montos exige que
 el monto se mueva exacto, con centavos.
 
 **Decisión.**

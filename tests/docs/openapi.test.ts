@@ -1,4 +1,4 @@
-// Contrato OpenAPI: sincronización con el código (T4d de specs/agentificacion-docs.md).
+// Contrato OpenAPI: sincronización con el código.
 //
 // Qué verifica:
 //  D4a — `openapi.json` commiteado == lo que genera `scripts/openapi/build.ts` (nadie edita el JSON a mano).
@@ -88,8 +88,8 @@ describe("contrato OpenAPI", () => {
     // E-05: `PortfolioPositionSchema` era el único `z.object` NO estricto del
     // contrato, así que el documento publicado dejaba la posición abierta
     // (cualquier campo extra "valía"). Se verifica sobre el documento GENERADO
-    // por `scripts/openapi/build.ts`, no sobre el JSON commiteado (ese lo
-    // regenera el orquestador en el gate: ver OPEN/NEEDS_OPENAPI_REGEN).
+    // por `scripts/openapi/build.ts`, no sobre el JSON commiteado (ese se regenera
+    // desde el registro de operaciones).
     const document = JSON.parse(serializeOpenApiDocument()) as Record<string, unknown>;
     const operation = objectAt(
       objectAt(objectAt(document, "paths"), "/api/users/{userId}/portfolio"),

@@ -41,8 +41,8 @@ const NORMATIVE_DOCS = (): readonly string[] => [
   // README.md es normativo: es el quickstart (migrate deploy = head versionado) y la tabla de
   // códigos de error. Quedaba fuera y por eso su contrato podía contradecir a docs/database.md.
   "README.md",
-  // specs/** queda fuera a propósito: son borradores de plan y citan rutas objetivo que todavía no
-  // existen (medido: 13 de 115 citas no resuelven, p. ej. `src/shared/money.ts`, `docs/testing.md`).
+  // specs/** queda fuera a propósito: son documentos de diseño y citan rutas objetivo que todavía
+  // no existen (p. ej. `src/shared/money.ts`).
   // Un doc es normativo sólo si describe el código tal como está; sumarlos obligaría a relajar la
   // aserción hasta que no verifique nada.
   ...walk("docs")
@@ -97,7 +97,7 @@ const backticked = (text: string): readonly string[] =>
 // Un doc es normativo sólo si sus tipos se pueden contrastar contra algo: acá el alcance sale del
 // encabezado de la tabla (snapshot legacy ↔ db/schema.sql, head versionado ↔ prisma/schema.prisma)
 // y el tipo de cada columna se compara con esa fuente. Un tipo en una tabla sin alcance es rojo:
-// la ambigüedad "10,2 o 24,2" no puede volver a pasar el gate.
+// la ambigüedad "10,2 o 24,2" no puede volver a pasar la verificación.
 // ---------------------------------------------------------------------------
 
 type TypeScope = "legacy" | "head";

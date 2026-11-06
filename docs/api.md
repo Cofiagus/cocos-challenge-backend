@@ -4,9 +4,7 @@
 > status y los códigos de error están en [`../openapi.json`](../openapi.json) (OpenAPI 3.1,
 > generado desde los schemas Zod de `src/contracts`; `npm run openapi` lo regenera).
 > Acá va lo que un schema no puede expresar: cuándo usar cada endpoint, qué significa cada
-> estado y qué invariantes se cumplen. La evidencia de ejecución verificada (suite completa
-> contra DB de test real) y sus límites vive en
-> [`references/large-money-verification.md`](references/large-money-verification.md).
+> estado y qué invariantes se cumplen.
 
 Base: `http://localhost:3000/api` · JSON · errores siempre `{ "error": { "code", "message" } }`.
 
@@ -59,19 +57,16 @@ excluida. Respuesta: **array plano** ordenado por ticker.
 - Proveedor indisponible (timeout / rate-limit) → **503 `MARKET_DATA_SERVICE_UNAVAILABLE`**:
   sin listado parcial como éxito y sin array vacío que disimule la falla. Un 503 del proveedor
   no equivale a "búsqueda sin resultados".
-- Estado verificado (G5, 2026-11-06): por el camino real de código (`GET /api/instruments?limit=100`
-  con el adaptador `YahooInstrumentQuoteSource`) la respuesta trajo **61 ítems** —61 de las 65
-  acciones— con precios que coinciden con una consulta directa a Yahoo; `DYCA`, `PGR`, `IRCP` y
-  `MTR` responden 404 («symbol not found») y el contrato los omite; 0 respuestas 503 y 0
-  rate-limits desde la aplicación (`PROGRESS.md`, G5). Este doc no ejemplifica precios ni fechas
-  de fuente: cambian en cada sesión.
+- Cobertura del catálogo: **61 de las 65 acciones** tienen cotización con el símbolo directo;
+  `DYCA`, `PGR`, `IRCP` y `MTR` responden 404 («symbol not found») y el contrato los omite. Este doc
+  no ejemplifica precios ni fechas de fuente: cambian en cada sesión.
 - **Riesgo del proveedor — estado y decisión.** El adaptador manda un `User-Agent` propio
   (`YAHOO_USER_AGENT`), corta a los 5 s con `AbortController` y **no reintenta, no cachea ni cae
   al histórico**: un 429 deja el motivo y el `Retry-After` en stderr y se traduce a 503. El 429
-  está **medido** (2026-11-06) desde otros clientes —`curl` con UA de navegador y con UA
-  default— mientras el camino de la aplicación respondió 200 en la misma jornada: el rate-limit
-  depende del cliente y varía en el tiempo. Decisión tomada: **no mitigarlo** con reintentos,
-  caché ni cambio de host; el reintento queda del lado del cliente sobre el 503.
+  está **medido** desde otros clientes —`curl` con UA de navegador y con UA default— mientras el
+  camino de la aplicación responde 200: el rate-limit depende del cliente y varía en el tiempo.
+  Decisión tomada: **no mitigarlo** con reintentos, caché ni cambio de host; el reintento queda del
+  lado del cliente sobre el 503.
 
 ## 3. `POST /users/:userId/orders`
 
@@ -132,7 +127,7 @@ Una transferencia es una **orden** del instrumento `ARS` (`price` = `"1.00"`, el
 
 ## 6. `GET /health` y `GET /health/ready` — probes de ciclo de vida (fuera de `/api`)
 
-No son parte del contrato de negocio: son los probes que usa el orquestador, y por eso viven en
+No son parte del contrato de negocio: son los probes de ciclo de vida del despliegue, y por eso viven en
 la raíz y no bajo `/api` (el `notFoundHandler` de `buildApp` es terminal y los absorbería).
 
 | Endpoint | Responde | Uso |
@@ -169,11 +164,11 @@ Los 13 códigos de la tabla integran `API_ERROR_CODES` (el contrato del error
 `DATABASE_UNAVAILABLE` los responde el manejador central de `src/http/error-handler.ts`,
 registrado después de los routers en `src/http/app.ts`. `INSTRUMENT_NOT_FOUND` entró al contrato
 con status 404 en `POST /orders` (`instrumentId`|`ticker`
-inexistente, sin orden). `MARKET_DATA_SERVICE_UNAVAILABLE` (UC-2 Rev. 2) lo emite el router de
+inexistente, sin orden). `MARKET_DATA_SERVICE_UNAVAILABLE` (UC-2) lo emite el router de
 instruments traduciendo `MarketDataServiceUnavailableError`; su mensaje es el del error de
 dominio, que también viaja validado en el ejemplo 503 del contrato.
 
-`DATABASE_UNAVAILABLE` (defecto D-03) es **reintentable**: el pedido era válido y la base no lo
+`DATABASE_UNAVAILABLE` es **reintentable**: el pedido era válido y la base no lo
 atendió a tiempo, así que el cliente recibe **503** con `Retry-After` (2 s) y no un 500. El
 detalle queda en stderr; el body es el mismo `{error:{code,message}}` y nunca incluye host, puerto
 ni SQLSTATE. El 503 de `GET /health/ready` es **otro** contrato (`{status,database}`): el probe

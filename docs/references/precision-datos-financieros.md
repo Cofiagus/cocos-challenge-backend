@@ -1,6 +1,7 @@
 # Evidencia — capacidad y precisión de datos financieros
 
-> Investigación de apoyo, no diseño aprobado. La propuesta y sus decisiones pendientes viven en `specs/datos-financieros-grandes-montos.md`. No habilita implementación ni migraciones.
+> Investigación de apoyo que fundamenta las decisiones D1–D5 de
+> `specs/datos-financieros-grandes-montos.md` y `DECISIONS.md`.
 
 ## 1. Estado observado
 
@@ -74,4 +75,4 @@ La extracción directa de páginas no estuvo disponible en el backend configurad
 - **Prisma — Include unsupported database features**: migración nueva con create-only y personalización antes de aplicar. Debe verificarse el soporte concreto del CLI 7 instalado antes de ejecutar; la documentación no reemplaza las reglas del repo.
   Dirección: `https://www.prisma.io/docs/orm/prisma-migrate/workflows/unsupported-database-features`
 
-Esta evidencia no cambia la salida HTTP vigente, el seed, la configuración de DB ni las reglas firmadas de dominio.
+Esta evidencia no cambia la salida HTTP vigente, el seed, la configuración de DB ni las reglas de dominio.
