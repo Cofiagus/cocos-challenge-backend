@@ -21,9 +21,9 @@ Si algo cambia en la base, se regenera el snapshot con `make db-snapshot` (ver �
 > migración `20261105104903_large_money`) declara `NUMERIC(24,2)` en los campos financieros:
 > `orders.price`, `orders.filledPrice`, `orders.size` y los 5 precios de `marketdata`. Los IDs, FKs
 > y secuencias **quedan INTEGER** (sin UUID ni BIGINT de identificadores). Que el head esté aplicado
-> en la DB de la app **no se afirma acá**: el único registro es `PROGRESS.md`. La guía operativa de
-> la ventana coordinada vive en [`README.md` → Migración coordinada](../README.md#migración-coordinada-de-grandes-montos);
-> los tipos y CHECKs objetivo están en §9.
+> sobre una base concreta se verifica con `npx prisma migrate status` (§10); este documento describe
+> los tipos y CHECKs del head, no el estado de una base en particular. La ventana de despliegue y
+> sus condiciones están en la decisión D5 de `DECISIONS.md`.
 
 > 🧭 **Convención de tipos monetarios — todo tipo citado declara su ALCANCE.** Un `numeric(p,s)` sin
 > alcance es una afirmación ambigua: el mismo campo tiene tipos distintos según qué se esté mirando.
@@ -32,12 +32,20 @@ Si algo cambia en la base, se regenera el snapshot con `make db-snapshot` (ver �
 > | --- | --- | --- |
 > | **snapshot legacy** (datos de referencia del challenge) | `db/schema.sql` (generado) | `numeric(10,2)` |
 > | **head versionado** (lo que produce `npx prisma migrate deploy`) | `prisma/schema.prisma` + `prisma/migrations/**` | `numeric(24,2)` |
-> | **aplicado en la DB de la app** | `PROGRESS.md` (único registro; no se duplica acá) | el que registre `PROGRESS.md` |
 >
 > La regla es mecánica: `numeric(10,2)` sólo puede citarse como **snapshot legacy** (dentro del bloque
 > o la frase que lo rotula); el tipo del **head** es el que declara `prisma/schema.prisma`, así que un
 > cambio de schema obliga a actualizar este documento en el mismo commit. `tests/docs/docs-consistency.test.ts`
 > (D6) hace cumplir esta convención derivando los tipos del head desde `prisma/schema.prisma`.
+
+### `db/schema.sql` es un snapshot generado — no cargar la base desde ahí
+
+`db/schema.sql` es un volcado **viejo y generado** del esquema original del challenge: le faltan la
+tabla `order_events`, las columnas `timeInForce`/`filledPrice`/`filledAt`/`idempotencyKey` y los
+tipos del head. La única forma de crear o actualizar el esquema es `npx prisma migrate deploy` (más
+`db/seed.sql` para los datos). **Nunca** cargues una base con `psql -f db/schema.sql` ni con
+`make db-load LEGACY=1`: produce un esquema que la aplicación no puede usar. El snapshot se conserva
+sólo como referencia de los datos de origen.
 
 ---
 
@@ -299,7 +307,7 @@ y por eso las suites y la iteración se corren contra PostgreSQL local (§6).
 | Índice | Columnas | Qué consulta cubre |
 | --- | --- | --- |
 | `orders_userid_status_idx` | `orders (userid, status)` | Proyección de cash/posiciones y reservas: `WHERE userid = $1 AND status = …` (§3) — incluye `listRestingOrders` |
-| `orders_status_instrumentid_idx` | `orders (status, instrumentid)` | Órdenes por estado e instrumento para el matching de límites; hoy `matchRestingOrders` no está cableado (ver `docs/legacy.md`) |
+| `orders_status_instrumentid_idx` | `orders (status, instrumentid)` | Órdenes por estado e instrumento para el matching de límites; hoy `matchRestingOrders` no está cableado (ver `DECISIONS.md` D3) |
 | `orders_userid_idempotencyKey_key` **UNIQUE** | `orders (userid, "idempotencyKey")` | Claim idempotente; múltiples `NULL` permitidos |
 | `marketdata_instrumentid_date_idx` | `marketdata (instrumentid, date DESC)` | Último precio por instrumento |
 | `marketdata_instrumentid_date_key` **UNIQUE** | `marketdata (instrumentid, date)` | Una vela por instrumento y fecha (§10) |
@@ -308,7 +316,7 @@ y por eso las suites y la iteración se corren contra PostgreSQL local (§6).
 **`orders(userid, datetime)` no está en el head y no corresponde:** ningún endpoint ordena
 órdenes por `datetime`; el portfolio filtra por `userid` y `status` y agrega en memoria, y ese
 filtro lo cubre `orders_userid_status_idx`. El índice `orders_userid_datetime_idx` sólo existe
-como propuesta en `db/indexes.sql`, que **no se aplica** (ver `docs/legacy.md`).
+como propuesta en `db/indexes.sql`, que **no se aplica** ni forma parte del head.
 
 Deudas de esquema que quedan explícitas: `orders.status` sigue nullable y sin `DEFAULT 'NEW'`, y
 `instruments.ticker` y `users.email` no tienen `UNIQUE` — el catálogo y los usuarios se leen por
@@ -346,24 +354,24 @@ Reglas:
 
 ---
 
-## 7. Decisiones de diseño (resueltas en el build)
+## 7. Decisiones de diseño aplicadas
 
-Las que este documento dejó "pendientes" al inicio quedaron resueltas — el detalle con el
-porqué vive en `README.md` → *Supuestos y decisiones*:
+Las decisiones de diseño que sostienen este esquema — con su contexto y sus consecuencias — viven en
+`DECISIONS.md`. Resumen de cómo se aplican acá:
 
-1. **Cash reservado — RESUELTO:** las `LIMIT NEW` **reservan** (`limit × size` en BUY). Se
+1. **Cash reservado:** las `LIMIT NEW` **reservan** (`limit × size` en BUY). Se
    muestra **separado**: `cash` = disponible (`settled − reservado`) y `reservedCash` — ver §3.
    `CASH_OUT` y los `BUY` validan contra el **disponible**.
-2. **Concurrencia al debitar cash — RESUELTO:** transacción con **`pg_advisory_xact_lock(userId)`**
+2. **Concurrencia al debitar cash:** transacción con **`pg_advisory_xact_lock(userId)`**
    por usuario (validación + inserción en la misma tx): dos submits concurrentes que juntos
    exceden el cash dejan una `FILLED` y una `REJECTED` (testeado).
-3. **Precio límite vs ejecución — RESUELTO:** `price` = **límite enviado**, `filledPrice` = **precio
+3. **Precio límite vs ejecución:** `price` = **límite enviado**, `filledPrice` = **precio
    de ejecución** (columna nueva de la migración); las filas legacy del seed leen con el
    `COALESCE` del mapper — ver §2.
-4. **Precio de un `MARKET` — RESUELTO:** el **`close` de la última vela por `date`** de
+4. **Precio de un `MARKET`:** el **`close` de la última vela por `date`** de
    `marketdata` (no hay motor de matching; no se valida contra el high/low del día — ver §4.4).
    Sin vela → `REJECTED NO_PRICE` persistida.
-5. **Posiciones negativas — RESUELTO:** no hay CHECK posible en el esquema; se resuelve en la
+5. **Posiciones negativas:** no hay CHECK posible en el esquema; se resuelve en la
    transacción: `SELL` valida contra **posición FILLED − acciones reservadas**. La negativa
    heredada del seed (BMA −10) se **lista tal cual** (§4.1) y la validación impediría que entre
    de ahora en adelante.
@@ -397,8 +405,8 @@ ORDER BY ticker LIMIT 20;
 ## 9. Grandes montos: tipos y CHECKs de la migración versionada
 
 Objetivo aprobado (spec `specs/datos-financieros-grandes-montos.md` §2, D1/D2/D5) — migración
-nueva versionada, create-only, ya **parte del head versionado**; si está aplicada en la DB de la app
-lo registra `PROGRESS.md` (no se duplica acá, ver la convención del encabezado):
+nueva versionada, create-only y **parte del head versionado**; el estado de aplicación sobre una base
+concreta se verifica con `npx prisma migrate status` (§10):
 
 | Campos | Snapshot legacy (`db/schema.sql`) | Head versionado (`prisma/schema.prisma` + migraciones) |
 | --- | --- | --- |
@@ -439,8 +447,8 @@ garantizan el valor almacenado, no reconstruyen la precisión de escrituras SQL 
 El seed del challenge **carga sin editarse** sobre el esquema final y conserva sus valores por
 valor (cash disponible 627500.00, reservado 125500.00, patrimonio 889756.00; PAMP 40, METR 500,
 BMA −10): lo que cambia es la forma JSON en que la API los representa, no el dinero persistido.
-El procedimiento de despliegue (pausa de escrituras, backup, preflight, ensayo, rollback) está en
-[`README.md` → Migración coordinada](../README.md#migración-coordinada-de-grandes-montos).
+El procedimiento de despliegue (pausa de escrituras, backup, preflight, ensayo, rollback) y sus
+condiciones están en la decisión D5 de `DECISIONS.md`.
 
 ---
 
@@ -503,11 +511,8 @@ WHERE t.tgrelid = 'orders'::regclass AND NOT t.tgisinternal;
 Comandos equivalentes: `npx prisma migrate status` (debe decir *Database schema is up to date!*) y
 `npx prisma migrate deploy` repetido (debe ser un no-op).
 
-**Medición de referencia (2026-11-06, tras aplicar las cuatro migraciones sobre la DB local de la
-app, `127.0.0.1:5433/cocos_challenge`):** 4/4 migraciones `finished`, 0 `rolled_back`; 10 CHECKs
-con `convalidated = true`; trigger `enabled = 'O'`; `requestFingerprint` `text` nullable; índice
-único `marketdata_instrumentid_date_key` presente. Datos **conservados**: 12 órdenes y 126 velas
-(mismos conteos del preflight), 7 filas `FILLED` heredadas con `filledPrice` copiado desde `price`
-(las 8 `FILLED` quedan con `filledPrice`), y los valores de §3 idénticos — cash settled
-`753000.00`, reservado `125500.00`, PAMP 40, METR 500, BMA −10. Cuál de las migraciones está
-aplicada en la DB de la app lo registra `PROGRESS.md`: esta medición no reemplaza ese registro.
+**Estado esperado tras `npx prisma migrate deploy`:** 4/4 migraciones `finished`, 0 `rolled_back`;
+10 CHECKs con `convalidated = true`; trigger `enabled = 'O'`; `requestFingerprint` `text` nullable e
+índice único `marketdata_instrumentid_date_key` presente. Los datos de `db/seed.sql` se conservan por
+valor: 11 órdenes y 126 velas, las filas `FILLED` heredadas con `filledPrice` copiado desde `price`,
+y los valores de §3 — cash settled `753000.00`, reservado `125500.00`, PAMP 40, METR 500, BMA −10.

@@ -1,15 +1,14 @@
 # Spec — datos financieros para grandes montos
 
-> **Estado: EJECUTADA — 2026-11-06. Rev. 2: D1–D5 firmadas por el usuario el 2026-11-05.**
-> Pedido del usuario: ampliar capacidad monetaria y mejorar su manejo en código y DB; UUID expresamente fuera de alcance.
-> El alcance se implementó en ramas aisladas y se verificó contra la DB de test.
-> Base observada: `main` en `60b3764a0be0c13bc85e65be383176e251d0a92d`, con cambios locales preexistentes.
+> **Estado: implementada. D1–D5 son decisiones vigentes del sistema.**
+> Alcance: ampliar la capacidad monetaria y su manejo en código y DB; UUID queda expresamente fuera de alcance.
+> Verificación: suites de integración contra PostgreSQL de test, typecheck y lint.
 
 ## Why
 
 Ampliar solamente las columnas de precios no garantiza que un monto grande sobreviva al recorrido HTTP → dominio → Prisma → PostgreSQL → HTTP.
 
-Hoy los precios usan Decimal(10,2), el monto de entrada comparte ese límite y `orders.size` es INTEGER tanto para acciones como para pesos de transferencias. Además, Decimal opera con precisión 20 por defecto, la salida monetaria se convierte a number y las transferencias aplican floor a pesos enteros. La sonda de esta revisión reprodujo pérdida de un centavo en serialización y redondeo incorrecto al operar en el rango propuesto.
+Hoy los precios usan Decimal(10,2), el monto de entrada comparte ese límite y `orders.size` es INTEGER tanto para acciones como para pesos de transferencias. Además, Decimal opera con precisión 20 por defecto, la salida monetaria se convierte a number y las transferencias aplican floor a pesos enteros. Una sonda de verificación reprodujo pérdida de un centavo en serialización y redondeo incorrecto al operar en el rango propuesto.
 
 Evidencia reproducida, referencias de código y alternativas: `docs/references/precision-datos-financieros.md`. El análisis no amplía el alcance por sí mismo.
 
@@ -96,16 +95,16 @@ La evidencia calcula 43 cifras para un presupuesto de precio máximo × acciones
 - Sin tablas/columnas nuevas, saldos materializados, cambio de unidad a centavos almacenados, dinero en float ni dependencias nuevas en la propuesta recomendada.
 - No resolver deuda histórica del modelo con defaults silenciosos ni modificar campos financieros/eventos anteriores. No mezclar cash con cantidades en cálculos nuevos.
 - Mantener SQL parametrizado y las garantías transaccionales/idempotentes existentes. Una falla en evento revierte el movimiento completo.
-- La spec **no** cambió por sí sola AGENTS.md, DECISIONS.md, contrato HTTP, schema ni tests: la ejecución los sincronizó con las decisiones aprobadas. El plan histórico `docs/references/plan-mejoras-db.md` no se reactivó.
+- La spec **no** cambió por sí sola AGENTS.md, DECISIONS.md, contrato HTTP, schema ni tests: esos archivos se actualizaron junto con las decisiones D1–D5.
 - Nuevos CHECKs no se aplican por fuera de migraciones revisadas ni se oculta su SQL en un script de arranque. Si no se autoriza D5, el alcance de garantías DB debe reabrirse; no entregar como implementado un CHECK inexistente.
 
-## Tasks — ejecutadas (D1–D5 firmadas el 2026-11-05)
+## Tasks implementadas
 
 Cada subtarea modifica **1–2 archivos**. Los bloques siguientes son secuencias, no autorización para un diff masivo. Los cambios de CODEMAP por archivos/exports deben ir en el **mismo commit** que las subtareas de código correspondientes; no es necesario que cada subtarea sea un commit independiente. TDD por criterio: registrar primero el rojo del caso nuevo y después el verde de la implementación; no desactivar assertions previas.
 
 | ID | Archivos / corte atómico | Verificación requerida |
 |---|---|---|
-| T0a | DECISIONS.md + AGENTS.md, después de firma | Reflejan salida string/transferencias y excepción exacta D5, sin alterar reglas no aprobadas. |
+| T0a | DECISIONS.md + AGENTS.md | Reflejan salida string/transferencias y excepción exacta D5, sin alterar reglas no aprobadas. |
 | T0b | specs/trading-api-domain.md | Actualiza sólo las reglas afectadas y referencia esta spec aprobada; ninguna aprobación histórica se inventa. |
 | T1 | Nuevo src/contracts/financial-decimal.ts + nuevo tests/unit/large-money-arithmetic.test.ts | Precisión aislada 64; resta de un centavo, multiplicación grande, suma/cancelación exactas; no cambia Decimal global. |
 | T2a | src/contracts/money.ts + tests/unit/money-input.test.ts | Strings válidos, máximo y máximo+0.01; number/exponente/no-finito/tercer decimal rechazados; máximo definido una vez. |
@@ -131,7 +130,7 @@ Cada subtarea modifica **1–2 archivos**. Los bloques siguientes son secuencias
 | T14 | Subtareas de compatibilidad por cada fixture/suite afectada, **máximo dos archivos por subtarea** | Adaptar literales por el contrato firmado, conservar escenarios/assertions y valores económicos; cubrir funcionales read/orders/orders-submit/transfers/cancel y conteo de eventos. No borrar/re-escribir suites para ocultar regresiones. |
 | T15a | docs/CODEMAP.md + docs/database.md | Mapa de exports y tipos reales; unidades y limitaciones de DB correctas; acompaña el mismo commit del cambio que documenta. |
 | T15b | docs/api.md + README.md | Contrato string, unidades de size, ejemplos exactos y procedimiento coordinado de migración. |
-| T16 | Sin cambios de archivos: gates y diff final | typecheck + lint + unit/docs + integración/funcionales contra TEST_DATABASE_URL autorizado; output real, ninguna DB de app alterada y ningún cambio ajeno al alcance. |
+| T16 | Sin cambios de archivos: verificación y diff final | typecheck + lint + unit/docs + integración/funcionales contra TEST_DATABASE_URL; output real, ninguna DB de app alterada y ningún cambio ajeno al alcance. |
 
 Antes de T13/T14, el inventario exacto se obtiene por imports/referencias y se divide en subtareas de 1–2 archivos, manteniendo esta misma semántica; si aparece una decisión de diseño nueva, se detiene para revisión en vez de incluirla como adaptación mecánica.
 
@@ -146,17 +145,12 @@ Antes de T13/T14, el inventario exacto se obtiene por imports/referencias y se d
 7. El seed conserva sus valores financieros e IDs; no se acreditan centavos históricos faltantes. Los replays históricos de §5 no reejecutan movimientos.
 8. La migración se prueba desde esquema viejo con datos y desde DB nueva + seed intacto. CHECKs inspeccionados en PostgreSQL, no sólo en mocks; rollback de una multi-escritura probado.
 9. OpenAPI, ejemplos y consumidores de las suites usan el contrato aprobado, sin tipos de salida monetarios dependientes del tamaño.
-10. Los gates pasan con salida real. Aprobar esta spec no equivale a haber probado esas garantías: la tarea actual sólo crea el diseño y evidencia de base.
+10. Las verificaciones pasan con salida real: typecheck, lint y las suites de integración contra PostgreSQL de test.
 
-## Firma registrada
+## Decisiones vigentes
 
 - [x] D1 — NUMERIC(24,2) y presupuesto Decimal 64.
 - [x] D2 — Ampliar size a NUMERIC, conservar acciones INT4 por orden y separar cash/trading en tipos.
 - [x] D3 — Cambio incompatible: dinero string, quantity agregada string y size de cash string; sin endpoint paralelo.
 - [x] D4 — Nuevas transferencias exactas con centavos y política conservadora para keys históricas.
 - [x] D5 — Migración coordinada y permiso puntual para personalizar sólo la nueva migración aún no aplicada.
-
-### Changelog
-
-- Rev. 1: propuesta inicial solicitada por el usuario para capacidad monetaria y persistencia; UUID excluido por pedido explícito. D1–D5 continúan **sin aprobación**.
-- Rev. 2: el usuario aprueba el plan completo y autoriza ejecutarlo con subagentes. Se registra la firma, sin cambiar decisiones ni ampliar alcance.

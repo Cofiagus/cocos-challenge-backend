@@ -1,12 +1,9 @@
 # Spec — búsqueda de instrumentos con cotizaciones actuales
 
-> **Estado: EJECUTADA — 2026-11-06.**
-> Rev. 2 — validada por el usuario; exige un error explícito si Yahoo no está disponible.
-> Historial: Rev. 1 propuso el alcance; Rev. 2 confirma las políticas de faltantes
-> e indisponibilidad y fija el contrato de error por decisión del usuario.
-> Decisión del usuario: query ausente o vacía devuelve 10 tickers por defecto;
-> los resultados deben usar precio y variación actuales de Yahoo, no el seed.
-> Cambio acotado a UC-2. No reabre el matching ni los demás casos de uso.
+> **Estado: implementada.**
+> Reglas: query ausente o vacía devuelve 10 tickers por defecto; los resultados usan precio y
+> variación actuales de Yahoo, no el seed; si Yahoo no está disponible se responde un error
+> explícito (503). Cambio acotado a UC-2: no reabre el matching ni los demás casos de uso.
 
 ## Why
 
@@ -34,7 +31,7 @@ listado inicial de 10 instrumentos y cotizaciones actuales del proveedor.
 - El filtro se aplica al catálogo antes de consultar cotizaciones. La política
   de instrumentos sin cotización decide si hace falta buscar más candidatos.
 
-### Decisiones aprobadas
+### Decisiones de diseño
 
 1. Ticker sin cotización válida o sin cierre anterior computable:
    **Omitirlo y completar el límite con los siguientes candidatos**,
@@ -55,8 +52,7 @@ listado inicial de 10 instrumentos y cotizaciones actuales del proveedor.
 
    Una falla de disponibilidad no se trata como ticker sin cotización: no
    omitir instrumentos por ese motivo ni devolver un listado parcial como éxito.
-3. El usuario valida el conjunto de cambios de esta spec. La autorización
-   incluye los cambios acotados de contrato (query/limit/errores), pero no
+3. El alcance incluye los cambios acotados de contrato (query/limit/errores), pero no
    nuevas dependencias, migraciones ni cambios en otros UC.
 
 ## Constraints
@@ -71,7 +67,6 @@ listado inicial de 10 instrumentos y cotizaciones actuales del proveedor.
   Decimal desde strings; sin cálculos financieros en number y sin any.
 - Tests deterministas sin Internet, con fuente inyectada. Verificación manual
   real separada para el adaptador; no inventar fixtures como prueba de conexión.
-- Preservar todos los cambios locales ajenos a esta spec.
 
 ## Tasks
 
@@ -97,12 +92,11 @@ públicos tiene su tarea documental inmediatamente asociada antes de cerrar el l
    OpenAPI; documentar query vacía, default 10 y política de fallos aprobada.
 9. **Mapa y decisiones vigentes:** `docs/CODEMAP.md` y `DECISIONS.md`. Registrar
    la reapertura exclusiva de Yahoo para UC-2; no reabrir el resto del alcance.
-10. **Entrada de documentación:** `README.md` y `docs/legacy.md`. Quitar la
-    afirmación global de que Yahoo no está integrado y conservar límites históricos.
-11. **Sincronización del dominio:** `specs/trading-api-domain.md` y
-    `docs/arquitectura-implementada.html`. Reflejar sólo UC-2, con revisión y
-    decisión humana; mantener el resto del matching fuera de alcance.
-12. **Gate completo:** typecheck + lint + tests + build con output real;
+10. **Entrada de documentación:** `README.md`. Documentar la reapertura de Yahoo para UC-2 y sus
+    límites.
+11. **Sincronización del dominio:** `specs/trading-api-domain.md`. Reflejar sólo UC-2; mantener el
+    resto del matching fuera de alcance.
+12. **Verificación completa:** typecheck + lint + tests + build con output real;
     consulta real a Yahoo y smoke del endpoint. Informar limitaciones observadas.
 
 ## Evidencia inicial (no es verificación de cobertura del catálogo)

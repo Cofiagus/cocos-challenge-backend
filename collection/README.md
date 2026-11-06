@@ -17,22 +17,12 @@ Orden sugerido (algunos ejemplos mutan estado y los idempotency keys se gastan):
 05-transfers.http     # transferencias: CASH_IN / CASH_OUT / rechazos
 ```
 
-> **Contrato de grandes montos (spec aprobada `specs/datos-financieros-grandes-montos.md` Rev. 2):**
+> **Contrato de grandes montos (`specs/datos-financieros-grandes-montos.md`, D1–D4):**
 > el dinero entra como **string decimal estricto** (`"price": "900.00"`, `"amountArs": "123.45"`;
 > un JSON `number` ⇒ 400) y sale como **string con 2 decimales**; `quantity` del portfolio es
 > **string entero** y el `size` de la respuesta es `number` en órdenes de trading pero
 > **string monetario** en transferencias. Los cuerpos y estados documentados en los comentarios
-> describen ese contrato aprobado (y los valores del seed, que no cambian: cash disponible
-> `627500.00`, reservado `125500.00`, total `889756.00`). El contrato está **implementado y
-> verificado por suites automatizadas contra DB de test real**:
-> **Estado del build (2026-11-06):** `npm test -- --runInBand --detectOpenHandles` ⇒ **58 suites /
-> 751 tests** en verde; `npm run test:no-db` ⇒ **43 suites / 520 tests**. Verificado con typecheck 0
-> y lint 0. Esta es la única fuente de conteos: los números de `../PROGRESS.md` y de
-> [`../docs/references/large-money-verification.md`](../docs/references/large-money-verification.md)
-> son cortes **históricos** y no describen el árbol actual (aquella corrida midió 37 suites / 515
-> tests sobre la candidata previa al merge).
-> Las **4** migraciones del head **están aplicadas** a la DB de la app
-> `127.0.0.1:5433/cocos_challenge` (0 `rolled_back`, **10 CHECKs** financieros verificados, el
-> trigger `orders_fill_execution_price_trigger` activo y 8 columnas `NUMERIC(24,2)`). Lo que **no**
-> existe es una corrida manual íntegra de esta colección contra esa base: los estados de los
-> comentarios salen de la suite automatizada. Los `id` de los comentarios siguen siendo ilustrativos.
+> describen ese contrato y los valores del seed, que no cambian: cash disponible `627500.00`,
+> reservado `125500.00`, total `889756.00`. El contrato está **implementado y verificado por
+> suites automatizadas contra una DB de test real**; los `id` de los comentarios son ilustrativos
+> (las órdenes nuevas arrancan después del 11 del seed).

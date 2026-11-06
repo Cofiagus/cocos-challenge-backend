@@ -1,24 +1,11 @@
 # Spec — API de trading (portfolio, búsqueda, órdenes, transferencias)
 
-> **Estado: EJECUTADA — 2026-11-06. Fuente de verdad del dominio** (UC-1..UC-5 y sus reglas),
-> implementada **con alcance reducido**: los casos de uso y sus invariantes se construyeron; la
-> fuente de precio del matching y el matching continuo quedaron cerrados por `DECISIONS.md`.
-> La cotización actual de UC-2 es la única reapertura. Para el estado del código y sus archivos,
-> `docs/CODEMAP.md`.
+> **Estado: implementada. Fuente de verdad del dominio** (UC-1..UC-5 y sus reglas).
+> El matching continuo quedó fuera de alcance por `DECISIONS.md` D3; la cotización actual de UC-2
+> es la única integración con Yahoo. Para el estado del código y sus archivos, `docs/CODEMAP.md`.
 > Fuera de alcance por decisión (`DECISIONS.md`): ingesta de cotizaciones, scheduling, sweep y
 > matching continuo. `matchRestingOrders` existe como punto de enchufe del dominio puro, sin
 > disparador. UC-2 consulta Yahoo en el request; UC-1/3/4/5 usan `marketdata` local.
->
-> Rev. 2 — arquitectura de matching estilo exchange real (historia de diseño, no comportamiento
-> del build).
-> Rev. 3 — sin `instrument_symbol_map`: el símbolo Yahoo se deriva directo del ticker (`ticker + ".BA"`).
-> Rev. 4 — capacidad/precisión y contrato financiero según `specs/datos-financieros-grandes-montos.md`
-> Rev. 2 aprobada. No amplía matching ni identidad.
-> Rev. 5 — sincroniza SOLO UC-2 con la implementación aprobada (`specs/instruments-current-quotes.md`
-> Rev. 2): default 10, listado inicial con query ausente/vacía/espacios, cotización actual de Yahoo
-> (`ticker + ".BA"`), omisión de faltantes y `503 MARKET_DATA_SERVICE_UNAVAILABLE`.
-> Rev. 6 — poda lo que no existe en el repo (DAY/EXPIRED, ingesta con ticks, lib `yahoo-finance2`)
-> y corrige la fórmula de `totalAccountValue` (usa `cashSettled`, no el cash disponible).
 
 ## Why
 
@@ -26,8 +13,8 @@ El challenge pide una API que exponga portfolio, búsqueda de activos, envío de
 órdenes (MARKET/LIMIT) y gestión de estados. El usuario elevó la vara: reserva de
 buying power al aceptar, TIF explícito en el envío y la cotización de UC-2 contra
 Yahoo en vez del dataset estático. El matching estilo exchange real —prioridad
-precio-tiempo, ticks, sweep— se diseñó (Rev. 2) y quedó fuera de alcance por
-`DECISIONS.md`; el estado del build es el que describe este documento.
+precio-tiempo, ticks, sweep— quedó fuera de alcance por `DECISIONS.md`; este documento describe
+el comportamiento vigente.
 
 ## Fuente de datos de mercado
 
@@ -176,8 +163,8 @@ valor de mercado de las posiciones**), `positions[]` con `ticker`, `name`,
 - **Indisponibilidad** (timeout, rate-limit, red): `503 MARKET_DATA_SERVICE_UNAVAILABLE`
   con mensaje al usuario exacto — ni precios históricos presentados como actuales,
   ni array vacío que disimule la falla.
-- Fuente de la decisión: `specs/instruments-current-quotes.md` Rev. 2 (aprobada por
-  el usuario). Este cambio no reabre los demás casos de uso.
+- Fuente de la decisión: `specs/instruments-current-quotes.md`. Este cambio no reabre los demás
+  casos de uso.
 
 ### UC-3 — Enviar orden (`POST /api/users/:userId/orders`)
 

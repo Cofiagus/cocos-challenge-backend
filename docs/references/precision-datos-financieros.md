@@ -1,6 +1,7 @@
 # Evidencia — capacidad y precisión de datos financieros
 
-> Investigación de apoyo, no diseño aprobado. La propuesta y sus decisiones pendientes viven en `specs/datos-financieros-grandes-montos.md`. No habilita implementación ni migraciones.
+> Investigación de apoyo que fundamenta las decisiones D1–D5 de
+> `specs/datos-financieros-grandes-montos.md` y `DECISIONS.md`.
 
 ## 1. Estado observado
 

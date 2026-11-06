@@ -81,23 +81,16 @@ una línea:
   orden. Input inválido es 400 sin escribir nada (D6).
 - **`MONEDA` no es operable**: no se compra, no se vende, no aparece en búsqueda ni en posiciones (D6).
 
-## Estado del build
+## Calidad
 
-| Medición | Suites / tests |
-| -------- | -------------- |
-| `npm test -- --runInBand --detectOpenHandles` — suite completa contra PostgreSQL de test | **58 suites / 751 tests** |
-| `npm run test:no-db` — unit + docs + smoke ESM, sin base | **43 suites / 520 tests** |
-
-Los números los produce la corrida final de la limpieza (2026-11-06), con typecheck 0 y lint 0. No se
-repiten cifras de corridas anteriores porque quedaron viejas. Para reproducirlos:
+Un cambio se cierra con `npm run typecheck` (`tsc --noEmit`, ESM con `module=nodenext`) y
+`npm run lint` (ESLint 9 flat config) sin errores, más los tests de lo que se tocó. Para correrlo
+todo:
 
 ```bash
-npm run test:db:reset && npm test     # requiere .env.test con TEST_DATABASE_URL
-npm run test:no-db                    # no toca la base
+npm run test:db:reset && npm test     # suite completa (requiere .env.test con TEST_DATABASE_URL)
+npm run test:no-db                    # unit + docs + smoke ESM, sin tocar la base
 ```
-
-Gates de calidad, independientes de los conteos: `npm run typecheck` (`tsc --noEmit`, ESM con
-`module=nodenext`) y `npm run lint` (ESLint 9 flat config).
 
 ## Estructura
 

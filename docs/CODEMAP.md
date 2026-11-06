@@ -5,9 +5,9 @@
 >
 > **Qué NO responde acá**: qué devuelve un endpoint (`openapi.json` + `docs/api.md`), por qué una
 > regla de negocio es así (`DECISIONS.md`), columnas e índices (`docs/database.md`), cómo levantar el
-> entorno y qué comandos usar (`AGENTS.md`), qué está deprecado (`docs/legacy.md`).
-> El doc de casos de uso y el de testing son P2 y todavía no existen: hasta entonces, el orden de
-> pasos vive en el header de cada caso de uso y lo de tests en `jest.config.js`.
+> entorno y qué comandos usar (`AGENTS.md`).
+> El orden de pasos de cada caso de uso vive en el header de su archivo y lo de tests en
+> `jest.config.js`.
 
 Columnas: **responsabilidad** en una línea · **exports** = superficie pública · **llamado por** =
 importadores directos · **test** = suite que lo ejerce.
