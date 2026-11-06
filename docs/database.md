@@ -467,3 +467,73 @@ valor (cash disponible 627500.00, reservado 125500.00, patrimonio 889756.00; PAM
 BMA −10): lo que cambia es la forma JSON en que la API los representa, no el dinero persistido.
 El procedimiento de despliegue (pausa de escrituras, backup, preflight, ensayo, rollback) está en
 [`README.md` → Migración coordinada](../README.md#migración-coordinada-de-grandes-montos).
+
+---
+
+## 10. Migraciones versionadas: inventario del head y verificación
+
+`prisma/migrations/**` es el DDL real del head versionado: **cuatro** migraciones, en este orden.
+`db/schema.sql` no las refleja (§1); la única forma de reproducir el schema es
+`npx prisma migrate deploy`.
+
+| Migración | Qué aporta |
+| --- | --- |
+| `20261103003419_init_trading_api` | Esquema base sobre el legacy: tabla `order_events` (auditoría append-only), seis enums nativos y en `orders` las columnas `"timeInForce"` (NOT NULL, default `GTC`), `filledPrice`, `filledAt`, `idempotencyKey` — con `UNIQUE(userid, "idempotencyKey")` |
+| `20261105104903_large_money` | Los campos financieros pasan a la precisión del head y se agregan los CHECKs acotados de §9 (`orders_price_finite_positive_check`, `orders_filledprice_finite_positive_check`, `orders_size_finite_non_negative_check`, `orders_share_size_int4_check`, `orders_size_zero_only_rejected_check`, `marketdata_prices_finite_non_negative_check`) |
+| `20261106154910_db_integrity_constraints` | `NOT NULL` en `marketdata.instrumentid/date/close/previousclose` y en `orders.type/side/datetime`; columna `orders.requestFingerprint` (`text`, **nullable y sin UNIQUE**); índice único `marketdata_instrumentid_date_key`; CHECK `orders_filled_requires_execution_price_check` |
+| `20261106180000_db_write_invariants` | Backfill `filledPrice = price` en las `FILLED` heredadas; función + trigger `orders_fill_execution_price_trigger`; CHECKs `orders_limit_requires_price_check`, `orders_cash_price_unit_check` y `orders_filled_requires_filledprice_check` |
+
+**Total en el head: 10 CHECK constraints** — 9 en `orders` y 1 en `marketdata` — todas nacidas
+`NOT VALID`-free (`convalidated = true`), y **1 trigger** (`orders_fill_execution_price_trigger`)
+con su función `orders_fill_execution_price()`.
+
+### Qué garantiza cada CHECK nuevo
+
+| Constraint | Regla | Notas |
+| --- | --- | --- |
+| `orders_filled_requires_execution_price_check` | Una `FILLED` necesita **algún** precio: `filledPrice` o `price` | Es la invariante que el dataset legacy cumple; la forma estricta llega con el CHECK siguiente, después del backfill |
+| `orders_limit_requires_price_check` | Una `LIMIT` necesita `price` | El repositorio no puede persistir una `LIMIT` sin límite |
+| `orders_cash_price_unit_check` | `CASH_IN`/`CASH_OUT` sólo con precio unitario `1.00` | El monto del movimiento viaja en `size`, no en `price` |
+| `orders_filled_requires_filledprice_check` | Una `FILLED` necesita `filledPrice` | Posible sólo **después** del backfill y con el trigger activo |
+
+### Trigger de normalización (`orders_fill_execution_price_trigger`)
+
+`BEFORE INSERT OR UPDATE OF "status", "price", "filledPrice"` sobre `orders`, `FOR EACH ROW`:
+si `NEW.status = 'FILLED'` y `NEW."filledPrice" IS NULL` y `NEW."price" IS NOT NULL`, copia
+`price` a `filledPrice`. Es la **misma** regla del backfill, aplicada a toda escritura — incluido
+el `COPY` de `db/seed.sql`, que no trae `filledPrice` (por eso hace falta el trigger y no alcanza
+con el backfill). Si una fila llega `FILLED` sin `price` **ni** `filledPrice`, el trigger no
+inventa un valor: el INSERT falla ruidosamente con `23514` en
+`orders_filled_requires_execution_price_check` (ese CHECK se evalúa antes que el de `filledPrice`).
+No lee otras tablas ni otras filas.
+
+### Cómo verificar el estado aplicado
+
+```sql
+-- 1) history de Prisma: 4 filas, finished_at no nulo, rolled_back_at nulo
+SELECT migration_name, finished_at IS NOT NULL AS finished, rolled_back_at
+FROM "_prisma_migrations" ORDER BY started_at;
+
+-- 2) 10 CHECKs presentes y validados (9 en orders + 1 en marketdata)
+SELECT c.relname AS tabla, con.conname AS check, con.convalidated AS validado
+FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid
+WHERE con.contype = 'c' AND c.relname IN ('orders', 'marketdata')
+ORDER BY 1, 2;
+
+-- 3) trigger activo (tgenabled = 'O') y su función
+SELECT t.tgname, t.tgenabled, p.proname, pg_get_triggerdef(t.oid)
+FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+WHERE t.tgrelid = 'orders'::regclass AND NOT t.tgisinternal;
+```
+
+Comandos equivalentes: `npx prisma migrate status` (debe decir *Database schema is up to date!*) y
+`npx prisma migrate deploy` repetido (debe ser un no-op).
+
+**Medición de referencia (2026-11-06, tras aplicar las cuatro migraciones sobre la DB local de la
+app, `127.0.0.1:5433/cocos_challenge`):** 4/4 migraciones `finished`, 0 `rolled_back`; 10 CHECKs
+con `convalidated = true`; trigger `enabled = 'O'`; `requestFingerprint` `text` nullable; índice
+único `marketdata_instrumentid_date_key` presente. Datos **conservados**: 12 órdenes y 126 velas
+(mismos conteos del preflight), 7 filas `FILLED` heredadas con `filledPrice` copiado desde `price`
+(las 8 `FILLED` quedan con `filledPrice`), y los valores de §3 idénticos — cash settled
+`753000.00`, reservado `125500.00`, PAMP 40, METR 500, BMA −10. Cuál de las migraciones está
+aplicada en la DB de la app lo registra `PROGRESS.md`: esta medición no reemplaza ese registro.
