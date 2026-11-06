@@ -1,6 +1,6 @@
 # PROGRESS.md — ejecución por células
 
-## Activo — Wave 1 integrada y G3 CERRADO; Wave 2 en vuelo (A4 ∥ QA diagrama); G0/G1/G2 cerrados
+## Activo — G3 y G4 CERRADOS; documentos del diagrama integrados en main; Wave 3 en vuelo (A5)
 
 **Corte 2026-11-05 20:45 (-03):** el usuario pidió handoff para seguir las pruebas en otra sesión. No continuar pruebas, migraciones, runtime ni diagrama por notificaciones tardías. Punto de entrada: `docs/references/handoff-local-rollout.md`. Interrupción confirmada de la única célula activa; sus borradores coinciden byte a byte con el snapshot privado y no fueron integrados ni certificados.
 
@@ -35,11 +35,21 @@
 | A1 / G1 | Candidata integrada + alcance financiero congelado | CERRADO `63e65ac` | Typecheck 0/lint/build y diff cero en núcleo, schema/migraciones y dependencias contra `8d1475f` |
 | QA independiente / G2 | SHA `63e65ac`, candidato completo y contratos financieros | DONE ACCEPT 9.5/10; G2 CERRADO (`deleg_110d92c5`) | Padre verificó JSON/log de QA (42/581/0 handles y gates exit0), luego merge local y repetición completa en main; fuentes idénticas al SHA revisado |
 | A3 / G3 migración app | Único operador DB sobre main integrado | **CERRADO, G3 VERDE** (`sa-1-03094ac2`) | `migrate deploy` con DATABASE_URL explícita aplicó `20261105104903_large_money` sobre 127.0.0.1:5433/cocos_challenge. History: 2 aplicadas, 0 rolled_back. Los 6 CHECK verificados por nombre Y definición contra el SQL versionado. 8 columnas NUMERIC(24,2). Backup revalidado (sha256 -c manifest OK x4 + pg_restore en clon NUEVO idéntico a preflight.json). Segundo `migrate deploy` ⇒ «No pending migrations to apply». Sin seed/reset. Clon de evidencia: 55432/a3_restore_check_20261106T002348Z |
-| A4 / G4 arranque API | DS; worktree principal, SHA integrado | **EN CURSO** `sa-0-4701cb3f` | Backup del .env existente, editarlo con DATABASE_URL app 5433 + PORT=3000, arranque
-|          |          |          | administrado (PID/log durable), bind loopback verificado con ss, SIGTERM→reinicio→smoke |
-| A5 / G5 HTTP real | DS + QA independiente | NO INICIADA | Requiere G4 verde. Smoke read-only sobre DB app; escrituras sólo en 55432; Yahoo en vivo sin fixtures |
+| A4 / G4 arranque API | DS; worktree principal, SHA integrado | **CERRADO, G4 VERDE** (`sa-0-4701cb3f`, commit `d7663d1`) |
+|          |          |          | `.env` EXISTENTE respaldado (sha256 06a5bd3e…) y editado: DATABASE_URL -> 127.0.0.1:5433/cocos_challenge,
+|          |          |          | PORT=3000, keys preservadas; sigue SIN trackear (.gitignore:13). Proceso vivo `node dist/index.js`
+|          |          |          | PID 142357; el supervisor confirmó bind **127.0.0.1:3000** con `ss` y smoke HTTP 200 con los
+|          |          |          | golden de G0 (cash 627500.00 / reserved 125500.00 / TAV 889756.00). Ajuste MÍNIMO en
+|          |          |          | `src/index.ts`: `listen(port, "127.0.0.1")` (antes bindeaba 0.0.0.0). SIGTERM cierra el pool
+|          |          |          | y reinicia limpio. |
+| A5 / G5 HTTP real | DS; listener real + Yahoo en vivo | **EN CURSO** `sa-0-e04b8b6d` | Smoke read-only sobre DB app (UC-1, UC-2); escrituras/colecciones SÓLO en copia 55432; Yahoo sin fixtures con cobertura N/total medida; 429/503 ⇒ BLOQUEO declarado y escalar, sin tocar código. Luego QA independiente. |
 | A6 fixes | DS, dueño del archivo | SÓLO si hay fallo reproducido | Sin scope propio hasta que A5 lo requiera |
-| DIAGRAM-FINISH (GLM) | docs/references/db-schema-before-after.{html,md} | **COMMITEADO** `b99a68c` (gate del padre verde); QA independiente EN CURSO (`sa-1-1056c3fc`) | Claims verificados contra los catálogos JSON. 0 colores hex residuales: sólo var(--card/--border/--accent/--foreground/--muted-foreground). Estructura intacta: 4 <div>, 2 <svg viewBox="0 0 1180 910">, tags balanceados. Falta QA independiente ACCEPT antes del merge |
+| DIAGRAM-FINISH (GLM) | docs/references/db-schema-before-after.{html,md} | **INTEGRADO EN MAIN** (`b99a68c` → merge `5645896`) |
+|          |          |          | QA independiente **ACCEPT 9/10** (`sa-1-1056c3fc`) con matriz claim→fuente completa: 5 tablas y 4 FK
+|          |          |          | correctas, los 8 cambios de tipo, los 6 CHECK por nombre Y definición contra migration.sql, sin
+|          |          |          | cambios estructurales (NOT NULL 9 / PK 5 / FK 4 / enums 6 / índices 10 idénticos), cardinalidades
+|          |          |          | correctas, honestidad semántica y sin artefactos inventados. Observación cosmética pendiente: una
+|          |          |          | etiqueta SVG dice “N” en vez de “1..N”. |
 
 ### Decisiones y paradas vigentes
 
@@ -64,7 +74,7 @@
 - **Nueva parada vigente (Yahoo)**: un 429/5xx del proveedor NO puede reportarse como integración exitosa. Si A5 no obtiene precio real ⇒ **BLOQUEO declarado** y vuelta al humano. No se autoriza ningún cambio de código para «arreglar» el proveedor (ni headers, ni reintentos, ni caché) sin pedido explícito.
 
 - **Adjudicación de la discrepancia de datos de control de A3 (léela antes de reutilizar fingerprints)**: el `fingerprint.sql` que A3 heredó del preflight A0 calcula `cash_per_user = sum(size)` **crudo**, sin filtro de `status` ni signo de `side` ⇒ 1100000.00. Ese es exactamente el cálculo que el veredicto de G0 ya había **rechazado como métrica errónea**. La económica canónica es `cashSettledArs`: **753000.00 (user 1)** y 123.00 (user 2), con `cashReservedNewBuyArs` 125500.00 y `cashAvailableArs` 627500.00. El supervisor re-verificó por su cuenta ejecutando las secciones **08 (economía por usuario)** y **09 (fingerprints canónicos)** del SQL auditado de G0 contra el clon del backup (PRE) y la app (POST): **salidas idénticas** (diff vacío). Conclusión: el deploy no alteró datos — el defecto es de la *métrica* del fingerprint, no de la migración. **Lección: no reutilizar el inventario A0 como fingerprint económico sin filtrar FILLED y aplicar signo de side.**
-- **Verificación propia del diagrama (supervisor)**: commit `b99a68c` presente sobre `bd60d65`, árbol limpio; 0 colores hex residuales; gate re-corrido por el padre: `npm run typecheck` exit 0, `npm run lint` exit 0, `npx jest tests/docs` ⇒ 2 suites / 15 tests verdes. Corrección del informe del padre: los 12 hex NO eran colores sueltos sino *fallbacks* de `var(--x, #hex)` ya existentes; la célula eliminó los fallbacks, no los colores. Queda pendiente el QA independiente para habilitar el merge de los dos documentos.
+- **Verificación propia del diagrama (supervisor)**: commit `b99a68c` presente sobre `bd60d65`, árbol limpio; 0 colores hex residuales; gate re-corrido por el padre: `npm run typecheck` exit 0, `npm run lint` exit 0, `npx jest tests/docs` ⇒ 2 suites / 15 tests verdes. Corrección del informe del padre: los 12 hex NO eran colores sueltos sino *fallbacks* de `var(--x, #hex)` ya existentes; la célula eliminó los fallbacks, no los colores. **Resultado: QA independiente ACCEPT 9/10 ⇒ merge habilitado.**
 
 ---
 
@@ -261,3 +271,6 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 - Las pruebas de integración usan el PostgreSQL configurado por `TEST_DATABASE_URL`, separado de
   `DATABASE_URL` runtime; puede ser local o administrado. No se asume proveedor, host ni puerto.
   `docker-compose.yml` queda como opción de entorno, no como requisito de la aplicación.
+
+- **Wave 2 integrada (2026-11-06)**: `main` recibió `d7663d1` por fast-forward (bind loopback: único cambio de código, `src/index.ts`) y luego el merge `5645896` de los dos documentos del diagrama. Gate del padre sobre `main`: **typecheck exit 0 · lint exit 0 · `npx jest tests/docs` 2 suites / 15 tests verdes**; `git status` limpio. API viva (PID 142357) y PG activos al cierre de A4, como exige G4. Pendiente de cierre: suite completa (gate final, corre el padre) una vez que A5 reporte.
+- **Lección de A4 (para la skill)**: `listen(port)` sin host bindea `*:3000`; la URL del `.env` no prueba la URL efectiva porque `dotenv` inyecta después del `exec` (por eso `/proc/<pid>/environ` no la muestra). Verificar el bind REAL con `ss -lntp` y, si hace falta, corroborar la URL dentro del proceso o por `pg_stat_activity`.
