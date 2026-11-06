@@ -15,7 +15,7 @@ import { Decimal } from "decimal.js";
 import type { OrderDraft, OrderEventType } from "../../../src/contracts/index.js";
 import { CreateOrderRequestSchema } from "../../../src/contracts/index.js";
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
-import { requestFingerprintOf } from "../../../src/http/shared/edge.js";
+import { requestFingerprintOf } from "../../../src/contracts/index.js";
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
 import { createTestUser } from "../../helpers/factories.js";
 import {

@@ -7,8 +7,8 @@
 // "123.00"). Dos pedidos que el floor colapsa en el mismo `size` tienen
 // huellas DISTINTAS: eso es lo que convierte el REPLAY espurio en 409.
 
-import { CreateOrderRequestSchema } from "../../../src/contracts/index.js";
-import { requestFingerprintOf } from "../../../src/http/shared/edge.js";
+import { CreateOrderRequestSchema } from "../../src/contracts/index.js";
+import { requestFingerprintOf } from "../../src/contracts/index.js";
 
 /** Body de un request tal como llega al borde (wire, ya validado por Zod). */
 const requestOf = (body: unknown) => CreateOrderRequestSchema.parse(body);

@@ -56,7 +56,7 @@ import {
 } from "./persist-order-decision.js";
 // F2-IDEM: la huella canónica del request vive en el borde (pura, sin
 // Express); application la aplica antes de derivar el `size`.
-import { requestFingerprintOf } from "../../http/shared/edge.js";
+import { requestFingerprintOf } from "../../contracts/request-fingerprint.js";
 
 /**
  * Código de error del envío: los códigos estables del contrato

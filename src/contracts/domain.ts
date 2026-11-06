@@ -239,7 +239,7 @@ interface OrderDraftCommon {
   readonly datetime: Date;
   /**
    * Huella canónica del REQUEST original (F2-IDEM, Q1=A): la calcula el borde
-   * (`requestFingerprintOf` en src/http/shared/edge.ts) sobre el body ya
+   * (`requestFingerprintOf` en src/contracts/request-fingerprint.ts) sobre el body ya
    * validado, ANTES de derivar `size`, y `createOrder` la persiste para
    * comparar dos envíos con la misma Idempotency-Key. Ausente/null en filas
    * legacy y en los envíos que no pasan por el borde con monto original
