@@ -121,11 +121,11 @@ Evita órdenes `FILLED` sin precio y mantiene coherente la proyección de posici
 
 ---
 
-## 5. Qué NO se cambió
+## 5. Lo que se conserva sin cambios
 
-- **`users`** — sin cambios. No aporta nada al dominio exigido.
+- **`users`** — sin cambios: no aporta nada al dominio exigido.
 - **`instruments`** — sin cambios de columnas.
-- **Ningún nombre de tabla o columna existente** se modificó; solo se agregaron columnas y constraints, y se ensancharon tipos numéricos.
+- **Todo nombre de tabla o columna existente** se conserva; sólo se agregaron columnas y constraints, y se ensancharon tipos numéricos.
 
 ---
 
