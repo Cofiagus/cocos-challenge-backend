@@ -13,6 +13,7 @@ import {
   MarketDataServiceUnavailableError,
 } from "../../../src/contracts/index.js";
 import { YahooInstrumentQuoteSource } from "../../../src/infra/yahoo/yahoo-instrument-quote-source.js";
+import { YAHOO_USER_AGENT } from "../../../src/infra/yahoo/yahoo-instrument-quote-source.js";
 
 const YAHOO_CHART_URL =
   "https://query1.finance.yahoo.com/v8/finance/chart/PAMP.BA?range=1d&interval=1m";
@@ -68,7 +69,10 @@ describe("YahooInstrumentQuoteSource", () => {
     expect(FinancialDecimal.precision).toBe(64);
     expect(fetchImpl).toHaveBeenCalledWith(
       YAHOO_CHART_URL,
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        headers: expect.objectContaining({ "User-Agent": YAHOO_USER_AGENT }),
+      }),
     );
   });
 
@@ -110,12 +114,29 @@ describe("YahooInstrumentQuoteSource", () => {
     await expect(sourceWith(fetchImpl).getCurrentQuote("PAMP")).resolves.toBeNull();
   });
 
-  it("lanza MarketDataServiceUnavailableError ante HTTP 429", async () => {
-    const fetchImpl = fakeFetchReturning(new Response(null, { status: 429 }));
+  it("lanza MarketDataServiceUnavailableError ante HTTP 429 y registra el motivo del rate limit", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const fetchImpl = fakeFetchReturning(
+        new Response(null, {
+          status: 429,
+          statusText: "Too Many Requests",
+          headers: { "Retry-After": "60" },
+        }),
+      );
 
-    await expect(sourceWith(fetchImpl).getCurrentQuote("PAMP")).rejects.toBeInstanceOf(
-      MarketDataServiceUnavailableError,
-    );
+      await expect(
+        sourceWith(fetchImpl).getCurrentQuote("PAMP"),
+      ).rejects.toBeInstanceOf(MarketDataServiceUnavailableError);
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = String(warn.mock.calls[0]?.[0]);
+      expect(logged).toContain("429");
+      expect(logged).toContain("PAMP.BA");
+      expect(logged).toContain("Retry-After: 60");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("lanza MarketDataServiceUnavailableError ante HTTP 500", async () => {
@@ -189,5 +210,30 @@ describe("YahooInstrumentQuoteSource", () => {
 
     expect(observedSignal?.aborted).toBe(true);
     expect(elapsedMs).toBeLessThan(1_000);
+  });
+
+  it("cancela la request en vuelo cuando el presupuesto del request aborta el signal externo", async () => {
+    let observedSignal: AbortSignal | undefined;
+    const hangingFetch = (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ): Promise<Response> =>
+      new Promise<Response>((_resolve, reject) => {
+        observedSignal = init?.signal ?? undefined;
+        init?.signal?.addEventListener("abort", () => {
+          reject(new Error("Aborted"));
+        });
+      });
+
+    const controller = new AbortController();
+    // Timeout propio largo: la única cancelación posible es la del request.
+    const source = sourceWith(hangingFetch as unknown as typeof fetch, 10_000);
+    const pending = source.getCurrentQuote("PAMP", controller.signal);
+    controller.abort();
+
+    await expect(pending).rejects.toBeInstanceOf(
+      MarketDataServiceUnavailableError,
+    );
+    expect(observedSignal?.aborted).toBe(true);
   });
 });
