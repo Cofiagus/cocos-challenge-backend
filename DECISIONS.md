@@ -135,7 +135,7 @@ instrumentos es la única reapertura autorizada de Yahoo Finance.
 
 **Contexto.** El cash no es una posición operable, pero tiene que entrar y salir de la cuenta. El
 seed ya modela el efectivo como una orden del instrumento `MONEDA` `ARS` con `price = 1`, y la
-proyección de cash sabe procesar cualquier orden `FILLED`. La spec de grandes montos (D4) exigió que
+proyección de cash sabe procesar cualquier orden `FILLED`. La spec firmada de grandes montos exigió que
 el monto se mueva exacto, con centavos.
 
 **Decisión.**
@@ -196,7 +196,7 @@ También había que decidir si `MONEDA` es operable y cómo se auditan las razon
 
 **Decisión.**
 
-- Cinco rutas con convención REST de recursos: `GET /api/users/:userId/portfolio`,
+- Cinco rutas de negocio con convención REST de recursos: `GET /api/users/:userId/portfolio`,
   `GET /api/instruments?query=`, `POST /api/users/:userId/orders`, `DELETE /api/orders/:orderId`,
   `POST /api/users/:userId/transfers`.
 - `201` **también** para `REJECTED`/`CANCELLED` persistidas: el endpoint recibió, evaluó y grabó la

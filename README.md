@@ -31,11 +31,12 @@ npm run dev
 ```
 
 1. `.env.example` sólo muestra el formato: reemplazá el placeholder de `DATABASE_URL` por tu base.
+   El ejemplo trae `?sslmode=require`; si tu PostgreSQL no usa SSL, quitá ese parámetro.
 2. Instala dependencias y genera el cliente Prisma.
 3. Carga `.env` en el shell y aplica las migraciones versionadas (`prisma/migrations/`) más los datos
-   del challenge (`db/seed.sql`). `psql` no acepta el `?schema=public` que Prisma sí entiende, por eso
-   el comando recorta el query string. El seed **modifica datos**: no lo corras sobre una base que
-   quieras conservar.
+   del challenge (`db/seed.sql`). `psql` no acepta todos los parámetros de URL que Prisma sí (por
+   ejemplo `?schema=public`), por eso el comando recorta el query string. El seed **modifica datos**:
+   no lo corras sobre una base que quieras conservar.
 4. Levanta la API en `http://localhost:3000`.
 
 Verificación contra la base recién seedeada:
