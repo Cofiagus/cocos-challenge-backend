@@ -1,9 +1,9 @@
-# Base de datos — esquema y guía de trabajo
+# Base de datos — esquema y operación
 
 PostgreSQL compatible con el esquema migrado · esquema `public` · dataset de referencia del challenge
 
-Este documento describe **qué hay en la base** y **cómo iterar contra ella sin perder tiempo**.
-Si algo cambia en la base, se regenera el snapshot con `make db-snapshot` (ver §6).
+Este documento describe **qué hay en la base** y **cómo operar contra ella**. El snapshot se
+regenera con `make db-snapshot` (ver §6).
 
 > ⚠️ **Snapshot legacy vs head versionado.** Este documento describe el **snapshot generado**
 > (`db/schema.sql` + `db/seed.sql`), que es la fuente de los DATOS del challenge. El **esquema con
@@ -38,13 +38,13 @@ Si algo cambia en la base, se regenera el snapshot con `make db-snapshot` (ver �
 > cambio de schema obliga a actualizar este documento en el mismo commit. `tests/docs/docs-consistency.test.ts`
 > (D6) hace cumplir esta convención derivando los tipos del head desde `prisma/schema.prisma`.
 
-### `db/schema.sql` es un snapshot generado — no cargar la base desde ahí
+### `db/schema.sql` es un snapshot generado, no un DDL aplicable
 
 `db/schema.sql` es un volcado **viejo y generado** del esquema original del challenge: le faltan la
 tabla `order_events`, las columnas `timeInForce`/`filledPrice`/`filledAt`/`idempotencyKey` y los
 tipos del head. La única forma de crear o actualizar el esquema es `npx prisma migrate deploy` (más
-`db/seed.sql` para los datos). **Nunca** cargues una base con `psql -f db/schema.sql` ni con
-`make db-load LEGACY=1`: produce un esquema que la aplicación no puede usar. El snapshot se conserva
+`db/seed.sql` para los datos). Cargar una base con `psql -f db/schema.sql` o con
+`make db-load LEGACY=1` produce un esquema que la aplicación no puede usar. El snapshot se conserva
 sólo como referencia de los datos de origen.
 
 ---
@@ -166,7 +166,7 @@ order_events(id, orderid → orders(id), eventType, reason NULL, metadata jsonb 
 -- índice: order_events(orderid)
 ```
 
-> **`price` vs `filledPrice` — la decisión del build.** `price` = **límite enviado** (`null` en un
+> **`price` vs `filledPrice` — la decisión de diseño.** `price` = **límite enviado** (`null` en un
 > `MARKET` de la app, que no lleva límite); `filledPrice` = **precio de ejecución**. Así el límite
 > original **no se pierde** al llenar la orden.
 >
@@ -258,7 +258,7 @@ convierte plata a float).
 `db/schema.sql` + `db/seed.sql` en un PostgreSQL limpio y contrastando el resultado con los
 valores de referencia de esta sección.
 
-**Sólo `status = 'FILLED'` mueve plata.** `NEW` **reserva** (decisión del build): BUY `NEW`
+**Sólo `status = 'FILLED'` mueve plata.** `NEW` **reserva** (decisión de diseño): BUY `NEW`
 reserva `limit × size` de cash y SELL `NEW` reserva `size` acciones — **sin tabla de reservas**,
 se derivan de las `NEW` al vuelo:
 
@@ -279,19 +279,23 @@ Query reutilizable con precio de mercado y P&L: `db/queries/portfolio.sql`.
 
 ---
 
-## 4. Inconsistencias del seed (no son bugs tuyos)
+## 4. Inconsistencias del seed
+
+El dataset de ejemplo trae cuatro desvíos respecto de las reglas de la API. Son del dataset, no
+del sistema:
 
 1. **BMA queda en −10.** Se vendieron 30 (orden 11, `FILLED`) con sólo 20 compradas `FILLED`
    (orden 9); la compra de 60 quedó en `NEW` (orden 7). La API rechaza vender más de lo que se
    tiene, así que esa venta no se generaría desde cero: es una inconsistencia del dataset.
    Conclusión: **el seed no es un oráculo de negocio**, sólo un dataset de ejemplo.
 2. **El seed rechaza la venta de PAMP** (orden 6: vender 100 con 50 en cartera → `REJECTED`),
-   lo cual sí es coherente. Es decir: la regla se aplica, pero el seed tiene una excepción.
+   lo cual sí es coherente: la regla se aplica y el seed conserva la excepción histórica.
 3. **Órdenes fechadas 12-jul pero market data arranca 13-jul.** El precio de ejecución viene
-   en la orden, no de `marketdata`. No intentes resolver `MARKET` contra `marketdata.close`.
+   en la orden, no de `marketdata`: un `MARKET` no se resuelve contra `marketdata.close`.
 4. **`HIGH`/`LOW` de BMA el 13-jul (1541 / 1415) no contienen el precio de la orden 11 (1530)** —
    sí lo contiene en rango, ok; pero METR se ejecutó a 250 el 13-jul cuando el rango fue
-   222,50–232,00. Los precios de las órdenes **no respetan la vela del día**. No valides contra marketdata.
+   222,50–232,00. Los precios de las órdenes **no respetan la vela del día**, y la API no valida
+   contra marketdata.
 
 ---
 
@@ -316,9 +320,9 @@ y por eso las suites y la iteración se corren contra PostgreSQL local (§6).
 **`orders(userid, datetime)` no está en el head y no corresponde:** ningún endpoint ordena
 órdenes por `datetime`; el portfolio filtra por `userid` y `status` y agrega en memoria, y ese
 filtro lo cubre `orders_userid_status_idx`. El índice `orders_userid_datetime_idx` sólo existe
-como propuesta en `db/indexes.sql`, que **no se aplica** ni forma parte del head.
+en `db/indexes.sql`, que no forma parte del head ni se aplica.
 
-Deudas de esquema que quedan explícitas: `orders.status` sigue nullable y sin `DEFAULT 'NEW'`, y
+El esquema conserva dos límites deliberados: `orders.status` es nullable y sin `DEFAULT 'NEW'`, y
 `instruments.ticker` y `users.email` no tienen `UNIQUE` — el catálogo y los usuarios se leen por
 `id`, y el alta de usuarios no es parte de esta API. Los CHECKs vigentes son los 10 de §10, no
 los de `db/indexes.sql`.
@@ -327,18 +331,24 @@ los de `db/indexes.sql`.
 
 ## 6. Configuración y flujo de datos
 
-La aplicación acepta cualquier PostgreSQL compatible mediante `DATABASE_URL`. Configurá la variable en `.env` para desarrollo o en el gestor de secretos del entorno; no guardes credenciales reales en Git. La configuración de `.env.example` es sólo un formato de referencia.
+La aplicación acepta cualquier PostgreSQL compatible mediante `DATABASE_URL`, declarada en `.env`
+para desarrollo o en el gestor de secretos del entorno; las credenciales reales no viajan en Git.
+La configuración de `.env.example` es un formato de referencia.
 
-Para una base vacía preparada para esta versión, aplicar migraciones y cargar el dataset del challenge:
+Una base vacía preparada para esta versión se crea con migraciones y el dataset del challenge:
 
 ```bash
 npx prisma migrate deploy
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/seed.sql
 ```
 
-`db/seed.sql` modifica datos y debe ejecutarse sólo cuando se desea cargar el dataset del challenge. No se debe ejecutar sobre datos que se quieran conservar.
+`db/seed.sql` modifica datos: se ejecuta al cargar el dataset del challenge y no sobre datos que se
+conservan.
 
-Las pruebas de integración usan `TEST_DATABASE_URL`, independiente de `DATABASE_URL`. PostgreSQL local es una opción para estas pruebas; cada suite funcional resetea su base de test antes de correr. No uses una base de aplicación/productiva para el reset de tests. El procedimiento vigente es:
+Las pruebas de integración usan `TEST_DATABASE_URL`, independiente de `DATABASE_URL`. PostgreSQL
+local es una opción para estas pruebas; cada suite funcional resetea su base de test antes de
+correr. El reset de tests nunca corre contra una base de aplicación o productiva. El procedimiento
+vigente es:
 
 ```bash
 npm run test:db:reset
@@ -350,7 +360,7 @@ Reglas:
 - `db/schema.sql` y `db/seed.sql` **son generados**, no se editan a mano.
 - El snapshot describe los datos de referencia; el DDL del head versionado son `prisma/migrations/**`.
 - La conexión de la app y la de tests son responsabilidades distintas: `DATABASE_URL` para runtime, `TEST_DATABASE_URL` para suites con escritura.
-- Los comandos de migración y seed afectan la DB indicada por `DATABASE_URL`; verificar el destino antes de ejecutarlos.
+- Los comandos de migración y seed afectan la DB indicada por `DATABASE_URL`; el destino se verifica antes de ejecutarlos.
 
 ---
 
@@ -404,8 +414,8 @@ ORDER BY ticker LIMIT 20;
 
 ## 9. Grandes montos: tipos y CHECKs de la migración versionada
 
-Objetivo aprobado (spec `specs/datos-financieros-grandes-montos.md` §2, D1/D2/D5) — migración
-nueva versionada, create-only y **parte del head versionado**; el estado de aplicación sobre una base
+Alcance de la spec `specs/datos-financieros-grandes-montos.md` §2 (D1/D2/D5): migración nueva
+versionada, create-only y **parte del head versionado**. El estado de aplicación sobre una base
 concreta se verifica con `npx prisma migrate status` (§10):
 
 | Campos | Snapshot legacy (`db/schema.sql`) | Head versionado (`prisma/schema.prisma` + migraciones) |
@@ -418,7 +428,7 @@ concreta se verifica con `npx prisma migrate status` (§10):
 CHECKs acotados a los campos financieros modificados (excepción acotada D5 a "no editar
 migraciones"; sólo la migración nueva, nunca la inicial ni los snapshots SQL):
 
-- Todo precio no nulo debe ser finito; precio de orden positivo.
+- Todo precio no nulo es finito y el precio de orden es positivo.
 - `size` no nulo: finito y no negativo. En BUY/SELL, entero y ≤ 2147483647.
 - `size 0`: la garantía SQL es de **una sola tabla** — el CHECK
   `orders_size_zero_only_rejected_check` exige que `status` sea `REJECTED`
@@ -430,8 +440,8 @@ migraciones"; sólo la migración nueva, nunca la inicial ni los snapshots SQL):
   también puede guardar `0` según el caso — `ZERO_SIZE` por sizing, y `NO_PRICE` cuando
   el sizing derivado de `amountArs` no llegó a resolverse por falta de precio. La DB
   garantiza el estado (`REJECTED`), no la razón; los históricos no se normalizan.
-- Un NULL financiero ya permitido **no** se reemplaza por cero; la nullabilidad legacy no se
-  endurece en este trabajo.
+- Un NULL financiero ya permitido **no** se reemplaza por cero; la nullabilidad legacy se conserva
+  tal cual.
 - No se agregan constraints de email/ticker, índices nuevos, triggers de estados ni cambios al
   mecanismo de idempotencia.
 
@@ -440,9 +450,9 @@ migraciones"; sólo la migración nueva, nunca la inicial ni los snapshots SQL):
 > coherencia de escritura en `orders` y un trigger que **normaliza** `filledPrice` desde `price`
 > (no es un trigger de estados ni toca la unicidad de idempotencia).
 
-**Límite honesto:** `NUMERIC(24,2)` puede redondear una entrada SQL con escala mayor a 2
+**Alcance de la garantía:** `NUMERIC(24,2)` redondea una entrada SQL con escala mayor a 2
 **antes** de que un CHECK la evalúe; el borde Zod la rechaza antes de persistir. Los CHECKs
-garantizan el valor almacenado, no reconstruyen la precisión de escrituras SQL externas.
+garantizan el valor almacenado y no reconstruyen la precisión de escrituras SQL externas.
 
 El seed del challenge **carga sin editarse** sobre el esquema final y conserva sus valores por
 valor (cash disponible 627500.00, reservado 125500.00, patrimonio 889756.00; PAMP 40, METR 500,
@@ -508,8 +518,8 @@ FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
 WHERE t.tgrelid = 'orders'::regclass AND NOT t.tgisinternal;
 ```
 
-Comandos equivalentes: `npx prisma migrate status` (debe decir *Database schema is up to date!*) y
-`npx prisma migrate deploy` repetido (debe ser un no-op).
+Comandos equivalentes: `npx prisma migrate status` responde *Database schema is up to date!* y
+`npx prisma migrate deploy` repetido es un no-op.
 
 **Estado esperado tras `npx prisma migrate deploy`:** 4/4 migraciones `finished`, 0 `rolled_back`;
 10 CHECKs con `convalidated = true`; trigger `enabled = 'O'`; `requestFingerprint` `text` nullable e

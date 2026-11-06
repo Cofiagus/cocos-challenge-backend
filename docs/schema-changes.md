@@ -3,8 +3,8 @@
 > **Qué es este documento.** El challenge entregó un esquema funcional de cuatro tablas
 > (`users`, `instruments`, `orders`, `marketdata`) y autorizó explícitamente a
 > *"modificar, agregar o ajustar tablas según lo considere necesario"*, con la condición de
-> **justificar adecuadamente cualquier cambio en la documentación**. Este documento es esa
-> justificación: cada cambio, su motivo y la decisión de la que se deriva.
+> **justificar adecuadamente cualquier cambio en la documentación**. Este documento registra cada
+> cambio, su motivo y la decisión de la que se deriva.
 
 ## Resumen
 
@@ -121,24 +121,24 @@ Evita órdenes `FILLED` sin precio y mantiene coherente la proyección de posici
 
 ---
 
-## 5. Qué NO se cambió
+## 5. Lo que se conserva sin cambios
 
-- **`users`** — sin cambios. No aporta nada al dominio exigido.
+- **`users`** — sin cambios: no aporta nada al dominio exigido.
 - **`instruments`** — sin cambios de columnas.
-- **Ningún nombre de tabla o columna existente** se modificó; solo se agregaron columnas y constraints, y se ensancharon tipos numéricos.
+- **Todo nombre de tabla o columna existente** se conserva; sólo se agregaron columnas y constraints, y se ensancharon tipos numéricos.
 
 ---
 
-## 6. Cómo aplicarlo y verificarlo
+## 6. Aplicación y verificación
 
 ```bash
-# 1. Apuntar DATABASE_URL a la base (local o remota)
-cp .env.example .env       # y reemplazar el placeholder
+# base de destino (local o remota) en DATABASE_URL
+cp .env.example .env       # completar el placeholder
 
-# 2. Aplicar el esquema migrado
+# esquema migrado
 set -a && . ./.env && set +a && npx prisma migrate deploy
 
-# 3. Cargar el dataset del challenge
+# dataset del challenge
 psql "${DATABASE_URL%%\?*}" -v ON_ERROR_STOP=1 -q -f db/seed.sql
 ```
 
