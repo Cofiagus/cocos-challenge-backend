@@ -40,6 +40,13 @@ export const API_ERROR_CODES = {
    * borde HTTP desde `MarketDataServiceUnavailableError`.
    */
   MARKET_DATA_SERVICE_UNAVAILABLE: "MARKET_DATA_SERVICE_UNAVAILABLE",
+  /**
+   * 503 — la base de datos está saturada o no atendió a tiempo: contención del
+   * pool (P2024), `statement_timeout` (SQLSTATE 57014), transacción abortada
+   * por Prisma (P2028) o timeout de conexión (ETIMEDOUT). Reintentable: el
+   * manejador central responde 503 con `Retry-After`, nunca 500.
+   */
+  DATABASE_UNAVAILABLE: "DATABASE_UNAVAILABLE",
   /** 404 — ruta o método inexistente (sin handler). */
   NOT_FOUND: "NOT_FOUND",
   /** 400 — body JSON malformado (no parsea). */
