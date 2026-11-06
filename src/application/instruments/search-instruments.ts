@@ -21,16 +21,21 @@
 //
 // Coste acotado (Q3=A: SIN cache — el precio es SIEMPRE fresco y no hay
 // estado en memoria entre requests):
-//  - Presupuesto de tiempo ÚNICO para todo el request (QuoteBudget.deadlineMs,
-//    default DEFAULT_QUOTE_DEADLINE_MS): al vencer se rechaza con
-//    MarketDataServiceUnavailableError (fallo de la fuente ⇒ 503), nunca con
-//    una lista parcial como éxito. Antes no había deadline de request y el
-//    peor caso era 100 candidatos × 5 s de timeout = ~500 s colgando al
-//    cliente.
+//  - Presupuesto de tiempo ÚNICO para todo el request (QuoteBudget.deadlineMs):
+//    al vencer se ABORTA el trabajo en vuelo (AbortSignal cooperativo hacia la
+//    fuente) y se rechaza con MarketDataServiceUnavailableError (fallo de la
+//    fuente ⇒ 503), nunca con una lista parcial como éxito. Sin signal, las
+//    llamadas en vuelo quedaban huérfanas hasta su timeout de 5 s.
+//  - El deadline ESCALA con el cupo (quoteDeadlineMsFor): un deadline fijo de
+//    8 s con limit=100 y concurrencia 4 daba 25 rondas y ~320 ms por llamada de
+//    margen, suficiente para 503 espurios. El override inyectado manda.
 //  - Paralelismo ACOTADO por página (QuoteBudget.concurrency, default
-//    DEFAULT_QUOTE_CONCURRENCY): cada página pide exactamente el cupo
-//    restante, así que el fan-out al proveedor nunca supera el límite de la
-//    página ni el `limit` del contrato (máx. 100).
+//    DEFAULT_QUOTE_CONCURRENCY): cada página pide a lo sumo el cupo restante,
+//    así que el fan-out al proveedor nunca supera el límite de la página ni el
+//    `limit` del contrato (máx. 100).
+//  - TOPE de candidatos explorados (QuoteBudget.maxCandidates): rellenar el
+//    cupo no recorre el catálogo completo cuando muchos tickers no cotizan;
+//    se devuelven menos resultados (el contrato lo permite).
 //  - El resultado se arma por POSICIÓN del catálogo, no por orden de llegada:
 //    el orden ticker asc que garantiza el repositorio se preserva.
 //  - Sin estado compartido entre requests: el presupuesto vive en la
@@ -61,15 +66,28 @@ export interface QuoteBudget {
   readonly deadlineMs: number;
   /** Máximo de cotizaciones en vuelo simultáneamente. */
   readonly concurrency: number;
+  /** Tope de candidatos explorados para rellenar el cupo. */
+  readonly maxCandidates: number;
 }
 
 /**
- * Deadline total del request. Debe superar el timeout de UNA llamada del
- * proveedor (5 s en YahooInstrumentQuoteSource) para no convertir una llamada
- * lenta pero exitosa en 503, y queda muy por debajo del peor caso anterior
- * (100 candidatos × 5 s ≈ 500 s).
+ * Deadline base del request. Cubre el cupo por defecto (10 con concurrencia 4
+ * = 3 rondas) y debe superar el timeout de UNA llamada del proveedor (5 s en
+ * YahooInstrumentQuoteSource) para no convertir una llamada lenta pero
+ * exitosa en 503.
  */
 export const DEFAULT_QUOTE_DEADLINE_MS = 8_000;
+
+/**
+ * Margen de reloj por RONDA de cotizaciones (una ronda = `concurrency`
+ * llamadas en paralelo). El deadline escala con el cupo: con limit=100 y
+ * concurrencia 4 hay 25 rondas, y un deadline fijo de 8 s dejaba ~320 ms por
+ * llamada antes de un 503 espurio.
+ */
+export const QUOTE_CALL_ALLOWANCE_MS = 800;
+
+/** Techo absoluto del deadline: un request nunca queda colgado más que esto. */
+export const MAX_QUOTE_DEADLINE_MS = 30_000;
 
 /**
  * Cotizaciones en vuelo por request. Acota el fan-out hacia un proveedor que
@@ -78,25 +96,77 @@ export const DEFAULT_QUOTE_DEADLINE_MS = 8_000;
  */
 export const DEFAULT_QUOTE_CONCURRENCY = 4;
 
+/**
+ * Tope de candidatos explorados por request, como múltiplo del cupo pedido:
+ * evita recorrer el catálogo completo cuando muchos tickers no cotizan. El
+ * contrato permite devolver menos resultados que el límite, así que el tope
+ * nunca es un error.
+ */
+export const CANDIDATE_SCAN_FACTOR = 4;
+
+/** Piso del tope: con límites chicos igual se exploran varios candidatos. */
+export const MIN_CANDIDATE_SCAN = 20;
+
+/**
+ * Deadline efectivo del request: base de dominio, escalado por rondas del
+ * cupo y acotado por MAX_QUOTE_DEADLINE_MS. Un override inyectado lo
+ * reemplaza por completo.
+ */
+export const quoteDeadlineMsFor = (
+  limit: number,
+  concurrency: number = DEFAULT_QUOTE_CONCURRENCY,
+): number => {
+  const inFlight = Math.max(1, Math.trunc(concurrency));
+  const rounds = Math.ceil(Math.max(0, limit) / inFlight);
+  return Math.min(
+    MAX_QUOTE_DEADLINE_MS,
+    Math.max(DEFAULT_QUOTE_DEADLINE_MS, rounds * QUOTE_CALL_ALLOWANCE_MS),
+  );
+};
+
 /** Presupuesto efectivo: defaults del dominio, con override de los tests. */
-const resolveBudget = (override?: Partial<QuoteBudget>): QuoteBudget => {
-  const concurrency = Math.trunc(
-    override?.concurrency ?? DEFAULT_QUOTE_CONCURRENCY,
+const resolveBudget = (
+  override: Partial<QuoteBudget> | undefined,
+  limit: number,
+): QuoteBudget => {
+  const concurrency = Math.max(
+    1,
+    Math.trunc(override?.concurrency ?? DEFAULT_QUOTE_CONCURRENCY),
   );
   return {
-    deadlineMs: override?.deadlineMs ?? DEFAULT_QUOTE_DEADLINE_MS,
+    deadlineMs: override?.deadlineMs ?? quoteDeadlineMsFor(limit, concurrency),
     // Piso 1: una concurrencia 0 o negativa dejaría el request sin cotizar.
-    concurrency: Math.max(1, concurrency),
+    concurrency,
+    maxCandidates: Math.max(
+      1,
+      Math.trunc(
+        override?.maxCandidates ??
+          Math.max(limit * CANDIDATE_SCAN_FACTOR, MIN_CANDIDATE_SCAN),
+      ),
+    ),
   };
 };
+
+/**
+ * El port de cotizaciones con cancelación cooperativa opcional: la aplicación
+ * propaga el AbortSignal del deadline y las fuentes que lo aceptan (Yahoo)
+ * abortan la request en vuelo en vez de dejarla huérfana. Un
+ * `InstrumentQuoteSource` de una sola firma sigue siendo asignable.
+ */
+export interface CancellableQuoteSource extends InstrumentQuoteSource {
+  readonly getCurrentQuote: (
+    ticker: string,
+    signal?: AbortSignal,
+  ) => Promise<InstrumentQuote | null>;
+}
 
 /** Puertos que el caso de uso consume (interfaces, nunca implementaciones). */
 export interface SearchInstrumentsDeps {
   /** Catálogo: filtro, exclusión de MONEDA y orden ticker asc (searchByQuery). */
   readonly instruments: InstrumentRepository;
   /** Cotización ACTUAL por ticker (null = sin cotización computable). */
-  readonly quotes: InstrumentQuoteSource;
-  /** Override del presupuesto (deadline/concurrencia); tests. Default: dominio. */
+  readonly quotes: CancellableQuoteSource;
+  /** Override del presupuesto (deadline/concurrencia/candidatos); tests. */
   readonly quoteBudget?: Partial<QuoteBudget>;
 }
 
@@ -190,49 +260,58 @@ const mapWithConcurrency = async <T, R>(
 };
 
 /**
- * Corre `work` con un deadline único de request: si vence, rechaza con
- * MarketDataServiceUnavailableError (fallo de la fuente ⇒ el borde lo
- * traduce a 503), nunca con una lista parcial como éxito. El timer se libera
- * siempre para no dejar handles abiertos.
+ * Corre `work` con un deadline único de request: si vence, aborta el signal
+ * (la fuente cancela lo que tenga en vuelo) y rechaza con
+ * MarketDataServiceUnavailableError (el borde lo traduce a 503), nunca con una
+ * lista parcial como éxito. El timer se libera siempre y el rechazo tardío del
+ * trabajo abandonado se consume: sin unhandled rejections ni handles abiertos.
  */
 const withDeadline = async <T>(
   work: Promise<T>,
   deadlineMs: number,
+  abortInFlight: () => void,
 ): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new MarketDataServiceUnavailableError()),
-      deadlineMs,
-    );
+    timer = setTimeout(() => {
+      abortInFlight();
+      reject(new MarketDataServiceUnavailableError());
+    }, deadlineMs);
   });
   try {
     return await Promise.race([work, expired]);
   } finally {
     clearTimeout(timer);
+    void work.catch(() => undefined);
   }
 };
+
+/** Contexto de una página de cotizaciones (deadline, tope y cancelación). */
+interface QuotePageContext {
+  readonly quotes: CancellableQuoteSource;
+  readonly deadlineAt: number;
+  readonly concurrency: number;
+  readonly signal: AbortSignal;
+}
 
 /**
  * Cotiza UNA página del catálogo con paralelismo acotado. Las cotizaciones
  * `null` se omiten (política de faltantes) y cualquier error se propaga. Un
- * trabajador que arranca después del deadline falla con el error de la fuente
- * en vez de seguir pegándole al proveedor.
+ * trabajador que arranca después del deadline —o con el request ya abortado—
+ * falla con el error de la fuente en vez de seguir pegándole al proveedor.
  */
 const quotePage = async (
   candidates: readonly InstrumentRecord[],
-  quotes: InstrumentQuoteSource,
-  deadlineAt: number,
-  concurrency: number,
+  context: QuotePageContext,
 ): Promise<readonly InstrumentSearchView[]> => {
   const pageQuotes = await mapWithConcurrency(
     candidates,
-    concurrency,
+    context.concurrency,
     async (candidate) => {
-      if (Date.now() >= deadlineAt) {
+      if (context.signal.aborted || Date.now() >= context.deadlineAt) {
         throw new MarketDataServiceUnavailableError();
       }
-      return quotes.getCurrentQuote(candidate.ticker);
+      return context.quotes.getCurrentQuote(candidate.ticker, context.signal);
     },
   );
 
@@ -247,35 +326,46 @@ const quotePage = async (
   return views;
 };
 
+/** Presupuesto ya resuelto + deadline absoluto + signal de cancelación. */
+interface RequestBudget {
+  readonly budget: QuoteBudget;
+  readonly deadlineAt: number;
+  readonly signal: AbortSignal;
+}
+
 /**
- * Itera por offset interno (páginas del tamaño del cupo RESTANTE) hasta
- * llenar el límite o agotar los candidatos del filtro.
+ * Itera por offset interno (páginas del cupo RESTANTE, recortadas por el tope
+ * de candidatos) hasta llenar el límite o agotar candidatos o tope.
  */
 const collectViews = async (
   deps: SearchInstrumentsDeps,
   input: SearchInstrumentsInput,
-  budget: QuoteBudget,
-  deadlineAt: number,
+  request: RequestBudget,
 ): Promise<readonly InstrumentSearchView[]> => {
+  const { budget, deadlineAt, signal } = request;
   const views: InstrumentSearchView[] = [];
   let offset = 0;
+  let scanned = 0;
 
-  while (views.length < input.limit) {
+  while (views.length < input.limit && scanned < budget.maxCandidates) {
+    if (signal.aborted) throw new MarketDataServiceUnavailableError();
     const remaining = input.limit - views.length;
+    const pageSize = Math.min(remaining, budget.maxCandidates - scanned);
     const candidates = await deps.instruments.searchByQuery(
       input.query,
-      remaining,
+      pageSize,
       offset,
     );
-    const pageViews = await quotePage(
-      candidates,
-      deps.quotes,
+    scanned += candidates.length;
+    const pageViews = await quotePage(candidates, {
+      quotes: deps.quotes,
       deadlineAt,
-      budget.concurrency,
-    );
+      concurrency: budget.concurrency,
+      signal,
+    });
     views.push(...pageViews);
 
-    if (candidates.length < remaining) {
+    if (candidates.length < pageSize) {
       // Candidatos agotados: pueden quedar menos resultados que el límite.
       break;
     }
@@ -287,17 +377,24 @@ const collectViews = async (
 
 /**
  * Busca candidatos en el catálogo y los completa con la cotización actual, con
- * un deadline ÚNICO para todo el request y paralelismo acotado. Sin cache ni
- * estado entre invocaciones: cada request paga (y acota) su propio coste.
+ * un deadline ÚNICO para todo el request (escalado por cupo y cancelable) y
+ * paralelismo acotado. Sin cache ni estado entre invocaciones: cada request
+ * paga (y acota) su propio coste.
  */
 export const searchInstruments = async (
   deps: SearchInstrumentsDeps,
   input: SearchInstrumentsInput,
 ): Promise<readonly InstrumentSearchView[]> => {
-  const budget = resolveBudget(deps.quoteBudget);
+  const budget = resolveBudget(deps.quoteBudget, input.limit);
   const deadlineAt = Date.now() + budget.deadlineMs;
+  const controller = new AbortController();
   return withDeadline(
-    collectViews(deps, input, budget, deadlineAt),
+    collectViews(deps, input, {
+      budget,
+      deadlineAt,
+      signal: controller.signal,
+    }),
     budget.deadlineMs,
+    () => controller.abort(),
   );
 };

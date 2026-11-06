@@ -315,6 +315,18 @@ describe("GET /api/instruments — borde HTTP de la búsqueda (UC-2)", () => {
     expect(JSON.stringify(res.body)).not.toContain("Secreto");
   });
 
+  it("acepta el máximo del contrato (limit=100) y lo delega tal cual al caso de uso", async () => {
+    const catalog = buildCatalog([]);
+    const quotes = buildQuoteSource(new Map());
+
+    const res = await request(buildTestApp(buildDeps(catalog, quotes)))
+      .get("/api/instruments?limit=100")
+      .expect(200);
+
+    expect(res.body).toEqual([]);
+    expect(catalog.searchByQueryCalls).toEqual([["", 100, 0]]);
+  });
+
   it("borde: limit fuera de 1..100 y campo desconocido ⇒ 400 VALIDATION_ERROR, sin tocar el catálogo", async () => {
     const catalog = buildCatalog([instrument(1, "PAMP", "Pampa Holding S.A.")]);
     const quotes = buildQuoteSource(new Map());

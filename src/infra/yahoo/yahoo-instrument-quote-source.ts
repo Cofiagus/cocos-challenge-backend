@@ -25,6 +25,14 @@ const YAHOO_CHART_BASE_URL =
   "https://query1.finance.yahoo.com/v8/finance/chart";
 const DEFAULT_TIMEOUT_MS = 5_000;
 const YAHOO_SYMBOL_NOT_FOUND_CODE = "Not Found";
+const RATE_LIMITED_STATUS = 429;
+
+/**
+ * Identificación de la aplicación ante Yahoo: el proveedor rate-limita (429)
+ * a clientes sin User-Agent distinguible. Se manda en cada llamada.
+ */
+export const YAHOO_USER_AGENT =
+  "cocos-challenge-backend/1.0 (+https://github.com/Cofiagus/cocos-challenge-backend)";
 
 const YahooChartMetaSchema = z.object({
   currency: z.string().optional(),
@@ -85,9 +93,16 @@ export class YahooInstrumentQuoteSource implements InstrumentQuoteSource {
 
   readonly getCurrentQuote = async (
     ticker: string,
+    signal?: AbortSignal,
   ): Promise<InstrumentQuote | null> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    // Cancelación cooperativa: si el presupuesto del request vence (o el
+    // llamador aborta), se corta la request en vuelo ya mismo en vez de
+    // dejarla huérfana hasta agotar el timeout propio del adaptador.
+    const forwardAbort = (): void => controller.abort();
+    if (signal?.aborted === true) controller.abort();
+    else signal?.addEventListener("abort", forwardAbort, { once: true });
     try {
       const response = await this.fetchChart(ticker, controller.signal);
       if (response === null) return null;
@@ -97,19 +112,49 @@ export class YahooInstrumentQuoteSource implements InstrumentQuoteSource {
       return this.extractQuote(parsed.data, ticker);
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", forwardAbort);
     }
   };
 
   private readonly buildUrl = (ticker: string): string =>
     `${YAHOO_CHART_BASE_URL}/${encodeURIComponent(`${ticker}.BA`)}?range=1d&interval=1m`;
 
+  /**
+   * Deja registro del motivo del 429 (rate limit del proveedor) antes de
+   * traducirlo a indisponibilidad: sin esto, un 429 medido es indistinguible
+   * de un 5xx en los logs.
+   */
+  private readonly reportRateLimit = (
+    ticker: string,
+    response: Response,
+  ): void => {
+    const reason =
+      response.statusText.trim() === ""
+        ? "Too Many Requests"
+        : response.statusText.trim();
+    const retryAfter = response.headers.get("retry-after") ?? "no informado";
+    console.warn(
+      `[yahoo] 429 ${reason} al cotizar ${ticker}.BA (rate limit del proveedor; Retry-After: ${retryAfter}).`,
+    );
+  };
+
   private readonly fetchChart = async (
     ticker: string,
     signal: AbortSignal,
   ): Promise<Response | null> => {
     try {
-      const response = await this.fetchImpl(this.buildUrl(ticker), { signal });
+      const response = await this.fetchImpl(this.buildUrl(ticker), {
+        signal,
+        headers: {
+          "User-Agent": YAHOO_USER_AGENT,
+          Accept: "application/json",
+        },
+      });
       if (response.status === 404) return null;
+      if (response.status === RATE_LIMITED_STATUS) {
+        this.reportRateLimit(ticker, response);
+        throw new MarketDataServiceUnavailableError();
+      }
       if (!response.ok) throw new MarketDataServiceUnavailableError();
       return response;
     } catch (error) {

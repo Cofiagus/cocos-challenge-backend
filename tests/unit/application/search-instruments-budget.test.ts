@@ -6,10 +6,12 @@
 // 100 y timeout de 5 s por llamada: peor caso ~500 s colgado para el cliente.
 //
 // Cubre: deadline vencido a MITAD de página (⇒ MarketDataServiceUnavailable
-// Error, nunca lista parcial), fuente que falla en el PRIMER ticker, fuente
-// que devuelve null para todos (cupo vacío sin error), orden del catálogo
-// preservado bajo paralelismo, ausencia de estado/cache entre requests y los
-// defaults de dominio.
+// Error, nunca lista parcial), cancelación REAL del trabajo en vuelo vía
+// AbortSignal (sin unhandled rejections), deadline escalado por cupo, tope de
+// candidatos explorados (inyectado y default), fuente que falla en el PRIMER
+// ticker, fuente que devuelve null para todos (cupo vacío sin error), orden
+// del catálogo preservado bajo paralelismo, ausencia de estado/cache entre
+// requests y los defaults de dominio.
 //
 // Dinero: FinancialDecimal (64 cifras) desde STRING (D1/D3).
 
@@ -21,9 +23,16 @@ import type { InstrumentRecord } from "../../../src/contracts/index.js";
 import {
   DEFAULT_QUOTE_CONCURRENCY,
   DEFAULT_QUOTE_DEADLINE_MS,
+  MAX_QUOTE_DEADLINE_MS,
+  MIN_CANDIDATE_SCAN,
+  QUOTE_CALL_ALLOWANCE_MS,
+  quoteDeadlineMsFor,
   searchInstruments,
 } from "../../../src/application/instruments/search-instruments.js";
-import type { SearchInstrumentsDeps } from "../../../src/application/instruments/search-instruments.js";
+import type {
+  CancellableQuoteSource,
+  SearchInstrumentsDeps,
+} from "../../../src/application/instruments/search-instruments.js";
 import type {
   InstrumentQuote,
   InstrumentQuoteSource,
@@ -231,5 +240,121 @@ describe("searchInstruments — presupuesto de cotizaciones del request", () => 
     // rate-limitea; el fan-out por página nunca supera `limit`).
     expect(DEFAULT_QUOTE_CONCURRENCY).toBeGreaterThan(1);
     expect(DEFAULT_QUOTE_CONCURRENCY).toBeLessThanOrEqual(10);
+  });
+
+  it("al vencer el deadline ABORTA el trabajo en vuelo: la fuente observa el signal y no queda unhandled rejection", async () => {
+    const catalog = fourInstrumentsCatalog();
+    const signals: AbortSignal[] = [];
+    const quotes: CancellableQuoteSource = {
+      getCurrentQuote: (ticker, signal) =>
+        new Promise<InstrumentQuote | null>((_resolve, reject) => {
+          if (signal === undefined) {
+            reject(new Error(`Sin signal para ${ticker}.`));
+            return;
+          }
+          signals.push(signal);
+          signal.addEventListener(
+            "abort",
+            () => reject(new MarketDataServiceUnavailableError()),
+            { once: true },
+          );
+        }),
+    };
+
+    // Sin `void work.catch(...)` en el deadline, los rechazos del trabajo
+    // abandonado saldrían como unhandledRejection: se vigila explícitamente.
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await expect(
+        searchInstruments(
+          {
+            instruments: catalog,
+            quotes,
+            quoteBudget: { deadlineMs: 40, concurrency: 4 },
+          },
+          { query: "", limit: 4 },
+        ),
+      ).rejects.toBeInstanceOf(MarketDataServiceUnavailableError);
+      // Margen para que se asienten los rechazos posteriores al abort.
+      await delay(30);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+
+    expect(signals).toHaveLength(4);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(unhandled).toEqual([]);
+  });
+
+  it("el deadline ESCALA con el cupo (más rondas ⇒ más margen) y respeta el techo", () => {
+    // 10 con concurrencia 4 = 3 rondas: manda la base de 8 s.
+    expect(quoteDeadlineMsFor(10)).toBe(DEFAULT_QUOTE_DEADLINE_MS);
+    // 100 con concurrencia 4 = 25 rondas: 25 × margen por ronda, por encima
+    // de la base (antes: 8 s fijos ⇒ ~320 ms por llamada).
+    expect(quoteDeadlineMsFor(100)).toBe(25 * QUOTE_CALL_ALLOWANCE_MS);
+    expect(quoteDeadlineMsFor(100)).toBeGreaterThan(quoteDeadlineMsFor(10));
+    // Default acotado: nunca supera el techo absoluto.
+    expect(quoteDeadlineMsFor(10_000, 1)).toBe(MAX_QUOTE_DEADLINE_MS);
+  });
+
+  it("tope de candidatos INYECTADO: deja de explorar aunque el cupo siga incompleto", async () => {
+    const catalog = buildCatalog(
+      Array.from({ length: 30 }, (_unused, index) =>
+        instrument(index + 1, `TICK${index + 1}`),
+      ),
+    );
+    const quoteCalls: string[] = [];
+    const quotes: InstrumentQuoteSource = {
+      getCurrentQuote: async (ticker) => {
+        quoteCalls.push(ticker);
+        return null;
+      },
+    };
+
+    const views = await searchInstruments(
+      {
+        instruments: catalog,
+        quotes,
+        quoteBudget: { concurrency: 2, maxCandidates: 5 },
+      },
+      { query: "", limit: 2 },
+    );
+
+    expect(views).toEqual([]);
+    // 2 + 2 + 1 candidatos: el tope corta la exploración sin recorrer las 30.
+    expect(catalog.searchByQueryCalls).toEqual([
+      ["", 2, 0],
+      ["", 2, 2],
+      ["", 1, 4],
+    ]);
+    expect(quoteCalls).toHaveLength(5);
+  });
+
+  it("tope de candidatos DEFAULT: un catálogo grande sin cotizaciones no se recorre completo", async () => {
+    const catalog = buildCatalog(
+      Array.from({ length: 200 }, (_unused, index) =>
+        instrument(index + 1, `TICK${index + 1}`),
+      ),
+    );
+    const quoteCalls: string[] = [];
+    const quotes: InstrumentQuoteSource = {
+      getCurrentQuote: async (ticker) => {
+        quoteCalls.push(ticker);
+        return null;
+      },
+    };
+
+    const views = await searchInstruments(
+      { instruments: catalog, quotes },
+      { query: "", limit: 2 },
+    );
+
+    expect(views).toEqual([]);
+    // limit 2 ⇒ tope 2 × factor = 8, con piso MIN_CANDIDATE_SCAN.
+    expect(quoteCalls).toHaveLength(MIN_CANDIDATE_SCAN);
   });
 });
