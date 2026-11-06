@@ -1,6 +1,6 @@
 # PROGRESS.md — ejecución por células
 
-## Activo — G3, G4 y G5 CERRADOS; suite completa (gate final) en curso
+## Activo — ROLLOUT LOCAL COMPLETO: G0–G5 CERRADOS, main integrado y limpio; queda 1 decisión humana
 
 **Corte 2026-11-05 20:45 (-03):** el usuario pidió handoff para seguir las pruebas en otra sesión. No continuar pruebas, migraciones, runtime ni diagrama por notificaciones tardías. Punto de entrada: `docs/references/handoff-local-rollout.md`. Interrupción confirmada de la única célula activa; sus borradores coinciden byte a byte con el snapshot privado y no fueron integrados ni certificados.
 
@@ -285,3 +285,15 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 - **Corrección de la medición del supervisor (importante)**: mi medición anterior («UA de navegador ⇒ 200») **ya no se reproduce**: `curl` con UA de navegador Y con UA default devuelven **429** hoy. El rate-limit de Yahoo es dependiente del cliente **y variable en el tiempo**. Conclusión: el 429 de `curl` **no es señal de salud del proveedor**; el camino real de la app (undici sin headers) sí responde. **No aplica el BLOQUEO** decidido por el humano y **no se toca el adaptador** (sin User-Agent, sin reintentos, sin caché).
 - **Pendiente de decisión humana (no bloqueante)**: DYCA / PGR / IRCP / MTR dan 404 en Yahoo (papeles desafectados o absorbidos — IRCP se fusionó con IRSA). Opción A: dejar el catálogo como está (el contrato ya los omite y el cupo se completa con los 61 restantes). Opción B: depurar/remapear esos tickers en el seed, lo cual es cambio de dataset y exige fase con DDL/seed permitido. **Recomendación: A para este rollout.**
 - **Limitación de UC-1 (registrada, no oculta)**: UC-1 **NO** ejercita Yahoo. `GET /api/users/{userId}/portfolio` toma precios de la tabla `marketdata` (`getLatestSnapshots`), y esos snapshots son del 2023-07-14 (BMA 1502.80, PAMP 925.85, METR 229.50) — son los que producen los `marketValue` del golden. Es decir: el golden de UC-1 valida la **aritmética** del portfolio sobre snapshots persistidos, **no** precios vivos. La única verificación de Yahoo en vivo es UC-2.
+
+- **GATE FINAL DE CIERRE (supervisor, 2026-11-06)** — ejecutado desde `main` con la topología aprobada:
+  `npm run typecheck` exit 0 · `npm run lint` exit 0 · `npm run build` exit 0 ·
+  **`TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/cocos_challenge_test npm test -- --runInBand --detectOpenHandles`
+  ⇒ **42 suites / 581 tests passed**, exit 0, sin `FAIL` y sin open handles.
+  Evidencia privada: `run-logs/instruments-rollout-20261105/main-final-gate-jest.log`. `git status` vacío; sin push.
+- **Dos incidencias del proceso de cierre, registradas con su causa**: (1) usar `…/postgres` como
+  `TEST_DATABASE_URL` — las suites de integración lo toman literalmente como `DATABASE_URL`, así que
+  apuntaban a la DB admin vacía y produced 63/64 fallos espurios; (2) el `.env.test` heredado
+  apunta `TEST_DATABASE_URL` al cluster de la **app** (5433), cuya `cocos_challenge_test` estaba
+  **obsoleta** (sólo `init_trading_api`). Ninguna fue regresión de código: con
+  `TEST_DATABASE_URL` correcto y la base recreada desde migraciones + seed, la suite pasa completa.
