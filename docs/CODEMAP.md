@@ -181,11 +181,11 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # no imprime nada
 | archivo | responsabilidad |
 |---|---|
 | `scripts/openapi/wire.ts` | bodies de entrada de las operaciones, REUTILIZANDO los schemas wire de `src/contracts/money.ts` (sin espejo monetario propio: una sola gramática y máximo) |
-| `scripts/openapi/registry.ts` | las 5 operaciones: método, ruta Express, schemas, status, códigos, ejemplos |
-| `scripts/openapi/build.ts` | arma el documento OpenAPI 3.1 con `z.toJSONSchema` |
+| `scripts/openapi/registry.ts` | las 7 operaciones publicadas (5 de negocio + 2 probes): método, ruta Express SIN prefijo, si se montan bajo `/api` (`mountedUnderApiPrefix`, `false` en los probes), schemas, status, códigos, ejemplos |
+| `scripts/openapi/build.ts` | arma el documento OpenAPI 3.1 con `z.toJSONSchema`; agrega el prefijo `/api` SÓLO a las operaciones montadas bajo la API (los probes se publican en la raíz) |
 | `scripts/generate-openapi.ts` | `npm run openapi` → escribe `openapi.json` |
 | `tests/docs/docs-consistency.test.ts` | D1–D4: paths citados, archivos de `src/`, exports y códigos/rutas de api.md en este mapa |
-| `tests/docs/openapi.test.ts` | sincronización json↔generador, rutas↔routers, códigos del contrato por operación, bodies del contrato y frontera del wire monetario (D7–D11) |
+| `tests/docs/openapi.test.ts` | sincronización json↔generador, rutas↔routers, rutas publicadas↔app compuesta (D4d: ningún path publicado que la app no sirva), códigos del contrato por operación, bodies del contrato y frontera del wire monetario (D7–D11) |
 
 ## 13. Límites de alcance
 

@@ -61,8 +61,15 @@ export interface ResponseHeaderDoc {
 }
 
 export interface OperationDoc {
-  /** Path tal como lo declara Express (con `:param`). */
+  /** Path tal como lo declara Express (con `:param`), SIN el prefijo de montaje. */
   readonly expressPath: string;
+  /**
+   * `false` en las operaciones que la app NO monta bajo `/api`: los probes de
+   * infraestructura viven en la raíz (`createServerApp` los monta fuera de
+   * `buildApp`), así que el generador publica su path tal cual. Publicarlos con
+   * el prefijo documentaría rutas que la app responde con 404. Default: `true`.
+   */
+  readonly mountedUnderApiPrefix?: boolean;
   readonly method: "get" | "post" | "delete";
   readonly summary: string;
   readonly description: string;
@@ -208,6 +215,8 @@ const ReadyResponseSchema = z.object({
 const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
   {
     expressPath: "/health",
+    // Probe de infraestructura: se sirve en la raíz, NO bajo /api.
+    mountedUnderApiPrefix: false,
     method: "get",
     summary: "Liveness",
     description:
@@ -226,6 +235,8 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
   },
   {
     expressPath: "/health/ready",
+    // Probe de infraestructura: se sirve en la raíz, NO bajo /api.
+    mountedUnderApiPrefix: false,
     method: "get",
     summary: "Readiness",
     description:

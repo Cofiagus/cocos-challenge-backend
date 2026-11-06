@@ -3,6 +3,8 @@
 // Qué verifica:
 //  D4a — `openapi.json` commiteado == lo que genera `scripts/openapi/build.ts` (nadie edita el JSON a mano).
 //  D4b — las rutas del registro == los `router.<verbo>("...")` de `src/http/**` (sin rutas fantasma).
+//  D4d — cada operación publicada la SIRVE la app compuesta (detecta prefijos inventados:
+//        p. ej. publicar `/api/health` para un probe montado en la raíz).
 //  D5  — los códigos de error documentados == los que el contrato puede emitir.
 //  D5b — la atribución es por operación: SUS responses documentan SUS errorCodes.
 //  D6  — los campos de los bodies documentados == los del contrato real (drift de shape).
@@ -15,6 +17,9 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import request from "supertest";
+import { createServerApp } from "../../src/http/server.js";
+import type { ServerAppDeps } from "../../src/http/server.js";
 import {
   API_ERROR_CODES,
   ArsInputSchema,
@@ -78,6 +83,80 @@ const objectAt = (parent: unknown, key: string): Record<string, unknown> => {
   return value as Record<string, unknown>;
 };
 
+/** Deps falsas: la app se compone sin base ni red (mismo patrón que tests/unit/http/health.test.ts). */
+const fakeServerDeps = (): ServerAppDeps => ({
+  portfolioRead: {
+    userExists: async () => true,
+    listSettledMovements: async () => [],
+    listRestingOrders: async () => [],
+  },
+  instruments: {
+    findById: async () => null,
+    findByIds: async () => [],
+    findByTicker: async () => null,
+    searchByQuery: async () => [],
+  },
+  marketdata: {
+    getLatestSnapshot: async () => null,
+    getLatestSnapshots: async () => [],
+  },
+  // Los repos de escritura no se ejercitan: sólo importa que la ruta esté montada.
+  orders: {
+    withUserTransaction: async () => {
+      throw new Error("withUserTransaction no usado en la guardia de rutas");
+    },
+    createOrder: async () => {
+      throw new Error("createOrder no usado en la guardia de rutas");
+    },
+    appendOrderEvent: async () => {
+      throw new Error("appendOrderEvent no usado en la guardia de rutas");
+    },
+    findById: async () => null,
+    markFilled: async () => null,
+    markCancelled: async () => null,
+  },
+  quotes: { getCurrentQuote: async () => null },
+  checkDatabase: async () => undefined,
+});
+
+type ServedResponse = { readonly status: number; readonly body: unknown };
+
+/**
+ * Emite una operación publicada contra la app compuesta. Los POST van con body
+ * vacío: un 400 de validación prueba que la RUTA existe (lo que se verifica acá),
+ * no que el payload sea válido.
+ */
+const dispatch = async (
+  app: ReturnType<typeof createServerApp>,
+  method: string,
+  path: string,
+): Promise<ServedResponse> => {
+  const test =
+    method === "get"
+      ? request(app).get(path)
+      : method === "post"
+        ? request(app).post(path).send({})
+        : method === "delete"
+          ? request(app).delete(path)
+          : undefined;
+  if (test === undefined) {
+    throw new Error(`La guardia no sabe emitir ${method.toUpperCase()} ${path}.`);
+  }
+  const response = await test;
+  return { status: response.status, body: response.body };
+};
+
+/** Pares (método, path) publicados en el documento generado. */
+const publishedOperations = (): readonly { readonly method: string; readonly path: string }[] => {
+  const document = JSON.parse(serializeOpenApiDocument()) as Record<string, unknown>;
+  return Object.entries(objectAt(document, "paths")).flatMap(([path, item]) =>
+    Object.keys(item as Record<string, unknown>).map((method) => ({ method, path })),
+  );
+};
+
+/** `/api/orders/{orderId}` → `/api/orders/1` (un valor cualquiera: la ruta es lo que importa). */
+const concretePath = (path: string): string => path.replace(/\{[^}]+\}/g, "1");
+
 describe("contrato OpenAPI", () => {
   it("D4a — openapi.json está sincronizado con el generador", () => {
     const committed = readFileSync(join(ROOT, "openapi.json"), "utf8");
@@ -109,6 +188,36 @@ describe("contrato OpenAPI", () => {
       (operation) => `${operation.method} ${operation.expressPath}`,
     ).sort();
     expect(documented).toEqual(routerRoutes());
+  });
+
+  it("D4d — la app sirve cada operación publicada (ningún prefijo fantasma)", async () => {
+    // Guardia de CLASE, no de esta instancia: D4a compara el JSON contra el
+    // generador y D4b el registro contra los routers, así que un error COMPARTIDO
+    // (prefijar con /api un probe que vive en la raíz) pasaba las dos. Acá la
+    // referencia es la app compuesta: se emite cada operación publicada y se
+    // compara contra la firma del 404 de routing —la de una ruta que no existe—.
+    // Express 5 no conserva el prefijo de montaje en `layer` (queda dentro de un
+    // matcher opaco), así que la ruta real se deriva ejercitando la app.
+    const app = createServerApp(fakeServerDeps());
+    const miss = await dispatch(app, "get", "/ruta-que-no-existe");
+    expect(miss).toEqual({
+      status: 404,
+      body: { error: { code: "NOT_FOUND", message: "Ruta inexistente." } },
+    });
+
+    const published = publishedOperations();
+    // Vaciedad: el documento publica una operación por cada entrada del registro.
+    expect(published).toHaveLength(OPERATIONS.length);
+
+    const unserved: string[] = [];
+    for (const { method, path } of published) {
+      const response = await dispatch(app, method, concretePath(path));
+      const isRoutingMiss =
+        response.status === miss.status &&
+        JSON.stringify(response.body) === JSON.stringify(miss.body);
+      if (isRoutingMiss) unserved.push(`${method.toUpperCase()} ${path}`);
+    }
+    expect(unserved).toEqual([]);
   });
 
 /** Códigos documentados en las responses de UNA operación: viajan en el `example.error.code`. */

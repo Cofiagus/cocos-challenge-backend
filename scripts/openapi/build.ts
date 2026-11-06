@@ -33,9 +33,20 @@ const objectParts = (
   };
 };
 
-/** `/users/:userId/portfolio` → `/api/users/{userId}/portfolio` (OpenAPI no usa `:param`). */
-const openApiPath = (expressPath: string): string =>
-  `/api${expressPath.replace(/:([A-Za-z0-9_]+)/g, "{$1}")}`;
+/** Prefijo bajo el que `buildApp` monta los routers de negocio. */
+const API_PREFIX = "/api";
+
+/**
+ * `/users/:userId/portfolio` → `/api/users/{userId}/portfolio` (OpenAPI no usa `:param`).
+ *
+ * El prefijo se agrega SÓLO si la operación se monta bajo `/api`: los probes de
+ * infraestructura (`mountedUnderApiPrefix: false`) los sirve `createServerApp` en
+ * la raíz, así que publicarlos con el prefijo describiría rutas inexistentes.
+ */
+const openApiPath = (operation: OperationDoc): string => {
+  const path = operation.expressPath.replace(/:([A-Za-z0-9_]+)/g, "{$1}");
+  return operation.mountedUnderApiPrefix === false ? path : `${API_PREFIX}${path}`;
+};
 
 const parametersOf = (operation: OperationDoc): readonly JsonObject[] => {
   const parameters: JsonObject[] = [];
@@ -111,7 +122,7 @@ const operationObject = (operation: OperationDoc): JsonObject => {
   return {
     summary: operation.summary,
     description: operation.description,
-    operationId: `${operation.method}${openApiPath(operation.expressPath)
+    operationId: `${operation.method}${openApiPath(operation)
       .replace(/[/{}]/g, "-")
       .replace(/-+$/, "")}`,
     tags: [operation.expressPath.split("/")[1] ?? "root"],
@@ -132,7 +143,7 @@ const operationObject = (operation: OperationDoc): JsonObject => {
 export const buildOpenApiDocument = (): JsonObject => {
   const paths: JsonObject = {};
   for (const operation of OPERATIONS) {
-    const path = openApiPath(operation.expressPath);
+    const path = openApiPath(operation);
     const pathItem = (paths[path] ?? {}) as JsonObject;
     pathItem[operation.method] = operationObject(operation);
     paths[path] = pathItem;
