@@ -1,6 +1,44 @@
 # PROGRESS.md — ejecución por células
 
-## Activo — ROLLOUT LOCAL CERRADO: G0–G5 verdes, main integrado y limpio, API viva en loopback
+## Activo — LIMPIEZA FINAL Y ENTREGA (plan `specs/limpieza-final-2026-11-06.md` Rev. 1)
+
+HEAD de partida: `32590ff` · gates encadenados: **G1 ⇒ G2 ⇒ G3 ⇒ G4 ⇒ G5**.
+Baseline medido: typecheck 0 · lint 0 · **49 suites / 656 tests** · `test:no-db` **34 / 431**.
+Auditoría: `/home/cofi/auditoria-cocos/INFORME-FINAL.md`
+(A contratos+dominio · B application · C http/infra/DB · D docs+specs).
+
+### Firmas humanas 2026-11-06
+1. **TZ = UTC** fijada en runtime, compose y ejemplos (cierra D-01).
+2. **Aplicar las 2 migraciones pendientes** a la DB **local** de la app, con `pg_dump` previo
+   verificado (cierra la deriva 2 de 4).
+3. **Idempotencia:** el header sigue **opcional** (es extensión del challenge); si se puede
+   gestionar internamente a nivel de API como mejora, se hace — con guarda previa de tests.
+4. **Alcance: todo** (P0 + P1 + P2 + documentación).
+5. **Cierre:** worktrees + **PR separado por etapa**, merge sólo tras mi revisión y su
+   confirmación explícita.
+
+### Fase 1 (en vuelo) — 4 células paralelas, rutas disjuntas
+
+| Célula / rama | Ownership | Gate propio |
+|---|---|---|
+| `f1-edge` / `fase-1-edge` | `src/http/shared/edge.ts` · `src/http/error-handler.ts` · `src/contracts/errors.ts` · `tests/unit/http/**` | `npm run typecheck && npm run lint && npm test -- tests/unit/http` |
+| `f1-idem` / `fase-1-idem` | `src/application/orders/{submit-order,persist-order-decision}.ts` · `src/infra/prisma/{order-repository,cash-idempotency}.ts` · `src/contracts/request-fingerprint.ts` · `tests/unit/application/**` · `tests/functional/orders-submit/**` · `tests/integration/infra/**` | `npm test -- tests/unit/application && npm test -- tests/functional/orders-submit` |
+| `f1-time` / `fase-1-time` | `src/index.ts` · `docker-compose.yml` · `.env*.example` · `package.json` · fila TZ de `docs/database.md` · `tests/unit/contracts-*` | `npm test -- tests/unit/contracts` (+ invariancia TZ) |
+| `f1-num` / `fase-1-num` | `src/contracts/{orders,portfolio}.ts` · `src/domain/matching/index.ts` · `src/application/orders/decide-order.ts` · `tests/unit/**` | `npm run typecheck && npm run lint && npm test -- tests/unit` |
+
+Ownership de `openapi.json`: **el orquestador** lo regenera en el gate de cada fase.
+
+### Fases siguientes (pendientes de despacho)
+
+- **Fase 2 (3 células):** `f2-errors` (resto del borde: header duplicado, idempotencia
+  gestionada internamente) · `f2-uc2` (AbortSignal, tope de candidatos, deadline que
+  escale con `limit`, User-Agent) · `f2-migrate` (aplicar 2 migraciones + verificación).
+- **Fase 3 (2 células):** `f3-app` (regla de cash disponible ×3 ⇒ una sola, error de
+  aplicación único, renombres) · `f3-clean` (verdad de las marcas de dinero, `strictObject`,
+  exports muertos).
+- **Fase 4 (3 células):** `f4-readme` (README minimal + DECISIONS como ADR) ·
+  `f4-docs` (database/api/legacy) · `f4-specs` (poda de 9 a 3, banner, fórmula del dominio).
+- **Fase 5:** gate final, limpieza de ramas, PRs por etapa.
 
 **Corte 2026-11-05 20:45 (-03):** el usuario pidió handoff para seguir las pruebas en otra sesión. No continuar pruebas, migraciones, runtime ni diagrama por notificaciones tardías. Punto de entrada: `docs/references/handoff-local-rollout.md`. Interrupción confirmada de la única célula activa; sus borradores coinciden byte a byte con el snapshot privado y no fueron integrados ni certificados.
 

@@ -85,7 +85,7 @@ de la anterior esté verde y mergeado en `main`.
 | `src/http/error-handler.ts` | ✎ | | | | ✎ | | | | | | | |
 | `src/index.ts` · `docker-compose.yml` · `.env*.example` | | | ✎ | | | | | | | | | |
 | `prisma/**` (DB app) | | | | | | | ✎ | | | | | |
-| `openapi.json` | | | | ✎ | | | | | ✎ | | | |
+| `openapi.json` | | | | | | | | | | | | |   ← **lo regenera el ORQUESTADOR en el gate de cada fase**
 | `tests/unit/http/**` | ✎ | | ✎ | | ✎ | | | | | | |
 | `tests/unit/application/**` | | ✎ | | ✎ | | ✎ | | ✎ | ✎ | | |
 | `tests/functional/**` | | ✎ | | | | ✎ | | ✎ | | | |
@@ -263,7 +263,7 @@ TZ=UTC npm test -- tests/unit/contracts && TZ=Asia/Tokyo npm test -- tests/unit/
 ## F1-NUM · Cotas numéricas e invariante de precio (D-06, D-07)
 
 **Rama:** `fase-1-num` · **Worktree:** `../coccb-wt-num` · **Timebox:** 60 min
-**Dueña de `openapi.json` en esta fase.**
+**No edita `openapi.json`:** lo regenera el orquestador en el gate (ver §Ownership).
 
 **Rutas propias:** `src/contracts/orders.ts` · `src/contracts/portfolio.ts` ·
 `src/domain/matching/index.ts` · `src/application/orders/decide-order.ts` ·
@@ -434,6 +434,7 @@ cd <worktree> && npm run typecheck && npm run lint && \
 ## F3-CLEAN · Verdad de los contratos monetarios y limpieza (E-04, E-05, E-06)
 
 **Rama:** `fase-3-clean` · **Timebox:** 90 min · **Dueña de `openapi.json` en esta fase**
+**No edita `openapi.json`:** lo regenera el orquestador en el gate (ver §Ownership).
 
 **Rutas propias:** `src/contracts/money.ts` · `src/contracts/portfolio.ts` ·
 `src/contracts/index.ts` · `src/infra/prisma/mappers.ts` · `openapi.json` · CODEMAP §3/§8
@@ -449,13 +450,13 @@ cd <worktree> && npm run typecheck && npm run lint && \
 1. `serializePct` acepta **sólo `FinancialDecimal`** (y `serializeMoneyArs` igual, si aplica).
 2. **O** dotar de marca real (nominal, no estructural) **O** eliminarla explícitamente y
    documentar por qué. No dejar una marca que no garantiza nada.
-3. `strictObject` en `PortfolioPositionSchema`; regenerar `openapi.json`.
+3. `strictObject` en `PortfolioPositionSchema`.
 4. Podar exports muertos de `src/contracts/**` e `src/infra/**`.
 
 **VERIFY:**
 ```bash
 cd <worktree> && npm run typecheck && npm run lint && npm test -- tests/unit && \
-  npm run openapi && npm test -- tests/docs
+  npm test -- tests/unit/contracts
 ```
 
 ---
