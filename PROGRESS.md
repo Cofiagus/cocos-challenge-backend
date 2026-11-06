@@ -1,6 +1,6 @@
 # PROGRESS.md — ejecución por células
 
-## Activo — ROLLOUT LOCAL COMPLETO: G0–G5 CERRADOS, main integrado y limpio; queda 1 decisión humana
+## Activo — ROLLOUT LOCAL CERRADO: G0–G5 verdes, main integrado y limpio, API viva en loopback
 
 **Corte 2026-11-05 20:45 (-03):** el usuario pidió handoff para seguir las pruebas en otra sesión. No continuar pruebas, migraciones, runtime ni diagrama por notificaciones tardías. Punto de entrada: `docs/references/handoff-local-rollout.md`. Interrupción confirmada de la única célula activa; sus borradores coinciden byte a byte con el snapshot privado y no fueron integrados ni certificados.
 
@@ -283,7 +283,7 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
 
 - **G5 cerrado, verificado por el supervisor (2026-11-06)**: ejecuté mi propio probe replicando `fetch(url, { signal })` **sin headers** (idéntico al adaptador) contra `query1` ⇒ **HTTP 200** con precios reales y `currency=ARS` de la sesión **2026-11-05 17:59 ART** (última rueda; mercado cerrado al medir). `GGAL 4997.50 / PAMP 4277.50 / BMA 9810.00 / METR 2228.00 / YPFD 6475.00`. Los 4 no cubiertos (DYCA, PGR, IRCP, MTR) confirman **404**. Cross-check decisivo: `GET /api/instruments?limit=100` devuelve **61 ítems** y sus precios coinciden **exactamente** con mi probe (5/5 muestreados) ⇒ lo que sirve la API ES Yahoo en vivo, sin caché ni seed. **Veredicto: integración exitosa completa** en el eje de proveedor; 0 respuestas 503 y 0 rate-limits desde la aplicación.
 - **Corrección de la medición del supervisor (importante)**: mi medición anterior («UA de navegador ⇒ 200») **ya no se reproduce**: `curl` con UA de navegador Y con UA default devuelven **429** hoy. El rate-limit de Yahoo es dependiente del cliente **y variable en el tiempo**. Conclusión: el 429 de `curl` **no es señal de salud del proveedor**; el camino real de la app (undici sin headers) sí responde. **No aplica el BLOQUEO** decidido por el humano y **no se toca el adaptador** (sin User-Agent, sin reintentos, sin caché).
-- **Pendiente de decisión humana (no bloqueante)**: DYCA / PGR / IRCP / MTR dan 404 en Yahoo (papeles desafectados o absorbidos — IRCP se fusionó con IRSA). Opción A: dejar el catálogo como está (el contrato ya los omite y el cupo se completa con los 61 restantes). Opción B: depurar/remapear esos tickers en el seed, lo cual es cambio de dataset y exige fase con DDL/seed permitido. **Recomendación: A para este rollout.**
+- **DECISIÓN HUMANA (2026-11-06): opción A — el catálogo NO se modifica.** DYCA / PGR / IRCP / MTR seguirán dando 404 en Yahoo (desafectados o absorbidos; IRCP se fusionó con IRSA). Está aceptado explícitamente que el contrato los omite y que el cupo se completa con los 61 restantes. Depurar/remapear queda descartado para este rollout por ser cambio de dataset que exige fase con DDL/seed permitido.
 - **Limitación de UC-1 (registrada, no oculta)**: UC-1 **NO** ejercita Yahoo. `GET /api/users/{userId}/portfolio` toma precios de la tabla `marketdata` (`getLatestSnapshots`), y esos snapshots son del 2023-07-14 (BMA 1502.80, PAMP 925.85, METR 229.50) — son los que producen los `marketValue` del golden. Es decir: el golden de UC-1 valida la **aritmética** del portfolio sobre snapshots persistidos, **no** precios vivos. La única verificación de Yahoo en vivo es UC-2.
 
 - **GATE FINAL DE CIERRE (supervisor, 2026-11-06)** — ejecutado desde `main` con la topología aprobada:
@@ -297,3 +297,5 @@ Ninguna. Si una decisión de diseño no está expresada en la spec firmada, dete
   apunta `TEST_DATABASE_URL` al cluster de la **app** (5433), cuya `cocos_challenge_test` estaba
   **obsoleta** (sólo `init_trading_api`). Ninguna fue regresión de código: con
   `TEST_DATABASE_URL` correcto y la base recreada desde migraciones + seed, la suite pasa completa.
+
+- **ROLLOUT CERRADO (2026-11-06)** con la decisión A del humano. Estado final verificado por el supervisor: `main` limpio, **1 worktree**, migración de grandes montos aplicada a la DB app con fingerprints económicos idénticos antes/después, API viva en `127.0.0.1:3000`, Yahoo en vivo funcionando por el camino real de código, y suite completa **42 / 581 en verde**. Sin push (no pedido).
