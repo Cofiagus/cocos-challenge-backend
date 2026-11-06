@@ -7,10 +7,17 @@
 
 import { z } from "zod";
 import { PositiveArsInputSchema } from "./money.js";
+import { PositiveIntParamSchema } from "./orders.js";
 import { TransferSideSchema } from "./enums.js";
 
+/**
+ * Params de ruta. `userId` se persiste en una columna `Int`: la misma cota
+ * INT4 que usan orders y portfolio (PositiveIntParamSchema, definida en
+ * orders.ts) convierte un id fuera de rango en 400 antes de consultar, en vez
+ * del 500 del driver (SQLSTATE 22003 / Prisma P2020).
+ */
 export const CreateTransferParamsSchema = z.strictObject({
-  userId: z.coerce.number().int().positive(),
+  userId: PositiveIntParamSchema,
 });
 export type CreateTransferParams = z.infer<
   typeof CreateTransferParamsSchema
