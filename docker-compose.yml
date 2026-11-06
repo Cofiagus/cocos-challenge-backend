@@ -1,3 +1,6 @@
+# Este compose sólo levanta Postgres. La app corre con `npm run dev` / `npm run
+# start`, que fijan TZ=UTC en el proceso (ver src/index.ts). Si se agrega un
+# servicio de app acá, debe declarar `TZ: UTC` igual que la base.
 services:
   db:
     image: postgres:16-alpine
@@ -7,6 +10,9 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: cocos_challenge
+      # El motor también en UTC: la app lee y escribe `timestamp without time
+      # zone` como UTC (TZ=UTC en el proceso), así now() y los casts coinciden.
+      TZ: UTC
     # 5433 para no chocar con un Postgres instalado en la máquina
     ports:
       - "5433:5432"

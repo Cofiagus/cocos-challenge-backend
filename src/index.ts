@@ -1,11 +1,24 @@
-// Entry del servidor HTTP: carga .env, valida la configuración, escucha en
-// HOST:PORT y cierra ordenadamente ante SIGTERM/SIGINT. La composición de la
-// app vive en src/http/server.ts.
-import "dotenv/config";
-import { serverApp } from "./http/server.js";
-import { disconnectPrismaClient } from "./lib/prisma-client.js";
-import { loadRuntimeConfig } from "./lib/runtime-config.js";
+// Entry del servidor HTTP: fija la zona horaria del proceso, carga .env,
+// valida la configuración, escucha en HOST:PORT y cierra ordenadamente ante
+// SIGTERM/SIGINT. La composición de la app vive en src/http/server.ts.
+//
+// ZONA HORARIA (D-01). `orders.datetime` y `orders.filledAt` son
+// `timestamp without time zone`: no llevan offset. @prisma/adapter-pg las
+// interpreta como UTC, pero `serializeLocalTimestamp` las re-serializa con los
+// getters LOCALES del Date. Con el proceso en ART (UTC−3) eso servía 12:14:20
+// donde el seed dice 15:14:20; con Tokio se corría +9 h. Fijar TZ=UTC alinea
+// la lectura con la semántica de la columna y hace que la API no dependa de la
+// zona del host. En ESM los imports ESTÁTICOS se evalúan antes del cuerpo del
+// módulo, por eso los imports de runtime son dinámicos: la asignación tiene
+// que correr primero. El único import estático es de tipos (se borra al emitir).
 import type { RuntimeConfig } from "./lib/runtime-config.js";
+
+process.env["TZ"] = "UTC";
+
+await import("dotenv/config");
+const { serverApp } = await import("./http/server.js");
+const { disconnectPrismaClient } = await import("./lib/prisma-client.js");
+const { loadRuntimeConfig } = await import("./lib/runtime-config.js");
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
