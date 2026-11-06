@@ -41,7 +41,11 @@ import {
   type TransactionContext,
   type TransferSide,
 } from "../../contracts/index.js";
-import { deriveCash, deriveReservations } from "../../domain/index.js";
+import {
+  deriveAvailableCash,
+  deriveCash,
+  deriveReservations,
+} from "../../domain/index.js";
 import type {
   InstrumentRepository,
   OrderRepository,
@@ -242,8 +246,11 @@ const readCashAvailable = async (
     context.userId,
     context.tx,
   );
-  return deriveCash(movements).minus(
-    deriveReservations(restingOrders).cashReservedArs,
+  // Cash disponible = liquidado − reservas: la MISMA función pura que usan el
+  // portfolio y el envío de órdenes (deriveAvailableCash).
+  return deriveAvailableCash(
+    deriveCash(movements),
+    deriveReservations(restingOrders),
   );
 };
 

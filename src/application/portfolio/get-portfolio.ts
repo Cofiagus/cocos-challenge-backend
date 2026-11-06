@@ -22,6 +22,7 @@ import type {
   TradingSettledOrderMovement,
 } from "../../contracts/index.js";
 import {
+  deriveAvailableCash,
   deriveCash,
   derivePositions,
   deriveReservations,
@@ -167,8 +168,9 @@ export const getPortfolio = async (
   );
   const instrumentsById = indexInstrumentsById(instruments);
 
-  // Cash disponible = cashSettled − cashReserved (DECISIONS.md).
-  const cashArs = cashSettled.minus(reservations.cashReservedArs);
+  // Cash disponible = cashSettled − cashReserved (DECISIONS.md): la regla
+  // vive en el dominio (deriveAvailableCash), no acá.
+  const cashArs = deriveAvailableCash(cashSettled, reservations);
 
   return {
     kind: "FOUND",
