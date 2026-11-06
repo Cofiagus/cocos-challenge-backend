@@ -6,7 +6,7 @@
 
 ## Motivo
 
-Ampliar solamente las columnas de precios no garantiza que un monto grande sobreviva al recorrido HTTP → dominio → Prisma → PostgreSQL → HTTP. Con `Decimal(10,2)`, los precios y el monto de entrada compartían ese límite, `orders.size` era INTEGER tanto para acciones como para pesos de transferencias, `Decimal` operaba con precisión 20 por defecto, la salida monetaria pasaba por `number` y las transferencias aplicaban floor a pesos enteros. Esa combinación pierde un centavo en serialización y redondea mal al operar por encima de quince dígitos significativos.
+Ampliar solamente las columnas de precios no garantiza que un monto grande sobreviva al recorrido HTTP → dominio → Prisma → PostgreSQL → HTTP. Con `Decimal(10,2)`, los precios y el monto de entrada compartían ese límite, `orders.size` era INTEGER tanto para acciones como para pesos de transferencias, `Decimal` operaba con precisión 20 por defecto, la salida monetaria pasaba por `number` y las transferencias aplicaban floor a pesos enteros. Esa combinación producía pérdida de un centavo en serialización y redondeo incorrecto al operar por encima de quince dígitos significativos.
 
 Evidencia reproducida, referencias de código y alternativas evaluadas: `docs/references/precision-datos-financieros.md`.
 
@@ -74,7 +74,7 @@ La evidencia calcula 43 cifras para un presupuesto de precio máximo × acciones
 - Se conservan UNIQUE(userId, idempotencyKey), INSERT ON CONFLICT como primera escritura, lock por usuario y orden+evento en la misma transacción.
 - Dos transferencias nuevas con la misma key pero montos 123.01 y 123.99 dan 409, nunca colapsan por floor. `"123.0"` y `"123.00"` son el mismo monto.
 - Para una key cash histórica, la comparación incluye el monto original documentado en metadata.amountArs del evento de origen, con validación estricta de esa evidencia. Mismo pedido original: devuelve la fila original, sin evento nuevo y sin reejecutar diferencias de centavos. Distinto: 409. Una key histórica sin evidencia suficiente para establecer el pedido exacto falla conservadoramente con 409; la API no adivina ni vuelve a mover fondos.
-- La cobertura de pruebas incluye los tres casos: key histórica que recibió 123.45 y persistió 123; retry 123.45 devuelve el movimiento original de 123.00; retry 123.99 es conflicto; nueva key por 123.45 persiste 123.45.
+- La cobertura de pruebas recorre los casos del replay histórico: key histórica que recibió 123.45 y persistió 123; retry 123.45 devuelve el movimiento original de 123.00; retry 123.99 es conflicto; nueva key por 123.45 persiste 123.45.
 
 ### 6. Migración y convivencia
 
