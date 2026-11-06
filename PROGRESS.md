@@ -32,13 +32,47 @@ Ownership de `openapi.json`: **el orquestador** lo regenera en el gate de cada f
 orquestador: la célula reportó DONE sin commitear) y `fase-1-num`; más `fase-2-sync`, que
 sincronizó `docs/api.md` + `scripts/openapi/**` con el código nuevo (D3/D5/D8). Unit: 469.
 
-**G2 CERRADO.** Mergeadas `fase-2-errors` (D-04: header duplicado ⇒ 400) y `fase-2-migrate`
+**G2 CERRADO.** Mergeadas `fase-2-errors` (D-04: header duplicado ⇒ 400), `fase-2-transfers` (userId de UC-5 acotado a INT4) y `fase-2-migrate`
 (aplicadas las 2 migraciones pendientes ⇒ la DB de la app queda **4/4** con 10 CHECKs y el trigger
 `orders_fill_execution_price_trigger` activo; backup `pg_dump` en `/home/cofi/backups-cocos/`;
 0 filas violando los CHECKs nuevos), además de `fase-2-uc2` (E-07/E-08 + User-Agent).
 typecheck 0 · lint 0 · **56 suites / 739 tests**.
 
 **Estado de la DB de la app: 4/4 migraciones aplicadas** (antes 2/4). Deriva cerrada.
+
+**FASE 3 CERRADA.** `fase-3-app` (E-01 `deriveAvailableCash` única · E-02 `ApplicationError` único ·
+E-03 renombres por unidad) y `fase-4-clean` (contratos monetarios: marcas `MoneyArs`/`Pct`
+eliminadas por no sobrevivir a `z.infer`, `PortfolioPositionSchema` → `strictObject`,
+`serializePct` con `FinancialDecimal`, poda de exports). Goldens intactos (889756 / 627500 / 125500).
+
+**FASE 4 CERRADA.** `fase-4-docs` (DOC-03/DOC-04/DOC-09/DOC-10), `fase-4-readme` (README de 455 a
+111 líneas + `DECISIONS.md` como ADR D1–D6; el quickstart se probó de punta a punta y se corrigió
+el `psql "$DATABASE_URL"` que fallaba con `?schema=public`) y `fase-4-specs` (6 specs archivadas
+con `git mv`, 1 borrada, fórmula del dominio corregida). `specs/`: 10 → 4 archivos
+(3 vigentes con banner `EJECUTADA` + este plan, que se archiva al cerrar la fase).
+
+**G5 CERRADO — ENTREGA.** `fase-5-tidy` (poda de 10 exports muertos + filas CODEMAP al día) y
+`fase-5-nominal` (marca `unique symbol` de `FinancialDecimal`: pasar un `Decimal` global a
+`serializeMoneyArs`/`serializePct` **ya no compila**, garantizado por un test con `@ts-expect-error`
+que se verificó quitando las directivas ⇒ 3 errores TS exactos, y volviendo a 0 al restaurarlas).
+typecheck 0 · lint 0 · **58 suites / 751 tests** · `test:no-db` **43 / 520**.
+
+**Fase 5 (cierre).** Conteos finales escritos en `README.md` (declarado única fuente), en
+`collection/README.md` (que además decía 2 migraciones y 6 CHECKs: son 4 y 10) y
+`docs/references/large-money-verification.md` marcado como corte histórico. Plan maestro
+`specs/limpieza-final-2026-11-06.md` cerrado a Rev. 2 con banner `EJECUTADO`.
+
+**Queda declarado sin resolver — no se recortó en silencio:**
+1. La cancelación de UC-2 es **cooperativa**: una fuente que ignore el `AbortSignal` conserva su
+   propio timeout. Yahoo —la única de producción— lo respeta.
+2. `src/application/orders/decide-order.ts` quedó en **300 líneas**, el máximo del lint: quien
+   agregue una línea tiene que extraer, no desactivar la regla.
+3. `z.coerce` de los params de ruta acepta `"1e3"`/`"0x10"` porque `Number()` los normaliza
+   (1000 y 16, dentro de INT4). Preexistente y compartido con orders/portfolio; el 500 por
+   SQLSTATE 22003 sí quedó cerrado.
+4. La `Idempotency-Key` **sigue siendo opcional** por decisión firmada del humano. La derivación
+   interna quedó bloqueada por la guardia de tests (dos suites de concurrencia envían payloads
+   idénticos sin key) y sigue como QUESTION A/B sin resolver.
 
 ### Fases siguientes (pendientes de despacho)
 

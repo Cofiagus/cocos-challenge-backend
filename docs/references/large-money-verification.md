@@ -8,13 +8,18 @@ hay evidencia, no reglas nuevas.
 
 ## Qué se verificó
 
+> ⚠️ **Corte histórico.** Esta verificación se hizo sobre la candidata `1bd02e4`, previa al
+> merge. **No describe el árbol actual.** El estado vigente lo publica `README.md` §Estado del
+> build (`58 suites / 751 tests`), que es la única fuente de conteos. Lo que sigue conserva valor
+> como evidencia de **qué** se verificó y **cómo**, no de cuántos tests hay hoy.
+
 - **Núcleo probado:** `1bd02e4` (merge de cierre de la acceptación de grandes montos). La
   corrida del gate se hizo en el worktree de esa revisión.
 - **Resultado:** `37` suites / `515` tests, **0 fallidos, 0 open handles** (Jest
   `--runInBand --detectOpenHandles --json`). Antes de la suite: `npm run typecheck`,
   `npm run lint`, `npm run build` y `npm run openapi` sin diff, y el reset de la base de
-  test default desde las **2 migraciones versionadas** (`init_trading_api`,
-  `large_money`) + `db/seed.sql` **sin editar**.
+  test default desde las **2 migraciones versionadas en aquel momento** (`init_trading_api`,
+  `large_money`) + `db/seed.sql` **sin editar**. Hoy el head tiene **4** migraciones.
 - La evidencia corresponde a la rama candidata previa a la integración en `main`; el estado
   real de integración (qué SHA está mergeado) lo registran `git log` y `PROGRESS.md`, no
   este documento.

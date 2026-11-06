@@ -85,10 +85,10 @@ una línea:
 
 | Medición | Suites / tests |
 | -------- | -------------- |
-| `npm test` — suite completa contra PostgreSQL de test | **PENDIENTE-CIERRE** |
-| `npm run test:no-db` — unit + docs + smoke ESM, sin base | **PENDIENTE-CIERRE** |
+| `npm test -- --runInBand --detectOpenHandles` — suite completa contra PostgreSQL de test | **58 suites / 751 tests** |
+| `npm run test:no-db` — unit + docs + smoke ESM, sin base | **43 suites / 520 tests** |
 
-Este README es la **única fuente** de esos conteos: los completa la corrida final de la Fase 5. No se
+Los números los produce la corrida final de la limpieza (2026-11-06), con typecheck 0 y lint 0. No se
 repiten cifras de corridas anteriores porque quedaron viejas. Para reproducirlos:
 
 ```bash

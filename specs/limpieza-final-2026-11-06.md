@@ -1,13 +1,19 @@
 ---
 id: limpieza-final-2026-11-06
 title: Plan de limpieza final y entrega
-status: PLAN FIRMADO — EN EJECUCIÓN
-rev: 1
+status: CERRADO — ejecutado íntegramente el 2026-11-06
+rev: 2
 fecha: 2026-11-06
 owner: cofi (humano) · orquestador: Hermes
 ---
 
 # Plan de limpieza final y entrega — `cocos-challenge-backend`
+
+> ✅ **EJECUTADO — 2026-11-06.** Todas las fases están cerradas e integradas en `main`.
+> Estado final: typecheck 0 · lint 0 · **58 suites / 751 tests** · `test:no-db` **43 / 520** ·
+> DB de la app en **4/4** migraciones. El inventario de lo cerrado y lo que quedó declarado sin
+> resolver está en `PROGRESS.md`. Este documento se conserva como bitácora de la decisión, no
+> como plan activo.
 
 ## Why
 
