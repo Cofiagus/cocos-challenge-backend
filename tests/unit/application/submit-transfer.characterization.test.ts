@@ -12,7 +12,7 @@
 //
 // Dinero SIEMPRE Decimal desde string (AGENTS.md): ningún fixture usa float.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import type { SubmitOrderDeps } from "../../../src/application/orders/submit-order.js";
 import { IdempotencyConflictError } from "../../../src/application/orders/persist-order-decision.js";
 import {
@@ -62,7 +62,7 @@ const CASH_INSTRUMENT_ID = 66;
 /** Movimiento FILLED de cash: monto exacto, sin acciones ni precio. */
 const cashIn = (amountArs: string): SettledOrderMovement => ({
   side: "CASH_IN",
-  amountArs: new Decimal(amountArs),
+  amountArs: new FinancialDecimal(amountArs),
 });
 
 /** BUY NEW que reserva `sizeShares × limitPriceArs` de cash. */
@@ -75,7 +75,7 @@ const restingBuy = (
   instrumentId,
   side: "BUY",
   sizeShares,
-  limitPriceArs: new Decimal(limitPriceArs),
+  limitPriceArs: new FinancialDecimal(limitPriceArs),
 });
 
 // ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ interface ThrowCase {
 // Aserciones (valor monetario por toFixed, no por constructor de Decimal)
 // ---------------------------------------------------------------------------
 
-const decimalOf = (value: string): Decimal => new Decimal(value);
+const decimalOf = (value: string): FinancialDecimal => new FinancialDecimal(value);
 
 const expectDraft = (
   fakes: SubmitOrderFakes,
@@ -683,8 +683,8 @@ const persistedCases: PersistedCase[] = [
         type: "MARKET",
         timeInForce: "GTC",
         status: "REJECTED",
-        amountArs: new Decimal("5000.00"),
-        priceArs: new Decimal("1.00"),
+        amountArs: new FinancialDecimal("5000.00"),
+        priceArs: new FinancialDecimal("1.00"),
         filledPriceArs: null,
         filledAt: null,
         idempotencyKey: "idem-replay-cashout",
@@ -753,8 +753,8 @@ const errorCases: ErrorCase[] = [
         type: "MARKET",
         timeInForce: "GTC",
         status: "REJECTED",
-        amountArs: new Decimal("5000.00"),
-        priceArs: new Decimal("1.00"),
+        amountArs: new FinancialDecimal("5000.00"),
+        priceArs: new FinancialDecimal("1.00"),
         filledPriceArs: null,
         filledAt: null,
         idempotencyKey: "idem-conflicto",

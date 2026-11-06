@@ -3,7 +3,6 @@
 // fondos/vendible exactamente iguales no rechazan y un centavo/una acción más
 // sí; el residuo del monto y el cruce con límite == referencia se fijan acá.
 
-import { Decimal } from "decimal.js";
 import { FinancialDecimal } from "../../../src/contracts/index.js";
 import {
   assessFunds,
@@ -50,7 +49,7 @@ const auditBase = (overrides: OrderEventMetadata = {}): OrderEventMetadata => ({
 });
 
 const noReservations: Reservations = {
-  cashReservedArs: new Decimal(0),
+  cashReservedArs: new FinancialDecimal(0),
   sharesReservedByInstrument: new Map(),
 };
 
@@ -58,8 +57,8 @@ interface RequestFields {
   readonly side?: "BUY" | "SELL";
   readonly timeInForce?: TimeInForce;
   readonly size?: number;
-  readonly amountArs?: Decimal;
-  readonly price?: Decimal | null;
+  readonly amountArs?: FinancialDecimal;
+  readonly price?: FinancialDecimal | null;
 }
 
 const marketRequest = (fields: RequestFields = {}): CreateOrderRequest => ({
@@ -84,7 +83,7 @@ const limitRequest = (fields: RequestFields = {}): CreateOrderRequest => ({
 /** CASH_IN de un monto exacto en ARS: el cash no lleva acciones ni precio. */
 const cashIn = (amountArs: string): SettledOrderMovement => ({
   side: "CASH_IN",
-  amountArs: new Decimal(amountArs),
+  amountArs: new FinancialDecimal(amountArs),
 });
 
 const trade = (
@@ -96,7 +95,7 @@ const trade = (
   instrumentId,
   side,
   sizeShares,
-  priceArs: new Decimal(priceArs),
+  priceArs: new FinancialDecimal(priceArs),
 });
 
 const sizing = (overrides: Partial<SizingDecision> = {}): SizingDecision => ({
@@ -112,7 +111,7 @@ const fundsInput = (
   request: marketRequest({ size: 1 }),
   instrumentId: 1,
   sizeShares: 1,
-  referencePriceArs: new Decimal("1000.00"),
+  referencePriceArs: new FinancialDecimal("1000.00"),
   limitPriceArs: null,
   movements: [],
   reservations: noReservations,
@@ -125,7 +124,7 @@ const acceptedInput = (
 ): Parameters<typeof decideAcceptedOrder>[0] => ({
   request: marketRequest({ size: 1 }),
   sizeShares: 1,
-  referencePriceArs: new Decimal("925.85"),
+  referencePriceArs: new FinancialDecimal("925.85"),
   limitPriceArs: null,
   auditBase: auditBase(),
   decidedAt: new Date("2023-07-14T10:00:00.000Z"),
@@ -139,9 +138,9 @@ const acceptedInput = (
 describe("needsReferencePrice", () => {
   it.each([
     ["MARKET GTC", marketRequest({ size: 1 }), true],
-    ["LIMIT IOC", limitRequest({ timeInForce: "IOC", size: 1, price: new Decimal("1.00") }), true],
-    ["LIMIT FOK", limitRequest({ timeInForce: "FOK", size: 1, price: new Decimal("1.00") }), true],
-    ["LIMIT GTC", limitRequest({ timeInForce: "GTC", size: 1, price: new Decimal("1.00") }), false],
+    ["LIMIT IOC", limitRequest({ timeInForce: "IOC", size: 1, price: new FinancialDecimal("1.00") }), true],
+    ["LIMIT FOK", limitRequest({ timeInForce: "FOK", size: 1, price: new FinancialDecimal("1.00") }), true],
+    ["LIMIT GTC", limitRequest({ timeInForce: "GTC", size: 1, price: new FinancialDecimal("1.00") }), false],
   ] as const)("%s ⇒ %s", (_name, request, expected) => {
     expect(needsReferencePrice(request)).toBe(expected);
   });
@@ -149,8 +148,8 @@ describe("needsReferencePrice", () => {
 
 describe("limitPriceOf", () => {
   it("LIMIT devuelve el precio límite", () => {
-    expect(limitPriceOf(limitRequest({ size: 1, price: new Decimal("250.00") }))).toEqual(
-      new Decimal("250.00"),
+    expect(limitPriceOf(limitRequest({ size: 1, price: new FinancialDecimal("250.00") }))).toEqual(
+      new FinancialDecimal("250.00"),
     );
   });
 
@@ -196,7 +195,7 @@ describe("rejectForMissingPrice", () => {
 
   it("amountArs ⇒ NO_PRICE con size 0 (no es sizable sin precio)", () => {
     expect(
-      rejectForMissingPrice(marketRequest({ amountArs: new Decimal("5000.00") }), PAMP),
+      rejectForMissingPrice(marketRequest({ amountArs: new FinancialDecimal("5000.00") }), PAMP),
     ).toEqual({
       status: "REJECTED",
       sizeShares: 0,
@@ -216,7 +215,7 @@ describe("rejectForMissingPrice", () => {
 describe("resolveSizing", () => {
   it("size explícito no deriva ni calcula residuo", () => {
     expect(
-      resolveSizing(limitRequest({ size: 7, price: new Decimal("10.00") }), null, new Decimal("10.00")),
+      resolveSizing(limitRequest({ size: 7, price: new FinancialDecimal("10.00") }), null, new FinancialDecimal("10.00")),
     ).toEqual({ sizeShares: 7, sizingPriceArs: null, residualArs: null });
   });
 
@@ -224,42 +223,42 @@ describe("resolveSizing", () => {
     // 10000 / 925.85 = 10.80... ⇒ 10 acciones; residuo 10000 − 10×925.85.
     expect(
       resolveSizing(
-        marketRequest({ amountArs: new Decimal("10000.00") }),
-        new Decimal("925.85"),
+        marketRequest({ amountArs: new FinancialDecimal("10000.00") }),
+        new FinancialDecimal("925.85"),
         null,
       ),
     ).toEqual({
       sizeShares: 10,
-      sizingPriceArs: new Decimal("925.85"),
-      residualArs: new Decimal("741.50"),
+      sizingPriceArs: new FinancialDecimal("925.85"),
+      residualArs: new FinancialDecimal("741.50"),
     });
   });
 
   it("amountArs múltiplo exacto del precio ⇒ residuo 0", () => {
     expect(
       resolveSizing(
-        marketRequest({ amountArs: new Decimal("1000.00") }),
-        new Decimal("250.00"),
+        marketRequest({ amountArs: new FinancialDecimal("1000.00") }),
+        new FinancialDecimal("250.00"),
         null,
       ),
     ).toEqual({
       sizeShares: 4,
-      sizingPriceArs: new Decimal("250.00"),
-      residualArs: new Decimal("0"),
+      sizingPriceArs: new FinancialDecimal("250.00"),
+      residualArs: new FinancialDecimal("0"),
     });
   });
 
   it("amountArs LIMIT usa el límite, no la referencia", () => {
     expect(
       resolveSizing(
-        limitRequest({ amountArs: new Decimal("1000.00"), price: new Decimal("300.00") }),
-        new Decimal("925.85"),
-        new Decimal("300.00"),
+        limitRequest({ amountArs: new FinancialDecimal("1000.00"), price: new FinancialDecimal("300.00") }),
+        new FinancialDecimal("925.85"),
+        new FinancialDecimal("300.00"),
       ),
     ).toEqual({
       sizeShares: 3,
-      sizingPriceArs: new Decimal("300.00"),
-      residualArs: new Decimal("100"),
+      sizingPriceArs: new FinancialDecimal("300.00"),
+      residualArs: new FinancialDecimal("100"),
     });
   });
 
@@ -271,13 +270,13 @@ describe("resolveSizing", () => {
 
   it("amountArs MARKET sin referencia ⇒ guard de precio de sizing", () => {
     expect(() =>
-      resolveSizing(marketRequest({ amountArs: new Decimal("1000.00") }), null, null),
+      resolveSizing(marketRequest({ amountArs: new FinancialDecimal("1000.00") }), null, null),
     ).toThrow("Precio de sizing no resuelto (inalcanzable tras NO_PRICE/contrato).");
   });
 
   it("amountArs LIMIT sin precio ⇒ guard de precio de sizing", () => {
     expect(() =>
-      resolveSizing(limitRequest({ amountArs: new Decimal("1000.00") }), null, null),
+      resolveSizing(limitRequest({ amountArs: new FinancialDecimal("1000.00") }), null, null),
     ).toThrow("Precio de sizing no resuelto (inalcanzable tras NO_PRICE/contrato).");
   });
 });
@@ -292,7 +291,7 @@ describe("buildTradingAuditBase", () => {
       buildTradingAuditBase(
         PAMP,
         marketRequest({ size: 3 }),
-        new Decimal("925.85"),
+        new FinancialDecimal("925.85"),
         sizing({ sizeShares: 3 }),
       ),
     ).toEqual({
@@ -308,12 +307,12 @@ describe("buildTradingAuditBase", () => {
     expect(
       buildTradingAuditBase(
         PAMP,
-        marketRequest({ amountArs: new Decimal("10000.00") }),
-        new Decimal("925.85"),
+        marketRequest({ amountArs: new FinancialDecimal("10000.00") }),
+        new FinancialDecimal("925.85"),
         sizing({
           sizeShares: 10,
-          sizingPriceArs: new Decimal("925.85"),
-          residualArs: new Decimal("741.50"),
+          sizingPriceArs: new FinancialDecimal("925.85"),
+          residualArs: new FinancialDecimal("741.50"),
         }),
       ),
     ).toEqual({
@@ -327,7 +326,7 @@ describe("buildTradingAuditBase", () => {
 
   it("sin referencia ni sizing ⇒ nulls (LIMIT GTC)", () => {
     expect(
-      buildTradingAuditBase(PAMP, limitRequest({ size: 2, price: new Decimal("250.00") }), null, sizing()),
+      buildTradingAuditBase(PAMP, limitRequest({ size: 2, price: new FinancialDecimal("250.00") }), null, sizing()),
     ).toEqual({
       ticker: "PAMP",
       referencePriceArs: null,
@@ -378,7 +377,7 @@ describe("positionSharesFor", () => {
           cashIn("100000.00"),
           trade(1, "BUY", 10, "900.00"),
           trade(2, "BUY", 5, "100.00"),
-          { side: "CASH_OUT", amountArs: new Decimal("4.00") },
+          { side: "CASH_OUT", amountArs: new FinancialDecimal("4.00") },
         ],
         1,
       ),
@@ -412,7 +411,7 @@ describe("assessFunds BUY", () => {
         fundsInput({
           request: marketRequest({ size: 1 }),
           sizeShares: 1,
-          referencePriceArs: new Decimal("1000.00"),
+          referencePriceArs: new FinancialDecimal("1000.00"),
           movements: [cashIn("1000.00")],
         }),
       ),
@@ -425,7 +424,7 @@ describe("assessFunds BUY", () => {
         fundsInput({
           request: marketRequest({ size: 1 }),
           sizeShares: 1,
-          referencePriceArs: new Decimal("1000.01"),
+          referencePriceArs: new FinancialDecimal("1000.01"),
           movements: [cashIn("1000.00")],
         }),
       ),
@@ -450,10 +449,10 @@ describe("assessFunds BUY", () => {
         fundsInput({
           request: marketRequest({ size: 10 }),
           sizeShares: 10,
-          referencePriceArs: new Decimal("100.00"),
+          referencePriceArs: new FinancialDecimal("100.00"),
           movements: [cashIn("1000.00")],
           reservations: {
-            cashReservedArs: new Decimal("1.00"),
+            cashReservedArs: new FinancialDecimal("1.00"),
             sharesReservedByInstrument: new Map(),
           },
         }),
@@ -477,10 +476,10 @@ describe("assessFunds BUY", () => {
     expect(
       assessFunds(
         fundsInput({
-          request: limitRequest({ size: 5, price: new Decimal("250.00") }),
+          request: limitRequest({ size: 5, price: new FinancialDecimal("250.00") }),
           sizeShares: 5,
-          referencePriceArs: new Decimal("925.85"),
-          limitPriceArs: new Decimal("250.00"),
+          referencePriceArs: new FinancialDecimal("925.85"),
+          limitPriceArs: new FinancialDecimal("250.00"),
           movements: [cashIn("1250.00")],
         }),
       ),
@@ -528,7 +527,7 @@ describe("assessFunds SELL", () => {
 
   it("size EXACTAMENTE el vendible ⇒ no rechaza (límite inclusivo)", () => {
     const reservations: Reservations = {
-      cashReservedArs: new Decimal(0),
+      cashReservedArs: new FinancialDecimal(0),
       sharesReservedByInstrument: new Map([[1, 4n]]),
     };
     expect(assessFunds(sellInput(6, reservations))).toBeNull();
@@ -536,7 +535,7 @@ describe("assessFunds SELL", () => {
 
   it("una acción más ⇒ REJECTED INSUFFICIENT_POSITION con posición/reserva/vendible", () => {
     const reservations: Reservations = {
-      cashReservedArs: new Decimal(0),
+      cashReservedArs: new FinancialDecimal(0),
       sharesReservedByInstrument: new Map([[1, 4n]]),
     };
     expect(assessFunds(sellInput(7, reservations))).toEqual({
@@ -583,7 +582,7 @@ describe("assessFunds SELL", () => {
 
   it("reservas mayores al entero seguro ⇒ comparación bigint y metadata string exacta", () => {
     const reservations: Reservations = {
-      cashReservedArs: new Decimal(0),
+      cashReservedArs: new FinancialDecimal(0),
       sharesReservedByInstrument: new Map([[1, 9007199254740993n]]),
     };
     expect(assessFunds(sellInput(10, reservations))).toEqual({
@@ -616,14 +615,14 @@ describe("decideAcceptedOrder — MARKET", () => {
         acceptedInput({
           request: marketRequest({ size: 3 }),
           sizeShares: 3,
-          referencePriceArs: new Decimal("925.85"),
+          referencePriceArs: new FinancialDecimal("925.85"),
           decidedAt,
         }),
       ),
     ).toEqual({
       status: "FILLED",
       sizeShares: 3,
-      filledPriceArs: new Decimal("925.85"),
+      filledPriceArs: new FinancialDecimal("925.85"),
       filledAt: decidedAt,
       eventType: "ACCEPTED",
       reason: null,
@@ -654,10 +653,10 @@ describe("decideAcceptedOrder — LIMIT", () => {
     expect(
       decideAcceptedOrder(
         acceptedInput({
-          request: limitRequest({ size: 2, price: new Decimal("250.00") }),
+          request: limitRequest({ size: 2, price: new FinancialDecimal("250.00") }),
           sizeShares: 2,
           referencePriceArs: null,
-          limitPriceArs: new Decimal("250.00"),
+          limitPriceArs: new FinancialDecimal("250.00"),
           auditBase: auditBase({ referencePriceArs: null }),
           decidedAt,
         }),
@@ -677,10 +676,10 @@ describe("decideAcceptedOrder — LIMIT", () => {
     expect(
       decideLimitOrder(
         acceptedInput({
-          request: limitRequest({ timeInForce: "IOC", size: 2, price: new Decimal("925.85") }),
+          request: limitRequest({ timeInForce: "IOC", size: 2, price: new FinancialDecimal("925.85") }),
           sizeShares: 2,
-          referencePriceArs: new Decimal("925.85"),
-          limitPriceArs: new Decimal("925.85"),
+          referencePriceArs: new FinancialDecimal("925.85"),
+          limitPriceArs: new FinancialDecimal("925.85"),
           decidedAt,
         }),
       ),
@@ -700,10 +699,10 @@ describe("decideAcceptedOrder — LIMIT", () => {
     expect(
       decideLimitOrder(
         acceptedInput({
-          request: limitRequest({ timeInForce: "IOC", size: 2, price: new Decimal("900.00") }),
+          request: limitRequest({ timeInForce: "IOC", size: 2, price: new FinancialDecimal("900.00") }),
           sizeShares: 2,
-          referencePriceArs: new Decimal("925.85"),
-          limitPriceArs: new Decimal("900.00"),
+          referencePriceArs: new FinancialDecimal("925.85"),
+          limitPriceArs: new FinancialDecimal("900.00"),
         }),
       ),
     ).toEqual({
@@ -721,10 +720,10 @@ describe("decideAcceptedOrder — LIMIT", () => {
     expect(
       decideLimitOrder(
         acceptedInput({
-          request: limitRequest({ side: "SELL", timeInForce: "IOC", size: 2, price: new Decimal("900.00") }),
+          request: limitRequest({ side: "SELL", timeInForce: "IOC", size: 2, price: new FinancialDecimal("900.00") }),
           sizeShares: 2,
-          referencePriceArs: new Decimal("925.85"),
-          limitPriceArs: new Decimal("900.00"),
+          referencePriceArs: new FinancialDecimal("925.85"),
+          limitPriceArs: new FinancialDecimal("900.00"),
           decidedAt,
         }),
       ),
@@ -743,9 +742,9 @@ describe("decideAcceptedOrder — LIMIT", () => {
     expect(() =>
       decideLimitOrder(
         acceptedInput({
-          request: limitRequest({ timeInForce: "IOC", size: 1, price: new Decimal("900.00") }),
+          request: limitRequest({ timeInForce: "IOC", size: 1, price: new FinancialDecimal("900.00") }),
           referencePriceArs: null,
-          limitPriceArs: new Decimal("900.00"),
+          limitPriceArs: new FinancialDecimal("900.00"),
         }),
       ),
     ).toThrow("IOC/FOK sin precio de referencia (inalcanzable: NO_PRICE salió).");
@@ -769,7 +768,7 @@ describe("decideAcceptedOrder — LIMIT", () => {
       side: "BUY",
       type: "LIMIT",
       size: 1,
-      price: new Decimal("950.00"),
+      price: new FinancialDecimal("950.00"),
       get timeInForce(): TimeInForce {
         reads += 1;
         return reads === 1 ? "IOC" : "GTC";
@@ -779,7 +778,7 @@ describe("decideAcceptedOrder — LIMIT", () => {
       decideLimitOrder(
         acceptedInput({
           request: lyingRequest,
-          limitPriceArs: new Decimal("950.00"),
+          limitPriceArs: new FinancialDecimal("950.00"),
         }),
       ),
     ).toThrow("Evaluación IOC/FOK sin decisión (inalcanzable).");

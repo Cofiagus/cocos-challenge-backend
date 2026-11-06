@@ -12,8 +12,8 @@
 // string monetario de 2 decimales (pesos, con centavos). No hay campo
 // duplicado ni dos formas monetarias simultáneas.
 
-import type { Decimal } from "decimal.js";
 import { z } from "zod";
+import type { FinancialDecimal } from "./financial-decimal.js";
 import {
   OrderRejectionReasonSchema,
   OrderStatusSchema,
@@ -52,8 +52,12 @@ export const PositiveIntParamSchema = z.coerce
   .min(1)
   .max(MAX_INT4);
 
-/** `null` explícito es "ausente" en campos opcionales del body. */
-const isPriceAbsent = (price: Decimal | null | undefined): boolean =>
+/**
+ * `null` explícito es "ausente" en campos opcionales del body. Se tipa con
+ * `FinancialDecimal` (el constructor aislado), no con el `Decimal` global: un
+ * parámetro `Decimal` aceptaría montos de 20 cifras sin que nada lo note.
+ */
+const isPriceAbsent = (price: FinancialDecimal | null | undefined): boolean =>
   price === undefined || price === null;
 
 /** Params de ruta de POST (userId) y DELETE (orderId). */

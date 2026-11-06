@@ -9,7 +9,7 @@ import { config } from "dotenv";
 
 config({ path: ".env.test" });
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
 import { PrismaPortfolioReadRepository } from "../../../src/infra/prisma/portfolio-read-repository.js";
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
@@ -140,7 +140,7 @@ describe("PrismaOrderRepository — transacción de envío (DB real)", () => {
     );
     const filledAt = new Date("2023-07-14T15:00:00.000Z");
     const filled = await orderRepo.withUserTransaction(user.id, (tx) =>
-      orderRepo.markFilled(created.id, new Decimal("925.85"), filledAt, tx),
+      orderRepo.markFilled(created.id, new FinancialDecimal("925.85"), filledAt, tx),
     );
     expect(filled?.status).toBe("FILLED");
     expect(filled?.filledPriceArs?.toFixed(2)).toBe("925.85");
@@ -160,7 +160,7 @@ describe("PrismaOrderRepository — transacción de envío (DB real)", () => {
       size: 10,
     });
     const result = await orderRepo.withUserTransaction(user.id, (tx) =>
-      orderRepo.markFilled(seedFilled.id, new Decimal("111.11"), new Date(), tx),
+      orderRepo.markFilled(seedFilled.id, new FinancialDecimal("111.11"), new Date(), tx),
     );
     expect(result).toBeNull();
     const after = await prisma.order.findUnique({ where: { id: seedFilled.id } });
@@ -219,7 +219,7 @@ describe("PrismaOrderRepository — transacción de envío (DB real)", () => {
         orderRepo.createOrder(
           buildDraft(user.id, {
             status: "FILLED",
-            filledPriceArs: new Decimal("925.85"),
+            filledPriceArs: new FinancialDecimal("925.85"),
             filledAt: new Date("2023-07-14T16:00:00.000Z"),
           }),
           tx,
@@ -243,7 +243,7 @@ describe("PrismaOrderRepository — transacción de envío (DB real)", () => {
         const created = expectCreated(
           await orderRepo.createOrder(
             buildCashDraft(user.id, {
-              amountArs: new Decimal("10.01"),
+              amountArs: new FinancialDecimal("10.01"),
               idempotencyKey: key,
             }),
             tx,

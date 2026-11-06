@@ -8,7 +8,7 @@ import { config } from "dotenv";
 
 config({ path: ".env.test" });
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
 import { PrismaPortfolioReadRepository } from "../../../src/infra/prisma/portfolio-read-repository.js";
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
@@ -43,7 +43,7 @@ describe("PrismaPortfolioReadRepository — lecturas de portfolio (DB real)", ()
     // Reservas derivadas (DECISIONS.md: Σ limit × size de BUY NEW).
     const cashReserved = resting.reduce(
       (acc, order) => acc.add(order.limitPriceArs.mul(order.sizeShares)),
-      new Decimal(0),
+      new FinancialDecimal(0),
     );
     expect(cashReserved.toFixed(2)).toBe(SEED_USER_1_PORTFOLIO.cashReservedArs);
     // sanity del detalle: 50×710 + 60×1500 = 125500
@@ -77,7 +77,7 @@ describe("PrismaPortfolioReadRepository — lecturas de portfolio (DB real)", ()
         case "BUY":
           return acc.sub(movement.priceArs.mul(movement.sizeShares));
       }
-    }, new Decimal(0));
+    }, new FinancialDecimal(0));
     expect(cashSettled.toFixed(2)).toBe(SEED_USER_1_PORTFOLIO.cashSettledArs);
   });
 
@@ -98,7 +98,7 @@ describe("PrismaPortfolioReadRepository — lecturas de portfolio (DB real)", ()
           type: "MARKET",
           status: "FILLED",
           priceArs: null,
-          filledPriceArs: new Decimal("925.85"),
+          filledPriceArs: new FinancialDecimal("925.85"),
         }),
         tx,
       );

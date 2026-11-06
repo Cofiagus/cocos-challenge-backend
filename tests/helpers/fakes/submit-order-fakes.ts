@@ -8,7 +8,7 @@
 //
 // Sin DB, sin Prisma, sin Express. Dinero siempre Decimal desde string.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import type { SubmitOrderDeps } from "../../../src/application/orders/submit-order.js";
 import type {
   CreateOrderResult,
@@ -82,7 +82,7 @@ const DEFAULT_EXISTING_ORDER: OrderRecord = {
   timeInForce: "GTC",
   status: "NEW",
   sizeShares: 1,
-  priceArs: new Decimal("210.00"),
+  priceArs: new FinancialDecimal("210.00"),
   filledPriceArs: null,
   filledAt: null,
   idempotencyKey: "idem-replay",

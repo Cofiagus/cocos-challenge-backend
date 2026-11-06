@@ -8,7 +8,7 @@
 // D3: `size` discrimina por side — number en trading, string monetario de 2
 // decimales en cash — y los precios salen como string, nunca como number.
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import {
   IDEMPOTENCY_KEY_HEADER,
   type CashOrderRecord,
@@ -150,7 +150,7 @@ const tradingOrder = (
   timeInForce: "GTC",
   status: "NEW",
   sizeShares: 10,
-  priceArs: new Decimal("150.5"),
+  priceArs: new FinancialDecimal("150.5"),
   filledPriceArs: null,
   filledAt: null,
   idempotencyKey: null,
@@ -168,9 +168,9 @@ const cashOrder = (overrides: Partial<CashOrderRecord> = {}): OrderRecord => ({
   type: "MARKET",
   timeInForce: "GTC",
   status: "FILLED",
-  amountArs: new Decimal("123"),
-  priceArs: new Decimal("1.00"),
-  filledPriceArs: new Decimal("1.00"),
+  amountArs: new FinancialDecimal("123"),
+  priceArs: new FinancialDecimal("1.00"),
+  filledPriceArs: new FinancialDecimal("1.00"),
   filledAt: new Date(2026, 0, 2, 3, 4, 5),
   idempotencyKey: null,
   datetime: new Date(2026, 0, 2, 3, 4, 5),
@@ -199,7 +199,7 @@ describe("toOrderResponse", () => {
     const response = toOrderResponse(
       tradingOrder({
         status: "FILLED",
-        filledPriceArs: new Decimal("149.99"),
+        filledPriceArs: new FinancialDecimal("149.99"),
         filledAt: new Date(2026, 0, 2, 3, 4, 5),
       }),
       null,
@@ -240,7 +240,7 @@ describe("toOrderResponse", () => {
       cashOrder({
         side: "CASH_OUT",
         status: "REJECTED",
-        amountArs: new Decimal("123.45"),
+        amountArs: new FinancialDecimal("123.45"),
         filledPriceArs: null,
         filledAt: null,
       }),

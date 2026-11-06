@@ -44,7 +44,14 @@ export interface TradingDraftOverrides {
   readonly requestFingerprint?: string;
 }
 
-const valueOr = <T>(value: T | undefined, fallback: T): T =>
+// `fallback` NO participa de la inferencia: sin `NoInfer`, T se infería de
+// AMBOS argumentos, así que un `new Decimal(...)` global como default (o como
+// override) arrastraba T al `Decimal` de 20 cifras —es supertipo estructural de
+// la marca— y el argumento se aceptaba sin marca; el error recién aparecía una
+// capa más arriba, al asignar el resultado a un campo `FinancialDecimal`, o
+// desaparecía si el resultado no aterrizaba en uno. Con NoInfer el diagnóstico
+// cae en el argumento culpable, que es lo que se quiere al migrar fixtures.
+const valueOr = <T>(value: T | undefined, fallback: NoInfer<T>): T =>
   value === undefined ? fallback : value;
 
 const uuidOr = (value: string | null | undefined): string | null =>

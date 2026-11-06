@@ -6,7 +6,7 @@
 // como string de 2 decimales.
 
 import request from "supertest";
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import { getPortfolio } from "../../../src/application/portfolio/get-portfolio.js";
 import type {
   GetPortfolioResult,
@@ -40,7 +40,7 @@ interface CashMovementSeed {
 /** Movimiento FILLED de cash: monto exacto, sin acciones ni instrumento. */
 const cashMovement = (seed: CashMovementSeed): SettledOrderMovement => ({
   side: seed.side,
-  amountArs: new Decimal(seed.amountArs),
+  amountArs: new FinancialDecimal(seed.amountArs),
 });
 
 interface TradeSeed {
@@ -55,7 +55,7 @@ const trade = (seed: TradeSeed): SettledOrderMovement => ({
   instrumentId: seed.instrumentId ?? 1,
   side: seed.side,
   sizeShares: seed.sizeShares,
-  priceArs: new Decimal(seed.priceArs),
+  priceArs: new FinancialDecimal(seed.priceArs),
 });
 
 interface RestingOrderSeed {
@@ -71,7 +71,7 @@ const restingOrder = (seed: RestingOrderSeed): RestingOrder => ({
   instrumentId: seed.instrumentId ?? 1,
   side: seed.side ?? "BUY",
   sizeShares: seed.sizeShares,
-  limitPriceArs: new Decimal(seed.limitPriceArs),
+  limitPriceArs: new FinancialDecimal(seed.limitPriceArs),
 });
 
 interface SnapshotSeed {
@@ -82,8 +82,8 @@ interface SnapshotSeed {
 const snapshot = (seed: SnapshotSeed): MarketdataSnapshot => ({
   instrumentId: seed.instrumentId,
   date: "2023-07-14",
-  closeArs: new Decimal(seed.closeArs),
-  previousCloseArs: new Decimal(seed.closeArs),
+  closeArs: new FinancialDecimal(seed.closeArs),
+  previousCloseArs: new FinancialDecimal(seed.closeArs),
 });
 
 const instrument = (

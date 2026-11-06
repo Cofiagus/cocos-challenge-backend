@@ -10,7 +10,7 @@ import { config } from "dotenv";
 
 config({ path: ".env.test" });
 
-import { Decimal } from "decimal.js";
+import { FinancialDecimal } from "../../../src/contracts/index.js";
 import type {
   OrderDraft,
   TransactionContext,
@@ -70,7 +70,7 @@ describe("PrismaOrderRepository.createOrder — persistencia decimal cash (DB re
         expectCreated(
           await submit(
             buildCashDraft(user.id, {
-              amountArs: new Decimal(amount),
+              amountArs: new FinancialDecimal(amount),
               idempotencyKey: null,
             }),
           ),
