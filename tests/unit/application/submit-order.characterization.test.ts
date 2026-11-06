@@ -1160,7 +1160,7 @@ const persistedCases: PersistedCase[] = [
     },
   },
   {
-    name: "REPLAY de un REJECTED ⇒ la orden original con reason null",
+    name: "REPLAY de un REJECTED ⇒ la orden original CON su razón original",
     request: {
       instrumentId: 1,
       side: "BUY",
@@ -1174,6 +1174,8 @@ const persistedCases: PersistedCase[] = [
       snapshot: snapshot(1, "925.85"),
       movements: [cashIn("1000.00")],
       createOutcome: "IDEMPOTENT_REPLAY",
+      // D-05: la razón del original la lee el claim de order_events.
+      replayReason: "INSUFFICIENT_FUNDS",
       existingOrder: {
         id: 900,
         instrumentId: 1,
@@ -1193,7 +1195,7 @@ const persistedCases: PersistedCase[] = [
     idempotencyKey: "idem-replay-rejected",
     expected: {
       status: "REJECTED",
-      reason: null,
+      reason: "INSUFFICIENT_FUNDS",
       draft: {
         status: "REJECTED",
         sizeShares: 1000,

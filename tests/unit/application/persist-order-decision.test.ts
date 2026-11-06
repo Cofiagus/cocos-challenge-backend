@@ -18,6 +18,7 @@ import type {
   DecidedCashOrder,
   DecidedOrder,
 } from "../../../src/application/orders/decide-order.js";
+import { cashRequestFingerprintOf } from "../../../src/contracts/request-fingerprint.js";
 import type { OrderRecord } from "../../../src/contracts/index.js";
 import {
   buildSubmitOrderFakes,
@@ -182,6 +183,15 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
         amountArs: new Decimal("123.45"),
         filledPriceArs: new Decimal("1.00"),
         filledAt: FILLED_AT,
+        // R-02: la huella del pedido cash se deriva del monto EXACTO.
+        requestFingerprint: cashRequestFingerprintOf({
+          instrumentId: CASH_BASE.instrumentId,
+          side: CASH_BASE.side,
+          type: CASH_BASE.type,
+          timeInForce: CASH_BASE.timeInForce,
+          priceArs: CASH_BASE.priceArs,
+          amountArs: new Decimal("123.45"),
+        }),
       },
     ]);
     expect(fakes.createdDrafts[0]).not.toHaveProperty("sizeShares");
@@ -202,7 +212,28 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
     expectSameTransaction(fakes);
   });
 
-  it("REPLAY: devuelve la orden ORIGINAL con reason null y sin evento", async () => {
+  it("REPLAY: devuelve la orden ORIGINAL con su razón original y sin evento", async () => {
+    const fakes = fakesFor({
+      createOutcome: "IDEMPOTENT_REPLAY",
+      existingOrder: EXISTING_ORDER,
+      // D-05: la razón del original vive en order_events; el claim la trae.
+      replayReason: "INSUFFICIENT_FUNDS",
+    });
+
+    const result = await persistOrderDecision(
+      fakes.deps.orders,
+      fakes.transaction,
+      { kind: "TRADING", base: BASE, decided: REJECTED },
+    );
+
+    expect(result.order).toBe(EXISTING_ORDER);
+    expect(result.reason).toBe("INSUFFICIENT_FUNDS");
+    expect(fakes.appendedEvents).toEqual([]);
+    expect(callLabels(fakes.calls)).toEqual(["orders.createOrder"]);
+    expectSameTransaction(fakes);
+  });
+
+  it("REPLAY de un FILLED/NEW: reason null (no hay razón que preservar)", async () => {
     const fakes = fakesFor({
       createOutcome: "IDEMPOTENT_REPLAY",
       existingOrder: EXISTING_ORDER,
@@ -217,8 +248,6 @@ describe("persistOrderDecision — claim idempotente y auditoría", () => {
     expect(result.order).toBe(EXISTING_ORDER);
     expect(result.reason).toBeNull();
     expect(fakes.appendedEvents).toEqual([]);
-    expect(callLabels(fakes.calls)).toEqual(["orders.createOrder"]);
-    expectSameTransaction(fakes);
   });
 
   it("CONFLICT: lanza IdempotencyConflictError (409) sin evento", async () => {

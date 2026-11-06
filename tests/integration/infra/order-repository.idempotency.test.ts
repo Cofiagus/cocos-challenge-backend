@@ -15,7 +15,10 @@ import { Decimal } from "decimal.js";
 import type { OrderDraft, OrderEventType } from "../../../src/contracts/index.js";
 import { CreateOrderRequestSchema } from "../../../src/contracts/index.js";
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
-import { requestFingerprintOf } from "../../../src/contracts/index.js";
+import {
+  cashRequestFingerprintOf,
+  requestFingerprintOf,
+} from "../../../src/contracts/index.js";
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
 import { createTestUser } from "../../helpers/factories.js";
 import {
@@ -276,6 +279,8 @@ interface SeedCashOrderInput {
   readonly idempotencyKey: string;
   readonly price?: string;
   readonly status?: "FILLED" | "REJECTED";
+  /** Huella del pedido (R-02); ausente = fila histórica sin huella. */
+  readonly requestFingerprint?: string;
   readonly events?: readonly {
     readonly eventType: OrderEventType;
     readonly reason?: "ZERO_SIZE";
@@ -304,6 +309,7 @@ const seedCashOrder = async (
         filledAt: new Date(),
         datetime: new Date(),
         idempotencyKey: input.idempotencyKey,
+        requestFingerprint: input.requestFingerprint ?? null,
       },
     });
     for (const event of input.events ?? []) {
@@ -699,4 +705,152 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
       );
     },
   );
+});
+// ---------------------------------------------------------------------------
+// R-02: la huella del pedido de CASH (monto exacto) y D-05 (razón del replay)
+//
+// Defecto que cierra R-02: el monto original de un cash sólo constaba en
+// `metadata.amountArs` del evento de auditoría, así que la detección de
+// conflicto dependía de que esa evidencia siguiera legible. Ahora la huella del
+// pedido (`fpc1`, con el monto EXACTO) decide cuando está en AMBOS lados; la
+// evidencia histórica estricta sigue vigente para las filas sin huella.
+// ---------------------------------------------------------------------------
+
+/** Pedido cash canónico: CASH_IN MARKET a 1.00 sobre el instrumento ARS. */
+const cashRequestOf = (amountArs: string) => ({
+  instrumentId: SEED_INSTRUMENT_ARS_ID,
+  side: "CASH_IN" as const,
+  type: "MARKET",
+  timeInForce: "GTC",
+  priceArs: new Decimal("1.00"),
+  amountArs: new Decimal(amountArs),
+});
+
+/** Huella del pedido cash, como la deriva la persistencia (R-02). */
+const cashFingerprintOf = (amountArs: string): string =>
+  cashRequestFingerprintOf(cashRequestOf(amountArs));
+
+describe("PrismaOrderRepository — huella del pedido cash (R-02)", () => {
+  const prisma = getPrismaClient();
+  const orderRepo = new PrismaOrderRepository();
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  const submit = (draft: ReturnType<typeof buildCashDraft>) =>
+    orderRepo.withUserTransaction(draft.userId, (tx) =>
+      orderRepo.createOrder(draft, tx),
+    );
+
+  it("huella igual SIN evento de origen ⇒ REPLAY (el monto vive en la huella)", async () => {
+    const user = await createTestUser(prisma);
+    const key = randomUUID();
+    const orderId = await seedCashOrder(prisma, user.id, {
+      size: "123.45",
+      idempotencyKey: key,
+      requestFingerprint: cashFingerprintOf("123.45"),
+      // SIN eventos: la auditoría no es la única fuente del monto.
+    });
+
+    const replayed = expectCashRecord(
+      expectReplay(
+        await submit(
+          buildCashDraft(user.id, {
+            idempotencyKey: key,
+            amountArs: new Decimal("123.45"),
+            requestFingerprint: cashFingerprintOf("123.45"),
+          }),
+        ),
+      ),
+    );
+    expect(replayed.id).toBe(orderId);
+    expect(replayed.amountArs.toFixed(2)).toBe("123.45");
+    // Replay puro: ni evento nuevo ni fila nueva, sin mover plata.
+    expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(0);
+    expect(await prisma.order.count({ where: { userId: user.id } })).toBe(1);
+  });
+
+  it("huella igual con metadata CONTRADICTORIA ⇒ REPLAY (la huella manda)", async () => {
+    const user = await createTestUser(prisma);
+    const key = randomUUID();
+    const orderId = await seedCashOrder(prisma, user.id, {
+      size: "123.45",
+      idempotencyKey: key,
+      requestFingerprint: cashFingerprintOf("123.45"),
+      events: [{ eventType: "ACCEPTED", metadata: { amountArs: "999.00" } }],
+    });
+
+    const replayed = expectCashRecord(
+      expectReplay(
+        await submit(
+          buildCashDraft(user.id, {
+            idempotencyKey: key,
+            amountArs: new Decimal("123.45"),
+            requestFingerprint: cashFingerprintOf("123.45"),
+          }),
+        ),
+      ),
+    );
+    expect(replayed.id).toBe(orderId);
+    expect(replayed.amountArs.toFixed(2)).toBe("123.45");
+    expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(1);
+  });
+
+  it("huella DISTINTA (otro monto) ⇒ CONFLICT sin mutar la fila original", async () => {
+    const user = await createTestUser(prisma);
+    const key = randomUUID();
+    const orderId = await seedCashOrder(prisma, user.id, {
+      size: "123.45",
+      idempotencyKey: key,
+      requestFingerprint: cashFingerprintOf("123.45"),
+      events: [{ eventType: "ACCEPTED", metadata: { amountArs: "123.45" } }],
+    });
+
+    const conflict = expectConflict(
+      await submit(
+        buildCashDraft(user.id, {
+          idempotencyKey: key,
+          amountArs: new Decimal("123.00"),
+          requestFingerprint: cashFingerprintOf("123.00"),
+        }),
+      ),
+    );
+    expect(conflict.id).toBe(orderId);
+    expect(expectCashRecord(conflict).amountArs.toFixed(2)).toBe("123.45");
+    expect(await prisma.order.count({ where: { userId: user.id } })).toBe(1);
+    expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(1);
+  });
+
+  it("D-05: replay de un cash REJECTED histórico devuelve la razón ORIGINAL", async () => {
+    const user = await createTestUser(prisma);
+    const key = randomUUID();
+    const orderId = await seedCashOrder(prisma, user.id, {
+      size: "0",
+      status: "REJECTED",
+      idempotencyKey: key,
+      // Sin huella: camino histórico, evidencia del evento de origen.
+      events: [
+        {
+          eventType: "REJECTED",
+          reason: "ZERO_SIZE",
+          metadata: { amountArs: "0.45" },
+        },
+      ],
+    });
+
+    const result = await submit(
+      buildCashDraft(user.id, {
+        idempotencyKey: key,
+        amountArs: new Decimal("0.45"),
+      }),
+    );
+    if (result.outcome !== "IDEMPOTENT_REPLAY") {
+      throw new Error(`esperaba IDEMPOTENT_REPLAY, llegó ${result.outcome}`);
+    }
+    expect(result.order.id).toBe(orderId);
+    // La razón del original se preserva: la MISMA key devuelve el MISMO cuerpo.
+    expect(result.reason).toBe("ZERO_SIZE");
+    expect(await prisma.orderEvent.count({ where: { orderId } })).toBe(1);
+  });
 });

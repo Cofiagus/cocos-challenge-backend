@@ -196,8 +196,14 @@ const expectDraft = (
   // Los precios/el monto se comparan por valor monetario exacto: el
   // constructor (Decimal del fixture vs FinancialDecimal del caso de uso) no
   // es parte del contrato.
-  const { filledPriceArs, priceArs, filledAt, amountArs, ...draftRest } =
-    draft;
+  const {
+    filledPriceArs,
+    priceArs,
+    filledAt,
+    amountArs,
+    requestFingerprint,
+    ...draftRest
+  } = draft;
   expect(draftRest).toEqual({
     userId,
     instrumentId: CASH_INSTRUMENT_ID,
@@ -208,6 +214,9 @@ const expectDraft = (
     idempotencyKey: expected.idempotencyKey,
     datetime: expect.any(Date),
   });
+  // R-02: el pedido de cash SIEMPRE lleva huella del monto exacto (fpc1). Su
+  // valor depende del instrumento resuelto: acá se caracteriza forma.
+  expect(requestFingerprint).toMatch(/^fpc1:[0-9a-f]{32}$/);
   expect(draft).not.toHaveProperty("sizeShares");
   expect(amountArs.toFixed(2)).toBe(expected.amountArs);
   expect(priceArs?.toFixed(2)).toBe("1.00");
@@ -657,13 +666,15 @@ const persistedCases: PersistedCase[] = [
     },
   },
   {
-    name: "REPLAY idempotente de un REJECTED ⇒ la orden original, reason null y sin evento",
+    name: "REPLAY idempotente de un REJECTED ⇒ la orden original CON su razón original",
     amountArs: "5000.00",
     side: "CASH_OUT",
     seed: {
       instruments: [ARS],
       movements: [cashIn("1000.00")],
       createOutcome: "IDEMPOTENT_REPLAY",
+      // D-05: la razón del original la lee el claim de order_events.
+      replayReason: "INSUFFICIENT_FUNDS",
       existingOrder: {
         id: 900,
         instrumentId: CASH_INSTRUMENT_ID,
@@ -690,7 +701,7 @@ const persistedCases: PersistedCase[] = [
         filledAt: null,
         side: "CASH_OUT",
       },
-      reason: null,
+      reason: "INSUFFICIENT_FUNDS",
       draft: {
         status: "REJECTED",
         amountArs: "5000.00",
