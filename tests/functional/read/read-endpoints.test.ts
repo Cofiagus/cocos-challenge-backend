@@ -24,7 +24,8 @@
 //           (LOMA BUY NEW 50×710 + BMA BUY NEW 60×1500) ⇒ disponible 627500.00
 //   PAMP 40 @ 930 (close 925.85)  ⇒ mv 37034.00 ·  retorno −0.45 %
 //   METR 500 @ 250 (close 229.50) ⇒ mv 114750.00 · retorno −8.20 %
-//   BMA −10 @ 1540 (close 1502.80)⇒ mv −15028.00 · retorno −2.42 %
+//   BMA −10 @ 1540 (close 1502.80)⇒ mv −15028.00 · retorno +2.42 %
+//     (posición negativa: costo base −15400.00, ganancia 372.00 ⇒ +2.42 %, no −2.42 %)
 //   totalAccountValue = 753000 + 37034 + 114750 − 15028 = 889756.00
 //     (cashSettled + Σ marketValue: incluye el cash reservado, así que una
 //      orden NEW no lo mueve)
@@ -150,7 +151,7 @@ describe("Célula C — endpoints de lectura (DB real: cocos_challenge_read)", (
             quantity: "-10",
             marketValue: "-15028.00",
             priceAvailable: true,
-            totalReturnPct: -2.42,
+            totalReturnPct: 2.42,
           },
           {
             ticker: "PAMP",
