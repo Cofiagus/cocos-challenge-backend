@@ -124,7 +124,7 @@ Tipos del **snapshot legacy**; en el esquema migrado `type`/`side`/`status` son 
 | `type`         | `varchar(10)`              | sí   | `MARKET` \| `LIMIT`; enum `OrderType` en el migrado |
 | `side`         | `varchar(10)`              | sí   | `BUY` \| `SELL` \| `CASH_IN` \| `CASH_OUT`; enum `OrderSide` en el migrado |
 | `status`       | `varchar(20)`              | sí   | `NEW` \| `FILLED` \| `CANCELLED` \| `REJECTED`; enum `OrderStatus` en el migrado |
-| `datetime`     | `timestamp` (sin tz)       | sí   | hora local del mercado |
+| `datetime`     | `timestamp` (sin tz)       | sí   | `timestamp without time zone`: **se lee como UTC** (el proceso fija `TZ=UTC`) |
 
 **Columnas del esquema MIGRADO** (no están en el snapshot legacy — `prisma/migrations/**`; los tipos
 son los del head versionado):
@@ -167,8 +167,10 @@ Combinaciones presentes en el seed (11 órdenes, todas del user 1):
 | CASH_IN   | MARKET   | FILLED      | 1 |
 | CASH_OUT  | MARKET   | FILLED      | 1 |
 
-`datetime` es `timestamp without time zone`: el seed está en hora local del mercado
-(2023-07-12 y 2023-07-13, entre 12:11 y 16:11).
+`datetime` es `timestamp without time zone` y **se lee como UTC**: `@prisma/adapter-pg`
+interpreta la columna sin zona como UTC y el proceso fija `TZ=UTC` (`src/index.ts`) para
+que la serialización no se desplace según la zona del host. El seed guarda 2023-07-12 y
+2023-07-13, entre 12:11 y 16:11.
 
 **Unidades en `size` (grandes montos):** físicamente una sola columna `numeric(24,2)`, dos unidades
 según `side` — en `BUY`/`SELL` es **cantidad de acciones enteras** (por orden 1..2147483647; `0`
