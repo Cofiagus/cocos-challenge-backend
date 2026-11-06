@@ -171,11 +171,15 @@ con `ticker`, `name`, `quantity`, `marketValue` ($), `totalReturnPct` (%).
 - `cash = cashSettled − cashReserved`
 - `quantity = Σ BUY.size − Σ SELL.size` (por instrumento)
 - `marketValue = quantity × close`
-- Costo promedio ponderado: cada BUY sube el promedio
+- Costo promedio ponderado de la **posición viva**: cada BUY sube el promedio
   (`avgCost = (avgCost×qtyPrev + size×price) / (qtyPrev + size)`); cada SELL
-  baja la cantidad sin tocar `avgCost`.
-- `totalReturnPct = (marketValue − quantity × avgCost) / (quantity × avgCost) × 100`
-  (posición de cantidad 0 no se lista).
+  baja la cantidad sin tocar `avgCost`, y cuando la cantidad neta **vuelve a 0**
+  el acumulado se reinicia (la posición que se reabre arranca de cero: BUY 10@100,
+  SELL 10@100, BUY 10@200 ⇒ `avgCost` 200, no 150).
+- `totalReturnPct = (marketValue − quantity × avgCost) / |quantity × avgCost| × 100`
+  — denominador en **valor absoluto** (decisión Q2=A): una posición negativa que
+  gana da retorno positivo en vez de invertir el signo. Costo 0 ⇒ retorno no
+  computable (`null`); posición de cantidad 0 no se lista.
 
 ### UC-2 — Buscar activos (`GET /api/instruments?query=...`)
 

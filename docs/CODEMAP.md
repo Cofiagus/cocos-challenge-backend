@@ -149,21 +149,26 @@ grep -rn "@prisma" src | grep -v "src/infra\|src/lib"   # debe salir vacío
 8. **`db/schema.sql` es un snapshot generado y viejo**; el DDL real es `prisma/migrations/**`.
    Nunca cargar la DB de desarrollo desde `db/schema.sql`.
 
-## 11. Mapa de tests (una suite por caso de uso)
+## 11. Mapa de tests (una suite por caso de uso; transversal al final)
 
 | suite | cubre | DB |
 |---|---|---|
-| `tests/unit/domain/**` | dominio puro: cash, reservas, patrimonio (`portfolio-total-account-value`), matching, sizing | ninguna |
-| `tests/unit/application/*` | decisiones y persistencia de órdenes (puras) y el caso de uso del portfolio (con fakes) | ninguna |
-| `tests/unit/http/*` | borde compartido (`edge`) y contrato de errores transversales (404/400/413/500 con `buildApp`) | ninguna |
-| `tests/unit/contracts-orders.test.ts` · `tests/unit/money-input.test.ts` · `tests/unit/money-serialization.test.ts` | schemas Zod del contrato de órdenes (`MAX_ORDER_SIZE_SHARES`, `price` null en MARKET) y de dinero | ninguna |
-| `tests/integration/infra/*` | 4 repos Prisma + idempotencia + tx + mappers (`filledPrice`) | `cocos_challenge_test` |
+| `tests/unit/domain/**` | dominio puro: cash, reservas, costo/retorno de posición (`portfolio-position-cost`), patrimonio (`portfolio-total-account-value`), matching, sizing | ninguna |
+| `tests/unit/application/*` | decisiones y persistencia de órdenes (puras), caso de uso del portfolio y búsqueda de UC-2 (con fakes de la quote source) | ninguna |
+| `tests/unit/http/*` | borde compartido (`edge`), contrato de errores transversales (404/400/413/500 con `buildApp`) y borde de UC-2 (503 `MARKET_DATA_SERVICE_UNAVAILABLE`) | ninguna |
+| `tests/unit/contracts-orders.test.ts` · `tests/unit/contracts-instruments.test.ts` · `tests/unit/instrument-search-ports.test.ts` · `tests/unit/money-input.test.ts` · `tests/unit/money-serialization.test.ts` · `tests/unit/financial-domain-contracts.test.ts` · `tests/unit/large-money-arithmetic.test.ts` | schemas Zod del contrato (órdenes, instrumentos, dinero, contratos de dominio), el port de búsqueda y la aritmética de 64 cifras | ninguna |
+| `tests/unit/infra/*` | mappers (`filledPrice`) y adaptador Yahoo de UC-2 con respuestas stubbeadas | ninguna |
+| `tests/unit/test-database-url.test.ts` | derivación de la URL de test por nombre de suite (aislamiento entre suites) | ninguna |
+| `tests/integration/infra/*` | 4 repos Prisma + idempotencia + tx + mappers + storage de grandes montos | `cocos_challenge_test` |
 | `tests/functional/read` | UC-1 y UC-2 end-to-end | `cocos_challenge_read` |
 | `tests/functional/orders` | matriz completa UC-3 (13 casos) contra `serverApp` | `cocos_challenge_ftest` |
 | `tests/functional/orders-submit` | cableo application+router+repos de UC-3 | `cocos_challenge_submit` |
 | `tests/functional/cancel` | UC-4 | `cocos_challenge_cancel` |
 | `tests/functional/transfers` | UC-5 | `cocos_challenge_transfer` |
+| `tests/functional/large-money` | **aceptación de grandes montos** (D1–D5): máximo por fila, centavos, overflow/scale sin escritura, replay histórico, concurrencia y rollback de auditoría, contra Express + PostgreSQL reales | `lm_acceptance_test` |
 | `tests/db.smoke.test.ts` · `tests/deps.smoke.test.ts` | toolchain (pg, ts-jest, imports) | `cocos_challenge_test` |
+| `tests/build.esm.smoke.test.ts` | artefacto `dist/` importado por Node como ESM real (sin DB ni puerto) | ninguna |
+| `tests/docs/**` | guardias normativas doc↔código y contrato OpenAPI (detalle en §12) | ninguna |
 
 ## 12. Herramientas de documentación (fuera de `src/`)
 

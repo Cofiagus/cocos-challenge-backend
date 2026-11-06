@@ -1,23 +1,32 @@
 # Esquema PostgreSQL antes/después — migración `20261105104903_large_money`
 
 Diagrama **antes/después** del esquema de negocio (5 tablas), derivado estrictamente de los
-catálogos observados durante el gate G0 read-only. **No describe una migración aplicada a la base
-de la app**: la app sigue en el estado "antes"; el estado "después" fue validado sólo en una base
-de test aislada.
+catálogos observados durante el gate G0 read-only (2026-11-05). Sigue siendo válido como
+**objetivo** del cambio de tipos y CHECKs de `20261105104903_large_money`, y como registro fiel
+de lo observado en ese gate.
+
+> **Actualización posterior — gate G3 (2026-11-06):** la migración **sí quedó aplicada** a la base
+> de la app `127.0.0.1:5433/cocos_challenge` (`PROGRESS.md`, fila A3 / G3 y §ROLLOUT CERRADO:
+> `migrate deploy` con 2 migraciones aplicadas, 0 `rolled_back`, los 6 CHECK verificados por nombre
+> y definición contra el SQL versionado, 8 columnas `NUMERIC(24,2)`, segundo `migrate deploy` sin
+> pendientes). Por lo tanto el "antes" de este documento es el estado **previo al rollout**, no el
+> vigente.
 
 ## Fuentes y limitación
 
 | Fuente | Qué observa |
 |---|---|
-| Snapshot **antes**: catálogo real de la app — `127.0.0.1:5433/cocos_challenge` (G0, 2026-11-05T23:39:41Z, read-only, migración única `20261103003419_init_trading_api`) | Estado vigente de la app |
-| Snapshot **después**: catálogo real del target de test — `127.0.0.1:55432/cocos_rollout_main_gate_test` (mismas migraciones + `20261105104903_large_money` aplicada) | Estado objetivo validado en TEST |
+| Snapshot **antes**: catálogo real de la app — `127.0.0.1:5433/cocos_challenge` (G0, 2026-11-05T23:39:41Z, read-only, migración única `20261103003419_init_trading_api`) | Estado de la app **antes de G3** (hoy: histórico) |
+| Snapshot **después**: catálogo real del target de test — `127.0.0.1:55432/cocos_rollout_main_gate_test` (mismas migraciones + `20261105104903_large_money` aplicada) | Estado objetivo, validado en TEST y luego aplicado en la app por G3 |
 
 - Ambos snapshots contienen **sólo estructura** (columnas, tipos, nullabilidad, defaults,
   constraints, índices, enums): ni credenciales ni datos de usuarios ni economía de las filas.
 - Limitación: son snapshots puntuales observados, no una garantía de futuro; cualquier cambio
   posterior al esquema invalida este documento hasta re-observar.
-- `appMigrationPerformed: false` y `databaseWritesPerformed: false` en el registro del G0:
-  **la base de la app NO fue migrada**; los diagramas muestran objetivo, no hecho.
+- `appMigrationPerformed: false` y `databaseWritesPerformed: false` en el registro del G0: en ese
+  momento la base de la app **no** había sido migrada. Eso describe el G0, **no** el estado final:
+  el gate posterior G3 aplicó `20261105104903_large_money` sobre `cocos_challenge` (ver la
+  actualización del encabezado y `PROGRESS.md`).
 
 ## Qué cambia y qué no
 
@@ -117,7 +126,7 @@ una escritura SQL externa.
 - `_prisma_migrations` es tabla técnica de Prisma, fuera del ERD: al aplicar la migración sólo se
   **suma un registro** a esa tabla existente; no se crea ninguna tabla nueva de negocio.
 
-## ERD antes (estado observado en la app — `cocos_challenge`, puerto 5433)
+## ERD antes (estado observado en la app — `cocos_challenge`, puerto 5433; G0, previo a G3)
 
 ```mermaid
 erDiagram
@@ -177,7 +186,7 @@ erDiagram
 **UNIQUE compuesto `orders_userid_idempotencyKey_key (userid, idempotencyKey)`** — que ya existía
 y se mantiene, no es nuevo.
 
-## ERD después (estado objetivo validado en TEST — `cocos_rollout_main_gate_test`, puerto 55432)
+## ERD después (estado objetivo validado en TEST — `cocos_rollout_main_gate_test`, puerto 55432; desde G3 también el estado de la app)
 
 Misma topología y mismas cardinalidades; cambian sólo los 8 tipos marcados con †.
 
