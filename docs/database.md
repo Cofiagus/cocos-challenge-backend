@@ -45,8 +45,9 @@ Si algo cambia en la base, se regenera el snapshot con `make db-snapshot` (ver �
 
 El **snapshot legacy** (`db/schema.sql`) tiene cuatro tablas, sin vistas, sin funciones, sin
 triggers, sin enums y sin CHECK constraints. El **esquema migrado** (`prisma/migrations/**`)
-agrega `order_events` (cinco tablas) y seis enums nativos: `OrderType`, `OrderSide`,
-`OrderStatus`, `TimeInForce`, `OrderEventType` y `OrderEventReason`.
+agrega `order_events` (cinco tablas) y seis enums nativos (`OrderType`, `OrderSide`,
+`OrderStatus`, `TimeInForce`, `OrderEventType` y `OrderEventReason`), más los índices de §5,
+las diez CHECK constraints y el trigger de §10.
 
 ```
 users ──┐
@@ -122,7 +123,8 @@ nullabilidad de `close`/`previousclose` la endurece después la migración
 ### `orders`
 
 Tipos del **snapshot legacy**; en el esquema migrado `type`/`side`/`status` son enums nativos
-(`OrderType`, `OrderSide`, `OrderStatus`) y `idempotencyKey` es `text`.
+(`OrderType`, `OrderSide`, `OrderStatus`) y `idempotencyKey` es `text`. El **head versionado**
+además pone `type`, `side` y `datetime` **NOT NULL**; `status` sigue nullable (§10).
 
 | Columna        | Tipo (snapshot legacy)     | Nulo | Notas |
 | -------------- | -------------------------- | ---- | ----- |
@@ -244,9 +246,9 @@ Tras la migración de grandes montos estas queries no cambian: operan sobre `num
 devuelven `numeric` exacto (la API serializa el dinero como string de 2 decimales; el SQL nunca
 convierte plata a float).
 
-`db/queries/portfolio.sql` reproduce exactamente estos números — se validó cargando
-`db/schema.sql` + `db/seed.sql` en un PostgreSQL 18 limpio y comparando contra el resultado
-de Neon.
+`db/queries/portfolio.sql` reproduce exactamente estos números: se validó cargando
+`db/schema.sql` + `db/seed.sql` en un PostgreSQL limpio y contrastando el resultado con los
+valores de referencia de esta sección.
 
 **Sólo `status = 'FILLED'` mueve plata.** `NEW` **reserva** (decisión del build): BUY `NEW`
 reserva `limit × size` de cash y SELL `NEW` reserva `size` acciones — **sin tabla de reservas**,
@@ -285,61 +287,33 @@ Query reutilizable con precio de mercado y P&L: `db/queries/portfolio.sql`.
 
 ---
 
-## 5. Estado de performance
+## 5. Plan de consulta e índices
 
-Con 7.8 MB de base y 11 filas en `orders`, **el planner no es el problema**: todo entra en un
-seq scan de milisegundos. Lo que cuesta es la red.
+Con 11 filas en `orders` y 126 velas (el seed, §1), **el planner no es el problema**: todo entra
+en un seq scan de milisegundos. Lo único que cuesta es el round-trip cuando la base está remota,
+y por eso las suites y la iteración se corren contra PostgreSQL local (§6).
 
-| Métrica (medida desde Buenos Aires)  | Valor        |
-| ------------------------------------ | ------------ |
-| Connect (IPv4 forzado)               | ~1,1 s       |
-| Connect sin forzar IPv4              | **~91 s** ⚠️ |
-| Round-trip por query                 | **~200 ms**  |
+Índices reales del **head versionado** (los crean `20261103003419_init_trading_api` y
+`20261106154910_db_integrity_constraints`; no existen en el snapshot legacy):
 
-### ⚠️ Trampa nº1: IPv6 sin ruta
+| Índice | Columnas | Qué consulta cubre |
+| --- | --- | --- |
+| `orders_userid_status_idx` | `orders (userid, status)` | Proyección de cash/posiciones y reservas: `WHERE userid = $1 AND status = …` (§3) — incluye `listRestingOrders` |
+| `orders_status_instrumentid_idx` | `orders (status, instrumentid)` | Órdenes por estado e instrumento para el matching de límites; hoy `matchRestingOrders` no está cableado (ver `docs/legacy.md`) |
+| `orders_userid_idempotencyKey_key` **UNIQUE** | `orders (userid, "idempotencyKey")` | Claim idempotente; múltiples `NULL` permitidos |
+| `marketdata_instrumentid_date_idx` | `marketdata (instrumentid, date DESC)` | Último precio por instrumento |
+| `marketdata_instrumentid_date_key` **UNIQUE** | `marketdata (instrumentid, date)` | Una vela por instrumento y fecha (§10) |
+| `order_events_orderid_idx` | `order_events (orderid)` | Eventos de una orden |
 
-El host de Neon devuelve registros **AAAA además de A**. Si la máquina tiene IPv6 "anunciado"
-pero sin ruta real, `connect()` queda en `SYN-SENT` contra la IPv6 hasta el timeout: **90 s
-por intento**, y encima parece un cold start de Neon (no lo es).
+**`orders(userid, datetime)` no está en el head y no corresponde:** ningún endpoint ordena
+órdenes por `datetime`; el portfolio filtra por `userid` y `status` y agrega en memoria, y ese
+filtro lo cubre `orders_userid_status_idx`. El índice `orders_userid_datetime_idx` sólo existe
+como propuesta en `db/indexes.sql`, que **no se aplica** (ver `docs/legacy.md`).
 
-Síntoma:
-
-```bash
-ss -tanp | grep 5432
-# SYN-SENT ... [2800:...]:xxxxx [2600:1f16:...]:5432   <- atascado en IPv6
-```
-
-Solución: resolver el A record y pasarlo como `hostaddr` (manteniendo `host` para el TLS/SNI).
-Es lo que hace `scripts/db-snapshot.py::connect()`, y sirve para cualquier cliente:
-
-```python
-ip = socket.getaddrinfo(host, 5432, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
-psycopg.connect(dsn, hostaddr=ip)
-```
-
-Con Node/Prisma: `?host=<ip>&sslmode=require` o `dns.setDefaultResultOrder('ipv4first')`.
-
-### Consecuencias prácticas
-
-- **No iteres contra Neon.** Un endpoint con 5 queries = ~1 s de latencia pura.
-- La URL del challenge apunta al **pooler** (`...-pooler...`): PgBouncer en modo transacción.
-  Rompe `LISTEN/NOTIFY`, advisory locks de sesión, prepared statements con nombre y
-  `SET LOCAL` fuera de transacción. Para migraciones (Prisma, Knex, TypeORM) usá el host
-  **sin** `-pooler`; para el runtime, el `-pooler` está bien.
-
-Faltantes que sí importan cuando el volumen crezca (no ahora):
-
-| Índice / constraint                                  | Por qué                                                        |
-| ---------------------------------------------------- | -------------------------------------------------------------- |
-| `orders (userid, datetime DESC)`                     | Es *la* query del portfolio y del historial                     |
-| `orders (status)` parcial `WHERE status='NEW'`       | Cancelar y matchear límites                                     |
-| `marketdata (instrumentid, date DESC)` **UNIQUE**    | Ya está: `marketdata_instrumentid_date_key` lo crea `20261106154910_db_integrity_constraints` (§10) y evita velas duplicadas |
-| `instruments (ticker)` **UNIQUE**                    | Búsqueda por ticker y dedupe                                     |
-| `users (email)` **UNIQUE**                           | Login / alta                                                    |
-| `CHECK (size > 0)`                                   | `size` no tiene validación general en la DB; la migración de grandes montos agrega CHECKs **acotados a los campos financieros modificados** (ver §9) — no esta regla amplia |
-| `orders.status NOT NULL DEFAULT 'NEW'`               | Hoy todo es nullable: un `INSERT` sin status rompe la proyección |
-
-Están escritos y comentados en `db/indexes.sql` — **no** los apliques sobre Neon sin querer.
+Deudas de esquema que quedan explícitas: `orders.status` sigue nullable y sin `DEFAULT 'NEW'`, y
+`instruments.ticker` y `users.email` no tienen `UNIQUE` — el catálogo y los usuarios se leen por
+`id`, y el alta de usuarios no es parte de esta API. Los CHECKs vigentes son los 10 de §10, no
+los de `db/indexes.sql`.
 
 ---
 
