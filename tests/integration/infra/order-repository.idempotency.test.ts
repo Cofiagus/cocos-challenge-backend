@@ -674,7 +674,10 @@ describe("PrismaOrderRepository — idempotencia cash exacta (DB real)", () => {
   it.each([
     ["side", { side: "CASH_OUT" as const }],
     ["instrumento", { instrumentId: SEED_INSTRUMENT_PAMP_ID }],
-    ["precio", { priceArs: new Decimal("2.00") }],
+    // El cambio de PRECIO (2.00) se mudó a
+    // `tests/unit/infra/request-comparison.test.ts`: el CHECK
+    // `CASH ⇒ price = 1.00` lo rechaza en el INSERT antes de la comparación
+    // (misma cobertura, sin filas no conformes).
   ])(
     "cambio de %s en una key histórica ⇒ CONFLICT (aunque el monto coincida)",
     async (_label, overrides) => {

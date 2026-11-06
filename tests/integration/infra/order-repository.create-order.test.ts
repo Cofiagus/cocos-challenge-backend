@@ -1,7 +1,8 @@
 // Integración (DB real: cocos_challenge_test) + tx simulada — caracterización
-// de PrismaOrderRepository.createOrder ANTES del refactor: ramas sin
-// cobertura (count del claim fuera de {0,1}, fila ausente tras el claim) y
-// comparación de precio con UN solo lado NULL.
+// de PrismaOrderRepository.createOrder: persistencia decimal del cash y ramas
+// que el SQL real no puede producir (count del claim fuera de {0,1}, fila
+// ausente tras el claim). La comparación de identidad del request vive en
+// `tests/unit/infra/request-comparison.test.ts` (función pura, sin DB).
 //
 // Prerequisito: `npm run test:db:reset` antes de la suite.
 
@@ -23,9 +24,7 @@ import {
   buildCashDraft,
   buildDraft,
   expectCashRecord,
-  expectConflict,
   expectCreated,
-  expectReplay,
 } from "./support.js";
 
 /**
@@ -44,65 +43,11 @@ interface ClaimOnlyDb {
 const asTransactionContext = (db: ClaimOnlyDb): TransactionContext =>
   db as unknown as TransactionContext;
 
-describe("PrismaOrderRepository.createOrder — caracterización (DB real)", () => {
-  const prisma = getPrismaClient();
-  const orderRepo = new PrismaOrderRepository();
-
-  afterAll(async () => {
-    // Cierre ordenado del pool del adapter para que el worker de jest termine limpio.
-    await prisma.$disconnect();
-  });
-
-  const submit = (draft: OrderDraft) =>
-    orderRepo.withUserTransaction(draft.userId, (tx) =>
-      orderRepo.createOrder(draft, tx),
-    );
-
-  it("price NULL en la fila y no-NULL en el draft ⇒ IDEMPOTENT_CONFLICT", async () => {
-    const user = await createTestUser(prisma);
-    const draft = buildDraft(user.id, { priceArs: null });
-    const created = expectCreated(await submit(draft));
-    expect(created.priceArs).toBeNull();
-
-    // Misma key y mismo resto del payload, ahora con precio de límite.
-    const conflicted = expectConflict(
-      await submit(
-        buildDraft(user.id, {
-          idempotencyKey: draft.idempotencyKey,
-          priceArs: new Decimal("930.00"),
-        }),
-      ),
-    );
-    expect(conflicted.id).toBe(created.id);
-    expect(conflicted.priceArs).toBeNull();
-  });
-
-  it("price no-NULL en la fila y NULL en el draft ⇒ IDEMPOTENT_CONFLICT", async () => {
-    const user = await createTestUser(prisma);
-    const draft = buildDraft(user.id);
-    const created = expectCreated(await submit(draft));
-
-    const conflicted = expectConflict(
-      await submit(
-        buildDraft(user.id, {
-          idempotencyKey: draft.idempotencyKey,
-          priceArs: null,
-        }),
-      ),
-    );
-    expect(conflicted.id).toBe(created.id);
-    expect(conflicted.priceArs?.toFixed(2)).toBe("930.00");
-  });
-
-  it("price NULL en ambos lados ⇒ IDEMPOTENT_REPLAY", async () => {
-    const user = await createTestUser(prisma);
-    const draft = buildDraft(user.id, { priceArs: null });
-    const created = expectCreated(await submit(draft));
-    const replayed = expectReplay(await submit(draft));
-    expect(replayed.id).toBe(created.id);
-    expect(replayed.priceArs).toBeNull();
-  });
-});
+// Los tres casos de `price` NULL (fila no-NULL/draft NULL, fila NULL/draft
+// no-NULL y NULL en ambos lados) se mudaron a
+// `tests/unit/infra/request-comparison.test.ts`: con el CHECK
+// `LIMIT ⇒ price NOT NULL` ya no se puede persistir una fila LIMIT sin
+// precio, y la comparación pura cubre la MISMA matriz sin DB.
 
 describe("PrismaOrderRepository.createOrder — persistencia decimal cash (DB real)", () => {
   const prisma = getPrismaClient();
@@ -179,6 +124,9 @@ describe("PrismaOrderRepository.createOrder — persistencia decimal cash (DB re
         status: "FILLED",
         size: null,
         price: "1.00",
+        // El CHECK `FILLED ⇒ filledPrice NOT NULL` es del head versionado:
+        // la fila caracterizada es legacy por el `size`, no por el precio.
+        filledPrice: "1.00",
         datetime: new Date(),
       },
     });

@@ -27,12 +27,17 @@ import { getPrismaClient } from "../../lib/prisma-client.js";
 import { cashIdempotencyOutcome } from "./cash-idempotency.js";
 import { CorruptRowError } from "./corrupt-row.error.js";
 import {
-  decimalFromDb,
   decimalToDbParam,
   mapOrderEventRow,
   mapOrderRow,
   metadataToDbParam,
 } from "./mappers.js";
+import {
+  classifyTradingRequest,
+  sameIdentityPayload,
+  type OrderRequestRow,
+  type RequestPayload,
+} from "./request-comparison.js";
 import {
   brandTransactionContext,
   resolveDbExecutor,
@@ -88,55 +93,30 @@ const orderCreateData = (
   requestFingerprint: params.requestFingerprint,
 });
 
-/** price de la fila vs price del draft (Decimal por string, nunca float). */
-const pricesEqual = (
-  dbValue: Prisma.Decimal | null,
-  draftValue: FinancialDecimal | null,
-): boolean => {
-  if (dbValue === null || draftValue === null) {
-    return dbValue === null && draftValue === null;
-  }
-  return decimalFromDb(dbValue).equals(draftValue);
-};
+/** Vista estructural de la fila para comparar (ver request-comparison.ts). */
+const comparisonRow = (row: Order): OrderRequestRow => ({
+  instrumentId: row.instrumentId,
+  side: row.side,
+  type: row.type,
+  timeInForce: row.timeInForce,
+  price: row.price === null ? null : row.price.toString(),
+  size: row.size === null ? null : row.size.toString(),
+  requestFingerprint: row.requestFingerprint,
+});
 
-/**
- * Mismo PAYLOAD idempotente salvo la unidad de `size`:
- * instrumentId/side/type/timeInForce/price (DECISIONS.md; status/filled* los
- * decide la app, no integran el payload).
- */
-const sameIdentityPayload = (row: Order, draft: OrderDraft): boolean =>
-  row.instrumentId === draft.instrumentId &&
-  row.side === draft.side &&
-  row.type === draft.type &&
-  row.timeInForce === draft.timeInForce &&
-  pricesEqual(row.price, draft.priceArs);
-
-/** Acciones: igualdad exacta contra la columna Decimal (sin pasar por float). */
-const sameTradingSize = (row: Order, draft: OrderDraft): boolean => {
-  if (draft.side !== "BUY" && draft.side !== "SELL") {
-    return false;
-  }
-  if (row.size === null) {
-    return false;
-  }
-  return decimalFromDb(row.size).equals(String(draft.sizeShares));
-};
-
-/**
- * Mismo REQUEST de trading (F2-IDEM, R3). Con huella en AMBOS lados la huella
- * MANDA: el monto original (amountArs "1000.00" vs "1000.50") viaja ahí, no en
- * el `size` derivado por floor — compararlos por size devolvía REPLAY cuando
- * el contrato promete 409. Si falta la huella en alguno de los dos (fila
- * legacy, o draft sin huella) se cae a la comparación histórica: comportamiento
- * vigente y conservador.
- */
-const sameTradingRequest = (row: Order, draft: OrderDraft): boolean => {
-  const draftFingerprint = draft.requestFingerprint ?? null;
-  if (row.requestFingerprint !== null && draftFingerprint !== null) {
-    return row.requestFingerprint === draftFingerprint;
-  }
-  return sameTradingSize(row, draft);
-};
+/** Vista estructural del request: MISMA normalización que la escritura. */
+const comparisonPayload = (
+  draft: OrderDraft,
+  params: OrderWriteParams,
+): RequestPayload => ({
+  instrumentId: draft.instrumentId,
+  side: draft.side,
+  type: draft.type,
+  timeInForce: draft.timeInForce,
+  price: params.price,
+  size: params.size,
+  requestFingerprint: params.requestFingerprint,
+});
 
 interface ClaimedOrderRow {
   /** true si ESTE envío insertó la fila; false si la key ya estaba reclamada. */
@@ -234,16 +214,17 @@ export class PrismaOrderRepository implements OrderRepository {
     }
 
     // Conflicto: identidad + (huella del request | unidad de size) deciden
-    // REPLAY vs CONFLICT.
-    if (!sameIdentityPayload(row, draft)) {
+    // REPLAY vs CONFLICT (request-comparison.ts, función pura).
+    const requestRow = comparisonRow(row);
+    const payload = comparisonPayload(draft, params);
+    if (draft.side === "BUY" || draft.side === "SELL") {
+      const outcome = classifyTradingRequest(requestRow, payload);
+      return { outcome, order: mapOrderRow(row) };
+    }
+    if (!sameIdentityPayload(requestRow, payload)) {
       return { outcome: "IDEMPOTENT_CONFLICT", order: mapOrderRow(row) };
     }
-    const outcome: CreateOrderResult["outcome"] =
-      draft.side === "BUY" || draft.side === "SELL"
-        ? sameTradingRequest(row, draft)
-          ? "IDEMPOTENT_REPLAY"
-          : "IDEMPOTENT_CONFLICT"
-        : await cashIdempotencyOutcome(db, row, draft.amountArs);
+    const outcome = await cashIdempotencyOutcome(db, row, draft.amountArs);
     return { outcome, order: mapOrderRow(row) };
   };
 
