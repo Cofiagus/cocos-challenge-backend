@@ -1,18 +1,36 @@
-// Entry del servidor HTTP: carga .env, escucha en PORT y cierra ordenadamente
-// ante SIGTERM/SIGINT. La composición de la app vive en src/http/server.ts.
+// Entry del servidor HTTP: carga .env, valida la configuración, escucha en
+// HOST:PORT y cierra ordenadamente ante SIGTERM/SIGINT. La composición de la
+// app vive en src/http/server.ts.
 import "dotenv/config";
 import { serverApp } from "./http/server.js";
 import { disconnectPrismaClient } from "./lib/prisma-client.js";
+import { loadRuntimeConfig } from "./lib/runtime-config.js";
+import type { RuntimeConfig } from "./lib/runtime-config.js";
 
-const port = Number(process.env["PORT"] ?? "3000");
-// Bind exclusivo a loopback: la API es local y no tiene autenticación, así que
-// no debe quedar expuesta en las interfaces de red de la máquina. `listen(port)`
-// sin host se bindea a 0.0.0.0 (y ::), que es justo lo que hay que evitar.
-const host = "127.0.0.1";
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
-const server = serverApp.listen(port, host, () => {
-  console.log(`✓ cocos-challenge-backend escuchando en http://${host}:${port}`);
+/**
+ * Config validada ANTES de escuchar: un PORT inválido sale con mensaje
+ * accionable y exit 1 en vez del RangeError síncrono de listen(NaN), que
+ * además no pasa por server.on("error"). DATABASE_URL también se valida acá
+ * (fail-fast): arrancar sin base sólo traslada la falla al primer request.
+ */
+const loadConfigOrExit = (): RuntimeConfig => {
+  try {
+    return loadRuntimeConfig();
+  } catch (error) {
+    const causa = error instanceof Error ? error.message : String(error);
+    console.error(`✗ Configuración inválida: ${causa}`);
+    process.exit(1);
+  }
+};
+
+const config = loadConfigOrExit();
+
+const server = serverApp.listen(config.port, config.host, () => {
+  console.log(
+    `✓ cocos-challenge-backend escuchando en http://${config.host}:${config.port}`,
+  );
 });
 
 // listen() reporta errores asíncronos (EADDRINUSE y afines) como evento
@@ -21,7 +39,7 @@ const server = serverApp.listen(port, host, () => {
 server.on("error", (error: NodeJS.ErrnoException) => {
   const causa =
     error.code === "EADDRINUSE"
-      ? `el puerto ${port} ya está en uso`
+      ? `el puerto ${config.port} ya está en uso`
       : error.message;
   console.error(`✗ No se pudo levantar el servidor: ${causa}`);
   process.exit(1);
