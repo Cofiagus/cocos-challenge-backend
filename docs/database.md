@@ -166,7 +166,7 @@ order_events(id, orderid → orders(id), eventType, reason NULL, metadata jsonb 
 -- índice: order_events(orderid)
 ```
 
-> **`price` vs `filledPrice` — la decisión del build.** `price` = **límite enviado** (`null` en un
+> **`price` vs `filledPrice` — la decisión de diseño.** `price` = **límite enviado** (`null` en un
 > `MARKET` de la app, que no lleva límite); `filledPrice` = **precio de ejecución**. Así el límite
 > original **no se pierde** al llenar la orden.
 >
@@ -258,7 +258,7 @@ convierte plata a float).
 `db/schema.sql` + `db/seed.sql` en un PostgreSQL limpio y contrastando el resultado con los
 valores de referencia de esta sección.
 
-**Sólo `status = 'FILLED'` mueve plata.** `NEW` **reserva** (decisión del build): BUY `NEW`
+**Sólo `status = 'FILLED'` mueve plata.** `NEW` **reserva** (decisión de diseño): BUY `NEW`
 reserva `limit × size` de cash y SELL `NEW` reserva `size` acciones — **sin tabla de reservas**,
 se derivan de las `NEW` al vuelo:
 
