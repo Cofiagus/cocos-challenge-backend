@@ -8,10 +8,16 @@
 
 import { z } from "zod";
 import { MoneyArsSchema, PctSchema } from "./money.js";
+import { PositiveIntParamSchema } from "./orders.js";
 
-/** Params de ruta. */
+/**
+ * Params de ruta. `userId` se persiste en una columna `Int`: la cota INT4
+ * compartida (PositiveIntParamSchema, definida en orders.ts junto a la misma
+ * cota de `size`) convierte un id fuera de rango en 400 antes de consultar,
+ * en vez del 500 del driver.
+ */
 export const PortfolioParamsSchema = z.strictObject({
-  userId: z.coerce.number().int().positive(),
+  userId: PositiveIntParamSchema,
 });
 export type PortfolioParams = z.infer<typeof PortfolioParamsSchema>;
 

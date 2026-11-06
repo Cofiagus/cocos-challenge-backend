@@ -24,6 +24,7 @@ import type {
 import {
   deriveCash,
   evaluateCross,
+  isUsableReferencePrice,
   sizeSharesFromAmountArs,
 } from "../../domain/index.js";
 
@@ -80,15 +81,7 @@ export const limitPriceOf = (
 export const rejectForMissingPrice = (
   request: CreateOrderRequest,
   instrument: InstrumentRecord,
-): DecidedOrder => ({
-  status: "REJECTED",
-  sizeShares: request.size ?? 0,
-  filledPriceArs: null,
-  filledAt: null,
-  eventType: "REJECTED",
-  reason: "NO_PRICE",
-  metadata: { ticker: instrument.ticker },
-});
+): DecidedOrder => rejectOrder(request.size ?? 0, "NO_PRICE", { ticker: instrument.ticker });
 
 /**
  * size: explícito (XOR del borde) o derivado del monto (DECISIONS.md:
@@ -145,17 +138,8 @@ export const buildAuditBase = (
 });
 
 /** size 0 (sólo derivable de amountArs) ⇒ REJECTED ZERO_SIZE persistida. */
-export const rejectForZeroSize = (
-  auditBase: OrderEventMetadata,
-): DecidedOrder => ({
-  status: "REJECTED",
-  sizeShares: 0,
-  filledPriceArs: null,
-  filledAt: null,
-  eventType: "REJECTED",
-  reason: "ZERO_SIZE",
-  metadata: auditBase,
-});
+export const rejectForZeroSize = (auditBase: OrderEventMetadata): DecidedOrder =>
+  rejectOrder(0, "ZERO_SIZE", auditBase);
 
 /**
  * Posición FILLED de UN instrumento: BUY suma, SELL resta; los movimientos de
@@ -277,6 +261,24 @@ export interface AcceptedOrderInput {
   readonly decidedAt: Date;
 }
 
+/**
+ * Orden REJECTED persistible sin precio ni instante: fábrica común de los
+ * rechazos decididos antes de escribir (NO_PRICE, ZERO_SIZE).
+ */
+const rejectOrder = (
+  sizeShares: number,
+  reason: OrderRejectionReason,
+  metadata: OrderEventMetadata,
+): DecidedOrder => ({
+  status: "REJECTED",
+  sizeShares,
+  filledPriceArs: null,
+  filledAt: null,
+  eventType: "REJECTED",
+  reason,
+  metadata,
+});
+
 /** LIMIT GTC ⇒ NEW: nunca se llena al enviar. */
 const decideGoodTillCancelled = (
   input: AcceptedOrderInput,
@@ -330,6 +332,10 @@ const decideImmediate = (
       "IOC/FOK sin precio de referencia (inalcanzable: NO_PRICE salió).",
     );
   }
+  // Ref 0.00/negativa: no hay precio ejecutable ⇒ NO_PRICE, nunca FILL a 0.
+  if (!isUsableReferencePrice(referencePriceArs)) {
+    return rejectOrder(input.sizeShares, "NO_PRICE", input.auditBase);
+  }
   if (limitPriceArs === null) {
     throw new Error("LIMIT sin límite (inalcanzable: contrato del borde).");
   }
@@ -365,6 +371,10 @@ export const decideMarketFill = (
     throw new Error(
       "MARKET sin precio de referencia (inalcanzable: NO_PRICE salió).",
     );
+  }
+  // Ref 0.00/negativa: no hay precio ejecutable ⇒ NO_PRICE, nunca FILL a 0.
+  if (!isUsableReferencePrice(input.referencePriceArs)) {
+    return rejectOrder(input.sizeShares, "NO_PRICE", input.auditBase);
   }
   return {
     status: "FILLED",
