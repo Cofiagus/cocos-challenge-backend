@@ -28,6 +28,18 @@ Auditoría: `/home/cofi/auditoria-cocos/INFORME-FINAL.md`
 
 Ownership de `openapi.json`: **el orquestador** lo regenera en el gate de cada fase.
 
+**G1 CERRADO.** Mergeadas `fase-1-edge`, `fase-1-idem`, `fase-1-time` (commiteada por el
+orquestador: la célula reportó DONE sin commitear) y `fase-1-num`; más `fase-2-sync`, que
+sincronizó `docs/api.md` + `scripts/openapi/**` con el código nuevo (D3/D5/D8). Unit: 469.
+
+**G2 CERRADO.** Mergeadas `fase-2-errors` (D-04: header duplicado ⇒ 400) y `fase-2-migrate`
+(aplicadas las 2 migraciones pendientes ⇒ la DB de la app queda **4/4** con 10 CHECKs y el trigger
+`orders_fill_execution_price_trigger` activo; backup `pg_dump` en `/home/cofi/backups-cocos/`;
+0 filas violando los CHECKs nuevos), además de `fase-2-uc2` (E-07/E-08 + User-Agent).
+typecheck 0 · lint 0 · **56 suites / 739 tests**.
+
+**Estado de la DB de la app: 4/4 migraciones aplicadas** (antes 2/4). Deriva cerrada.
+
 ### Fases siguientes (pendientes de despacho)
 
 - **Fase 2 (3 células):** `f2-errors` (resto del borde: header duplicado, idempotencia
