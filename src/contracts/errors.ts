@@ -41,10 +41,12 @@ export const API_ERROR_CODES = {
    */
   MARKET_DATA_SERVICE_UNAVAILABLE: "MARKET_DATA_SERVICE_UNAVAILABLE",
   /**
-   * 503 — la base de datos está saturada o no atendió a tiempo: contención del
-   * pool (P2024), `statement_timeout` (SQLSTATE 57014), transacción abortada
-   * por Prisma (P2028) o timeout de conexión (ETIMEDOUT). Reintentable: el
-   * manejador central responde 503 con `Retry-After`, nunca 500.
+   * 503 — la base de datos no atendió el pedido: contención del pool (P2024),
+   * `statement_timeout` (SQLSTATE 57014), transacción abortada por Prisma
+   * (P2028), timeout de conexión (ETIMEDOUT) o base inalcanzable (P1001,
+   * P1008, P1017, SQLSTATE clase 08, 57P01). Reintentable: el manejador
+   * central responde 503 con `Retry-After`, nunca 500. El `message` distingue
+   * "saturada" (la base está) de "no disponible" (no se llega al servidor).
    */
   DATABASE_UNAVAILABLE: "DATABASE_UNAVAILABLE",
   /** 404 — ruta o método inexistente (sin handler). */

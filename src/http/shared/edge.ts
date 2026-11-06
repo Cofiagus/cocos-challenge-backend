@@ -237,6 +237,18 @@ const PRISMA_TRANSACTION_TIMEOUT = "P2028";
 const PRISMA_POOL_TIMEOUT = "P2024";
 /** Node/pg: la conexión TCP al servidor no se estableció a tiempo. */
 const SOCKET_CONNECT_TIMEOUT = "ETIMEDOUT";
+/** Prisma: no se puede alcanzar el servidor (host/puerto/DNS). */
+const PRISMA_CANNOT_REACH_DATABASE = "P1001";
+/** Prisma: la operación excedió el tiempo máximo del servidor. */
+const PRISMA_OPERATION_TIMEOUT = "P1008";
+/** Prisma: el servidor cerró la conexión en medio de la operación. */
+const PRISMA_CONNECTION_CLOSED = "P1017";
+/** SQLSTATE de `admin_shutdown`: el servidor se apaga y corta las conexiones. */
+const SQLSTATE_ADMIN_SHUTDOWN = "57P01";
+/** Clase 08 de SQLSTATE = connection_exception (`08006`, `08P01`, ...). */
+const SQLSTATE_CONNECTION_EXCEPTION_PREFIX = "08";
+/** Longitud de un SQLSTATE (`57014`, `08P01`): descarta prefijos sueltos. */
+const SQLSTATE_LENGTH = 5;
 
 /** Códigos que significan "la base no me atendió", no "el pedido está mal". */
 const CONTENTION_CODES: ReadonlySet<string> = new Set([
@@ -244,6 +256,18 @@ const CONTENTION_CODES: ReadonlySet<string> = new Set([
   PRISMA_TRANSACTION_TIMEOUT,
   PRISMA_POOL_TIMEOUT,
   SOCKET_CONNECT_TIMEOUT,
+]);
+
+/**
+ * Códigos que significan "la base no está" (antes del `code`, red caída, DNS,
+ * servidor apagándose): reintentables igual que la contención, pero el fallo
+ * no depende de la carga ni de la query.
+ */
+const UNREACHABLE_CODES: ReadonlySet<string> = new Set([
+  PRISMA_CANNOT_REACH_DATABASE,
+  PRISMA_OPERATION_TIMEOUT,
+  PRISMA_CONNECTION_CLOSED,
+  SQLSTATE_ADMIN_SHUTDOWN,
 ]);
 
 /**
@@ -256,6 +280,45 @@ const CONTENTION_MESSAGES: readonly RegExp[] = [
   /timeout exceeded when trying to connect/i,
   /connection terminated due to connection timeout/i,
 ];
+
+/**
+ * Textos de Prisma/`pg` que delatan una base inalcanzable o un cierre abrupto
+ * de la conexión. Son específicos de PostgreSQL: no matchean errores de otros
+ * proveedores (p. ej. el fetch de cotizaciones).
+ */
+const UNREACHABLE_MESSAGES: readonly RegExp[] = [
+  /can't reach database server/i,
+  /connection terminated unexpectedly/i,
+  /server closed the connection unexpectedly/i,
+];
+
+/** Señales de una clase de falla de la base: el `code` y/o el texto. */
+interface DatabaseFailureSignals {
+  readonly matchesCode: (code: string) => boolean;
+  readonly messages: readonly RegExp[];
+}
+
+/** ¿El código es de la clase 08 (connection_exception) o `57P01`? */
+const isUnreachableCode = (code: string): boolean =>
+  UNREACHABLE_CODES.has(code) ||
+  (code.length === SQLSTATE_LENGTH &&
+    code.startsWith(SQLSTATE_CONNECTION_EXCEPTION_PREFIX));
+
+/** Base inalcanzable: no hay servidor del otro lado (o se está apagando). */
+const UNREACHABLE_SIGNALS: DatabaseFailureSignals = {
+  matchesCode: isUnreachableCode,
+  messages: UNREACHABLE_MESSAGES,
+};
+
+/**
+ * Contención: la base está, pero no atendió a tiempo. Incluye la base
+ * inalcanzable porque las dos son el MISMO 503 reintentable (el mensaje las
+ * distingue); `isDatabaseUnreachableError` es el predicado más específico.
+ */
+const CONTENTION_SIGNALS: DatabaseFailureSignals = {
+  matchesCode: (code) => CONTENTION_CODES.has(code) || isUnreachableCode(code),
+  messages: CONTENTION_MESSAGES,
+};
 
 /** Profundidad máxima al seguir `cause`/`meta` (Prisma anida 2–3 niveles). */
 const MAX_CAUSE_DEPTH = 3;
@@ -272,54 +335,92 @@ const errorMessage = (value: Record<string, unknown>): string => {
   return typeof message === "string" ? message : "";
 };
 
-/** ¿El código o el texto del objeto delatan contención de la base? */
-const signalsContention = (value: Record<string, unknown>): boolean => {
+/** ¿El código o el texto del objeto delatan esta clase de falla? */
+const signalsFailure = (
+  value: Record<string, unknown>,
+  signals: DatabaseFailureSignals,
+): boolean => {
   const code = errorCode(value);
-  if (code !== null && CONTENTION_CODES.has(code)) return true;
+  if (code !== null && signals.matchesCode(code)) return true;
   const message = errorMessage(value);
-  return CONTENTION_MESSAGES.some((pattern) => pattern.test(message));
+  return signals.messages.some((pattern) => pattern.test(message));
 };
 
-const containsContention = (error: unknown, depth: number): boolean => {
+const containsFailure = (
+  error: unknown,
+  signals: DatabaseFailureSignals,
+  depth: number,
+): boolean => {
   if (typeof error === "string") {
-    return CONTENTION_MESSAGES.some((pattern) => pattern.test(error));
+    return signals.messages.some((pattern) => pattern.test(error));
   }
   if (typeof error !== "object" || error === null) return false;
   const record = error as Record<string, unknown>;
-  if (signalsContention(record)) return true;
+  if (signalsFailure(record, signals)) return true;
   if (depth >= MAX_CAUSE_DEPTH) return false;
   return (
-    containsContention(record["cause"], depth + 1) ||
-    containsContention(record["meta"], depth + 1)
+    containsFailure(record["cause"], signals, depth + 1) ||
+    containsFailure(record["meta"], signals, depth + 1)
   );
 };
 
 /**
- * ¿Es contención/saturación de PostgreSQL? El pedido es válido y la base no lo
- * atendió a tiempo: `statement_timeout` (SQLSTATE 57014 — el que dispara
- * esperar el advisory lock con el `statement_timeout` de src/lib/prisma-client),
- * transacción abortada por Prisma (P2028), pool agotado (P2024) y timeout de
- * conexión (`ETIMEDOUT` o el mensaje de pg-pool). Reintentable ⇒ 503.
+ * ¿La base es INALCANZABLE? P1001 (no se puede llegar al servidor), P1008
+ * (timeout de operación), P1017 (el servidor cerró la conexión), SQLSTATE de
+ * la clase 08 (`connection_exception`: `08006`, `08P01`, ...) y `57P01`
+ * (`admin_shutdown`). Con una base remota un corte de red, un DNS que no
+ * resuelve o un failover caen acá: el pedido es válido y reintentar tiene
+ * sentido ⇒ 503, nunca 500.
+ *
+ * Prisma envuelve el SQLSTATE de un `$executeRaw` en `P2010` con
+ * `meta: { code: "08006" }`, por eso se recorre `meta` y `cause` igual que en
+ * la contención.
+ */
+export const isDatabaseUnreachableError = (error: unknown): boolean =>
+  containsFailure(error, UNREACHABLE_SIGNALS, 0);
+
+/**
+ * ¿Es una falla TEMPORAL de la base (contención o base inalcanzable)? El
+ * pedido es válido y la base no lo atendió: `statement_timeout` (SQLSTATE
+ * 57014 — el que dispara esperar el advisory lock con el `statement_timeout`
+ * de src/lib/prisma-client), transacción abortada por Prisma (P2028), pool
+ * agotado (P2024), timeout de conexión (`ETIMEDOUT` o el mensaje de pg-pool)
+ * y toda la clase de base inalcanzable (`isDatabaseUnreachableError`).
+ * Reintentable ⇒ 503.
  *
  * Prisma envuelve el SQLSTATE de un `$executeRaw` en `P2010` con
  * `meta: { code: "57014" }`, por eso se recorre `meta` y `cause`.
  */
 export const isTemporaryContentionError = (error: unknown): boolean =>
-  containsContention(error, 0);
+  containsFailure(error, CONTENTION_SIGNALS, 0);
 
-/** Mensaje del 503: sin host, puerto ni SQLSTATE (no es canal de diagnóstico). */
-const DATABASE_UNAVAILABLE_MESSAGE =
+/** Mensaje del 503 cuando la base está: simplemente no atendió a tiempo. */
+const DATABASE_SATURATED_MESSAGE =
   "La base de datos está momentáneamente saturada. Reintentá en unos segundos.";
+
+/** Mensaje del 503 cuando no hay base del otro lado (red, DNS, apagado). */
+const DATABASE_UNREACHABLE_MESSAGE =
+  "La base de datos no está disponible. Reintentá en unos segundos.";
 
 /**
  * 503 del contrato para una falla temporal de la base (defecto D-03): el
  * código es propio y el status nunca 500, porque reintentar el pedido lo
  * resuelve. La cabecera `Retry-After` la emite el manejador central.
+ *
+ * `kind` distingue la causa en el MENSAJE (misma familia de status/código):
+ * "unreachable" cuando no se llega al servidor, "contention" cuando la base
+ * está pero no atendió. Sin argumento se emite el mensaje de contención, que
+ * es el que documenta `openapi.json`.
  */
-export const databaseUnavailableError = (): HttpError => ({
+export const databaseUnavailableError = (
+  kind: "contention" | "unreachable" = "contention",
+): HttpError => ({
   status: 503,
   code: API_ERROR_CODES.DATABASE_UNAVAILABLE,
-  message: DATABASE_UNAVAILABLE_MESSAGE,
+  message:
+    kind === "unreachable"
+      ? DATABASE_UNREACHABLE_MESSAGE
+      : DATABASE_SATURATED_MESSAGE,
 });
 
 /**

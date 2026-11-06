@@ -19,6 +19,7 @@ import {
   RETRY_AFTER_HEADER,
   RETRY_AFTER_SECONDS,
   databaseUnavailableError,
+  isDatabaseUnreachableError,
   isTemporaryContentionError,
 } from "./shared/edge.js";
 
@@ -94,16 +95,19 @@ const respondBodyParserError = (type: string, res: Response): boolean => {
 };
 
 /**
- * 503 del contrato por contención/saturación de PostgreSQL (defecto D-03):
- * mismo body `{error:{code,message}}`, cabecera `Retry-After` y el detalle en
- * stderr. Un timeout de sentencia o de pool no es un bug del pedido: se
- * reintenta, nunca se responde 500.
+ * 503 del contrato por una falla temporal de PostgreSQL (defecto D-03): mismo
+ * body `{error:{code,message}}`, cabecera `Retry-After` y el detalle en
+ * stderr. Un timeout de sentencia, un pool agotado o una base inalcanzable no
+ * son un bug del pedido: se reintentan, nunca se responden 500.
  */
-const respondDatabaseUnavailable = (error: unknown, res: Response): void => {
-  const { status, code, message } = databaseUnavailableError();
-  process.stderr.write(
-    `[http] base saturada: ${singleLineErrorDetail(error)}\n`,
-  );
+const respondDatabaseUnavailable = (
+  error: unknown,
+  res: Response,
+  kind: "contention" | "unreachable",
+): void => {
+  const { status, code, message } = databaseUnavailableError(kind);
+  const label = kind === "unreachable" ? "base inalcanzable" : "base saturada";
+  process.stderr.write(`[http] ${label}: ${singleLineErrorDetail(error)}\n`);
   res.set(RETRY_AFTER_HEADER, String(RETRY_AFTER_SECONDS));
   res.status(status).json(apiErrorBody(code, message));
 };
@@ -111,9 +115,10 @@ const respondDatabaseUnavailable = (error: unknown, res: Response): void => {
 /**
  * Middleware de error (4 parámetros). Express 5 reenvía acá los `reject` de
  * handlers async, así que este es el único lugar donde termina un fallo que
- * no sea de dominio. La contención de la base responde 503 reintentable y el
- * resto, 500 con un mensaje genérico: el stack queda en stderr y nada interno
- * viaja al cliente.
+ * no sea de dominio. Una falla temporal de la base responde 503 reintentable
+ * (la base inalcanzable primero: su mensaje es el específico) y el resto, 500
+ * con un mensaje genérico: el stack queda en stderr y nada interno viaja al
+ * cliente.
  */
 export const errorHandler: ErrorRequestHandler = (
   error: unknown,
@@ -131,8 +136,14 @@ export const errorHandler: ErrorRequestHandler = (
   if (bodyParserType !== null && respondBodyParserError(bodyParserType, res)) {
     return;
   }
+  // `isTemporaryContentionError` también cubre la base inalcanzable, así que
+  // el predicado específico se evalúa ANTES para no perder su mensaje.
+  if (isDatabaseUnreachableError(error)) {
+    respondDatabaseUnavailable(error, res, "unreachable");
+    return;
+  }
   if (isTemporaryContentionError(error)) {
-    respondDatabaseUnavailable(error, res);
+    respondDatabaseUnavailable(error, res, "contention");
     return;
   }
   process.stderr.write(
