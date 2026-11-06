@@ -7,7 +7,6 @@
 // salida NO aplica el máximo de columna: un agregado (cash, patrimonio) puede
 // superarlo y es válido. Porcentajes conservan su contrato numérico.
 
-import { Decimal } from "decimal.js";
 import {
   MoneyArsSchema,
   PctSchema,
@@ -153,22 +152,29 @@ describe("PctSchema — el número serializado de porcentaje (sin cambios de con
 });
 
 describe("serializePct — sigue number, HALF_UP y finitud validada", () => {
+  // Firma: `serializePct(pctX100: FinancialDecimal)`. El parámetro es el
+  // constructor financiero del proyecto (64 cifras), no el `Decimal` global
+  // (20). Ojo: las instancias de un `clone` de decimal.js son
+  // ESTRUCTURALMENTE idénticas, así que TypeScript todavía acepta un
+  // `Decimal` global; la restricción es de contrato/intención (y de revisión),
+  // no de compilador. Hacerla nominal exige marcar el tipo en
+  // `contracts/financial-decimal.ts` (fuera del alcance de esta celda).
   it("cuantiza a 2 decimales HALF_UP y devuelve number", () => {
-    const value = serializePct(new Decimal("1.005"));
+    const value = serializePct(new FinancialDecimal("1.005"));
     expect(typeof value).toBe("number");
     expect(value).toBe(1.01);
-    expect(serializePct(new Decimal("0.004"))).toBe(0);
-    expect(serializePct(new Decimal("12.3"))).toBe(12.3);
-    expect(serializePct(new Decimal("-1.08"))).toBe(-1.08);
+    expect(serializePct(new FinancialDecimal("0.004"))).toBe(0);
+    expect(serializePct(new FinancialDecimal("12.3"))).toBe(12.3);
+    expect(serializePct(new FinancialDecimal("-1.08"))).toBe(-1.08);
   });
 
   it("rechaza no-finitos (no emite NaN/Infinity al contrato)", () => {
-    expect(() => serializePct(new Decimal(Infinity))).toThrow(/finito/);
-    expect(() => serializePct(new Decimal(NaN))).toThrow(/finito/);
+    expect(() => serializePct(new FinancialDecimal(Infinity))).toThrow(/finito/);
+    expect(() => serializePct(new FinancialDecimal(NaN))).toThrow(/finito/);
   });
 
   it("rechaza un Decimal finito que desborda number (1e1000) en vez de emitir Infinity", () => {
-    const huge = new Decimal("1e1000");
+    const huge = new FinancialDecimal("1e1000");
     expect(huge.isFinite()).toBe(true); // finito en Decimal...
     expect(Number(huge.toFixed(2))).toBe(Infinity); // ...pero no representable en number
     expect(() => serializePct(huge)).toThrow(RangeError);
