@@ -20,20 +20,19 @@ Estado: 5 endpoints implementados; el estado de los tests lo da `npm test`.
 | ¿cómo levanto la base y el server? ¿qué comando uso? | este archivo §2 y §4 |
 | ¿qué se decidió y por qué, en la entrega? | `README.md` §Supuestos |
 | ¿qué devuelve exactamente cada endpoint? | `openapi.json` (contrato, generado) + `docs/api.md` (semántica) |
-| ¿en qué orden corre un caso de uso? | el header del caso de uso en `src/application/` (el doc de casos de uso es P2) |
-| ¿esto que estoy leyendo sigue siendo verdad? | `docs/legacy.md` (qué está deprecado y qué usar en su lugar) |
+| ¿en qué orden corre un caso de uso? | el header del caso de uso en `src/application/` |
+| ¿qué límites y supuestos tiene el sistema? | `README.md` §Supuestos y las consecuencias de `DECISIONS.md` |
 
-La topología vigente se consulta en `git log` + `docs/CODEMAP.md`. Durante la ejecución firmada
-de `specs/datos-financieros-grandes-montos.md`, `PROGRESS.md` registra el estado de células/gates;
-su sección histórica no describe el build activo. Los demás borradores no autorizan cambios.
+La topología vigente es la de `docs/CODEMAP.md`; el contrato HTTP, `openapi.json`, y la semántica,
+`docs/api.md`.
 
 ## 2. Comandos (verificados)
 
 ```bash
 npm run dev                  # tsx watch src/index.ts (NO nodemon)
 npm run build                # tsc → dist/
-npm run typecheck            # tsc --noEmit (gate obligatorio)
-npm run lint                 # eslint 9 flat config (gate obligatorio)
+npm run typecheck            # tsc --noEmit (obligatorio antes de commitear)
+npm run lint                 # eslint 9 flat config (obligatorio antes de commitear)
 npm test                     # jest completo
 npm run test:no-db           # unit + docs + smoke ESM, sin PostgreSQL (para CI)
 npx jest tests/functional/cancel          # UNA suite
@@ -64,7 +63,7 @@ src/
 prisma/            # schema.prisma (fuente única de índices) + migrations/ (DDL real)
 db/                # snapshot legacy GENERADO (schema.sql viejo) + seed.sql (dataset del challenge)
 tests/             # unit / integration / functional + helpers
-docs/              # CODEMAP, api, database, legacy (+ use-cases / testing en P2)
+docs/              # CODEMAP, api, database y references (evidencia de investigación)
 ```
 
 El detalle archivo por archivo, con firmas y trampas, está en `docs/CODEMAP.md`. **No** hay vertical
@@ -97,7 +96,7 @@ eso, está desactualizado.
    **sí** garantiza son los 6 CHECKs financieros de
    `prisma/migrations/20261105104903_large_money/migration.sql` (precio finito y positivo, `size`
    finito y no negativo, `size = 0` sólo en `REJECTED`, entero ≤ INT4 en BUY/SELL, precios de
-   `marketdata` finitos y no negativos); el detalle está en `docs/references/db-schema-before-after.md`.
+   `marketdata` finitos y no negativos); el inventario está en `docs/database.md` §10.
    El borde y el sizing derivado acotan acciones (`MAX_ORDER_SIZE_SHARES`): fuera de rango es
    400 sin escribir, no 500. Cash usa monto Decimal exacto, no el floor de acciones.
 6. **Zod `strict()` en el borde.** Nunca confiar en `req.body`. Input inválido → 400 **sin escribir nada**.
@@ -112,7 +111,7 @@ eso, está desactualizado.
 1. **Spec antes de código.** Toda feature o cambio no trivial empieza con una spec en `specs/`:
    Why / What (alcance) / Constraints (qué NO) / Tasks (1–2 archivos, cada una con su verificación).
    El humano edita y aprueba la spec; el agente la ejecuta. `specs/trading-api-domain.md` es la fuente
-   del dominio; `specs/agentificacion-docs.md` la de la documentación.
+   del dominio; `AGENTS.md` §9 y `docs/CODEMAP.md` cubren la documentación.
 2. **TDD por criterio de aceptación**: test que falla → implementación mínima → refactor. Si un test
    falla, se arregla el código, nunca el assertion.
 3. **Tareas atómicas**: un cambio grande = muchas tareas chicas, diffs focalizados.
@@ -128,9 +127,9 @@ reescribir tests existentes; cambiar un contrato HTTP (afecta `openapi.json` y c
 
 🚫 **Nunca**: `any` (usar `unknown` + narrowing); `Float` para dinero; `prisma db push`; editar
 migraciones aplicadas; cargar la DB desde `db/schema.sql`; commitear secretos; saltarse tests.
-Excepción firmada D5: personalizar exclusivamente la nueva migración de grandes montos, aún no
+Excepción acotada D5: personalizar exclusivamente la nueva migración de grandes montos, aún no
 aplicada, generada con create-only, para CHECKs financieros. Ensayar sólo en DB de test aislada;
-la firma no autoriza migrar la DB de la app ni mergear PRs a main.
+la excepción no autoriza migrar la DB de la app ni mergear PRs a main.
 
 ## 8. Estilo de código
 
