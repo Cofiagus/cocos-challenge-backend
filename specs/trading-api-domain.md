@@ -1,7 +1,7 @@
 # Spec — API de trading (portfolio, búsqueda, órdenes, transferencias)
 
 > **Estado: implementada. Fuente de verdad del dominio** (UC-1..UC-5 y sus reglas).
-> El matching continuo quedó fuera de alcance por `DECISIONS.md` D3; la cotización actual de UC-2
+> El matching continuo está fuera de alcance por `DECISIONS.md` D3; la cotización actual de UC-2
 > es la única integración con Yahoo. Para el estado del código y sus archivos, `docs/CODEMAP.md`.
 > Fuera de alcance por decisión (`DECISIONS.md`): ingesta de cotizaciones, scheduling, sweep y
 > matching continuo. `matchRestingOrders` existe como punto de enchufe del dominio puro, sin
