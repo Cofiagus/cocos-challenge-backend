@@ -161,10 +161,112 @@ export interface HttpError {
   readonly message: string;
 }
 
+/** Cabecera del 503 reintentable: segundos que el cliente debe esperar. */
+export const RETRY_AFTER_HEADER = "Retry-After";
+
+/** Segundos de `Retry-After` de una falla temporal de la base. */
+export const RETRY_AFTER_SECONDS = 2;
+
+/** SQLSTATE de `statement_timeout`: la sentencia se canceló por tiempo. */
+const SQLSTATE_QUERY_CANCELED = "57014";
+/** Prisma: la transacción interactiva se abortó por timeout del servidor. */
+const PRISMA_TRANSACTION_TIMEOUT = "P2028";
+/** Prisma: el pool no entregó una conexión dentro del `maxWait`. */
+const PRISMA_POOL_TIMEOUT = "P2024";
+/** Node/pg: la conexión TCP al servidor no se estableció a tiempo. */
+const SOCKET_CONNECT_TIMEOUT = "ETIMEDOUT";
+
+/** Códigos que significan "la base no me atendió", no "el pedido está mal". */
+const CONTENTION_CODES: ReadonlySet<string> = new Set([
+  SQLSTATE_QUERY_CANCELED,
+  PRISMA_TRANSACTION_TIMEOUT,
+  PRISMA_POOL_TIMEOUT,
+  SOCKET_CONNECT_TIMEOUT,
+]);
+
+/**
+ * Timeouts de `pg`/`pg-pool` que llegan SIN `code`: el pool aborta con un
+ * `Error` pelado al vencer `connectionTimeoutMillis`, y el driver puede dejar
+ * el SQLSTATE sólo en el texto.
+ */
+const CONTENTION_MESSAGES: readonly RegExp[] = [
+  /canceling statement due to statement timeout/i,
+  /timeout exceeded when trying to connect/i,
+  /connection terminated due to connection timeout/i,
+];
+
+/** Profundidad máxima al seguir `cause`/`meta` (Prisma anida 2–3 niveles). */
+const MAX_CAUSE_DEPTH = 3;
+
+/** `code` del error (pg/Prisma), o null si no lo trae como string. */
+const errorCode = (value: Record<string, unknown>): string | null => {
+  const code = value["code"];
+  return typeof code === "string" ? code : null;
+};
+
+/** Texto del error (vacío cuando el objeto no trae `message`). */
+const errorMessage = (value: Record<string, unknown>): string => {
+  const message = value["message"];
+  return typeof message === "string" ? message : "";
+};
+
+/** ¿El código o el texto del objeto delatan contención de la base? */
+const signalsContention = (value: Record<string, unknown>): boolean => {
+  const code = errorCode(value);
+  if (code !== null && CONTENTION_CODES.has(code)) return true;
+  const message = errorMessage(value);
+  return CONTENTION_MESSAGES.some((pattern) => pattern.test(message));
+};
+
+const containsContention = (error: unknown, depth: number): boolean => {
+  if (typeof error === "string") {
+    return CONTENTION_MESSAGES.some((pattern) => pattern.test(error));
+  }
+  if (typeof error !== "object" || error === null) return false;
+  const record = error as Record<string, unknown>;
+  if (signalsContention(record)) return true;
+  if (depth >= MAX_CAUSE_DEPTH) return false;
+  return (
+    containsContention(record["cause"], depth + 1) ||
+    containsContention(record["meta"], depth + 1)
+  );
+};
+
+/**
+ * ¿Es contención/saturación de PostgreSQL? El pedido es válido y la base no lo
+ * atendió a tiempo: `statement_timeout` (SQLSTATE 57014 — el que dispara
+ * esperar el advisory lock con el `statement_timeout` de src/lib/prisma-client),
+ * transacción abortada por Prisma (P2028), pool agotado (P2024) y timeout de
+ * conexión (`ETIMEDOUT` o el mensaje de pg-pool). Reintentable ⇒ 503.
+ *
+ * Prisma envuelve el SQLSTATE de un `$executeRaw` en `P2010` con
+ * `meta: { code: "57014" }`, por eso se recorre `meta` y `cause`.
+ */
+export const isTemporaryContentionError = (error: unknown): boolean =>
+  containsContention(error, 0);
+
+/** Mensaje del 503: sin host, puerto ni SQLSTATE (no es canal de diagnóstico). */
+const DATABASE_UNAVAILABLE_MESSAGE =
+  "La base de datos está momentáneamente saturada. Reintentá en unos segundos.";
+
+/**
+ * 503 del contrato para una falla temporal de la base (defecto D-03): el
+ * código es propio y el status nunca 500, porque reintentar el pedido lo
+ * resuelve. La cabecera `Retry-After` la emite el manejador central.
+ */
+export const databaseUnavailableError = (): HttpError => ({
+  status: 503,
+  code: API_ERROR_CODES.DATABASE_UNAVAILABLE,
+  message: DATABASE_UNAVAILABLE_MESSAGE,
+});
+
 /**
  * Error de aplicación → status + código + mensaje del contrato. null cuando
- * el error NO es de dominio: el router lo propaga al manejador central (500
- * INTERNAL_ERROR), igual que antes de centralizar el mapeo.
+ * el error NO es de dominio: el router lo propaga al manejador central, que
+ * responde 503 + `Retry-After` si es contención de la base
+ * (`isTemporaryContentionError`) o 500 INTERNAL_ERROR en cualquier otro caso.
+ * La contención se resuelve en el manejador y no acá para que el 503 salga
+ * con su cabecera por un único camino (los routers arman la respuesta a mano).
  */
 export const toHttpError = (error: unknown): HttpError | null => {
   if (

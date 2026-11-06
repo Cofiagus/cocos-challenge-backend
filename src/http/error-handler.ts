@@ -15,6 +15,12 @@ import type {
   Response,
 } from "express";
 import { API_ERROR_CODES, apiErrorBody } from "../contracts/index.js";
+import {
+  RETRY_AFTER_HEADER,
+  RETRY_AFTER_SECONDS,
+  databaseUnavailableError,
+  isTemporaryContentionError,
+} from "./shared/edge.js";
 
 /** Límite del body JSON (KB): lo usa `express.json` y el mensaje del 413. */
 export const JSON_BODY_LIMIT_KB = 100;
@@ -88,10 +94,26 @@ const respondBodyParserError = (type: string, res: Response): boolean => {
 };
 
 /**
+ * 503 del contrato por contención/saturación de PostgreSQL (defecto D-03):
+ * mismo body `{error:{code,message}}`, cabecera `Retry-After` y el detalle en
+ * stderr. Un timeout de sentencia o de pool no es un bug del pedido: se
+ * reintenta, nunca se responde 500.
+ */
+const respondDatabaseUnavailable = (error: unknown, res: Response): void => {
+  const { status, code, message } = databaseUnavailableError();
+  process.stderr.write(
+    `[http] base saturada: ${singleLineErrorDetail(error)}\n`,
+  );
+  res.set(RETRY_AFTER_HEADER, String(RETRY_AFTER_SECONDS));
+  res.status(status).json(apiErrorBody(code, message));
+};
+
+/**
  * Middleware de error (4 parámetros). Express 5 reenvía acá los `reject` de
  * handlers async, así que este es el único lugar donde termina un fallo que
- * no sea de dominio. El 500 responde un mensaje genérico y registra el stack
- * en stderr: nada interno viaja al cliente.
+ * no sea de dominio. La contención de la base responde 503 reintentable y el
+ * resto, 500 con un mensaje genérico: el stack queda en stderr y nada interno
+ * viaja al cliente.
  */
 export const errorHandler: ErrorRequestHandler = (
   error: unknown,
@@ -107,6 +129,10 @@ export const errorHandler: ErrorRequestHandler = (
   }
   const bodyParserType = bodyParserErrorType(error);
   if (bodyParserType !== null && respondBodyParserError(bodyParserType, res)) {
+    return;
+  }
+  if (isTemporaryContentionError(error)) {
+    respondDatabaseUnavailable(error, res);
     return;
   }
   process.stderr.write(
