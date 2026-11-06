@@ -30,7 +30,6 @@ export const InstrumentSearchQuerySchema = z.strictObject({
     .max(MAX_INSTRUMENT_SEARCH_LIMIT)
     .default(DEFAULT_INSTRUMENT_SEARCH_LIMIT),
 });
-export type InstrumentSearchQuery = z.infer<typeof InstrumentSearchQuerySchema>;
 
 /** Resultado individual: cotización actual válida (sin precio, se omite). */
 export const InstrumentSearchResultSchema = z.strictObject({
@@ -52,6 +51,3 @@ export type InstrumentSearchResult = z.infer<
 export const InstrumentSearchResponseSchema = z.array(
   InstrumentSearchResultSchema,
 );
-export type InstrumentSearchResponse = z.infer<
-  typeof InstrumentSearchResponseSchema
->;

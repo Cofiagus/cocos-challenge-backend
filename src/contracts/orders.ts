@@ -27,7 +27,6 @@ import { PositiveArsInputSchema, MoneyArsSchema } from "./money.js";
 /** Nombre del header (Express lo casefold-ea). */
 export const IDEMPOTENCY_KEY_HEADER = "idempotency-key" as const;
 export const IdempotencyKeySchema = z.string().min(1).max(64);
-export type IdempotencyKey = z.infer<typeof IdempotencyKeySchema>;
 
 /** Máximo de un INTEGER de Postgres (INT4): 2^31−1. */
 export const MAX_INT4 = 2147483647;
@@ -52,7 +51,6 @@ export const PositiveIntParamSchema = z.coerce
   .int()
   .min(1)
   .max(MAX_INT4);
-export type PositiveIntParam = z.infer<typeof PositiveIntParamSchema>;
 
 /** `null` explícito es "ausente" en campos opcionales del body. */
 const isPriceAbsent = (price: Decimal | null | undefined): boolean =>
@@ -62,12 +60,10 @@ const isPriceAbsent = (price: Decimal | null | undefined): boolean =>
 export const CreateOrderParamsSchema = z.strictObject({
   userId: PositiveIntParamSchema,
 });
-export type CreateOrderParams = z.infer<typeof CreateOrderParamsSchema>;
 
 export const CancelOrderParamsSchema = z.strictObject({
   orderId: PositiveIntParamSchema,
 });
-export type CancelOrderParams = z.infer<typeof CancelOrderParamsSchema>;
 
 /**
  * Body de envío de orden.

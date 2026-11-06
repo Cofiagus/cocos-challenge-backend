@@ -19,15 +19,9 @@ import { TransferSideSchema } from "./enums.js";
 export const CreateTransferParamsSchema = z.strictObject({
   userId: PositiveIntParamSchema,
 });
-export type CreateTransferParams = z.infer<
-  typeof CreateTransferParamsSchema
->;
 
 /** Body de transferencia: amountArs > 0 (número o string, nunca float). */
 export const CreateTransferRequestSchema = z.strictObject({
   amountArs: PositiveArsInputSchema,
   side: TransferSideSchema,
 });
-export type CreateTransferRequest = z.infer<
-  typeof CreateTransferRequestSchema
->;
