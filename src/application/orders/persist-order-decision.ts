@@ -14,6 +14,12 @@
 // las acciones (number ≤ INT4) y el monto cash (Decimal exacto) viajan cada
 // uno con su tipo. El `Omit` es DISTRIBUTIVO a propósito: un Omit sobre la
 // unión borraría los discriminantes y permitiría mezclar unidades.
+//
+// F2-IDEM: `base` puede traer `requestFingerprint` (huella del REQUEST
+// original, calculada por el borde en src/http/shared/edge.ts). El spread de
+// `draftOf` la arrastra al draft completo — acá no se recalcula nada — y el
+// claim la persiste y la compara. Sin huella el claim cae a la comparación
+// histórica de `size`, así que este camino no cambia para quien no la manda.
 
 import {
   API_ERROR_CODES,

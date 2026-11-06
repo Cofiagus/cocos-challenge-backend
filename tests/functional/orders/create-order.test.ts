@@ -682,6 +682,51 @@ describe("UC-3 · 11 · Idempotencia (Idempotency-Key)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 11b · Huella del request: el monto ORIGINAL manda (F2-IDEM)
+//
+// El defecto: el claim comparaba el size derivado (floor(amountArs/precio)),
+// así que dos pedidos con la misma key y montos del mismo floor devolvían
+// REPLAY en vez del 409 del contrato. Acá se prueba el camino COMPLETO
+// (router → submitOrder → draft con huella → claim), no sólo el repositorio.
+// ---------------------------------------------------------------------------
+
+describe("UC-3 · 11b · Huella del request (montos con la misma key)", () => {
+  const byAmount = (amountArs: string): OrderPayload => ({
+    instrumentId: SEED_INSTRUMENT_METR_ID,
+    side: "BUY",
+    type: "LIMIT",
+    amountArs,
+    price: "210.00", // floor(1000.00/210) = floor(1000.50/210) = 4 acciones
+  });
+
+  it("misma key + amountArs 1000.00 vs 1000.50 (MISMO floor) ⇒ 409, sin segunda orden", async () => {
+    const key = "cell-d-idem-huella-monto";
+
+    const first = await postOrder(USER_ID, byAmount("1000.00"), key);
+    expect(first.status).toBe(201);
+
+    const second = await postOrder(USER_ID, byAmount("1000.50"), key);
+    expect(second.status).toBe(409);
+    expect(asErrorBody(second).error?.code).toBe(
+      API_ERROR_CODES.IDEMPOTENCY_CONFLICT,
+    );
+    expect(await countOrdersWithIdempotencyKey(USER_ID, key)).toBe(1);
+  });
+
+  it("misma key + '1000.0' vs '1000.00' (mismo monto canónico) ⇒ 201 con la MISMA orden", async () => {
+    const key = "cell-d-idem-huella-canonica";
+
+    const first = await postOrder(USER_ID, byAmount("1000.0"), key);
+    expect(first.status).toBe(201);
+
+    const second = await postOrder(USER_ID, byAmount("1000.00"), key);
+    expect(second.status).toBe(201);
+    expect(asOrderBody(second).id).toBe(asOrderBody(first).id);
+    expect(await countOrdersWithIdempotencyKey(USER_ID, key)).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 12 · Doble-submit concurrente con la misma key
 // ---------------------------------------------------------------------------
 
