@@ -1,23 +1,21 @@
-# Fuentes de datos de mercado argentino — Análisis y verificación
+# Fuentes de datos de mercado argentino — análisis y verificación
 
-> Análisis para el ingestor de precios del challenge. Verificado en vivo (2026-10-30)
-> con llamadas reales contra cada fuente y cobertura medida contra el universo del
-> seed (`db/seed.sql`). Estado del 2026-10 — re-probar antes de confiar.
+> Fundamento de la fuente de precios del challenge. Verificado en vivo el 2026-10-30 con
+> llamadas reales contra cada fuente y cobertura medida contra el universo del seed
+> (`db/seed.sql`).
 
 ## 1. Universo necesario
 
 - 66 filas en `instruments`: 65 `ACCIONES` (panel líder + general, tickers BYMA) + 1 `MONEDA` (`ARS / PESOS` — no busca cotización).
 - Campos requeridos por el challenge: `close` + `previousClose`, en **ARS** (columna `marketdata.close` del schema).
-- **No se necesita tiempo real**: ingesta diaria (caché) es suficiente.
+- **No se necesita tiempo real**: UC-2 pide el último dato disponible y UC-1/3/4/5 leen `marketdata`.
 
-**Nota sobre el seed:** el universo del seed está **desactualizado** — contiene
-instrumentos que ya no cotizan (ver §4). Decisión: los gaps no requieren conversión
-ni ingesta especial; no son huecos de la fuente sino instrumentos muertos en la DB de
-ejemplo.
+**Sobre el seed:** el universo contiene instrumentos que ya no cotizan (ver §4). Los faltantes no
+son huecos de la fuente: son instrumentos sin mercado en la DB de ejemplo, y el contrato los omite.
 
 ## 2. Fuentes evaluadas
 
-### ✅ 2.1 Yahoo Finance — chart API de tickers `.BA` (RECOMENDADA)
+### 2.1 Yahoo Finance — chart API de tickers `.BA` (fuente elegida)
 
 ```bash
 # Endpoint verificado (200 + datos):
@@ -34,13 +32,13 @@ curl -s "https://query1.finance.yahoo.com/v8/finance/chart/GGAL.BA?range=5d&inte
 | Histórico | Incluido en el mismo endpoint: `range=5d|1mo|1y&interval=1d` (útil para volatilidad/validación) |
 | Serie | Los `.BA` devuelven precios **nominales** en ARS (no ajustados por inflación ni por suscripciones de capital — coherente con la semántica `close` del challenge) |
 
-Mitigaciones del riesgo "API no oficial":
+El riesgo de una API no oficial se acota con tres decisiones:
 
-- Wrapper Node mantenido: [`yahoo-finance2`](https://github.com/gadicc/node-yahoo-finance2) (maneja crumbs/cookies/rate-limit).
-- **Ingesta diaria cacheada en `marketdata`**: si la fuente cae, la API del challenge sigue respondiendo con el último snapshot.
-- Yahoo borra símbolos renombrados **sin rastro** (404 ni historial): detectar vía `/v1/finance/search`; el challenge decide **no mapear** renombradas (§4).
+- **El adaptador usa `fetch` con `User-Agent` propio y validación Zod**, timeout de 5 s y sin reintentos: una falla se traduce a 503 y el reintento queda del lado del cliente. La lib de facto `yahoo-finance2` no se incorpora.
+- **UC-1/3/4/5 no dependen del proveedor**: el precio de referencia sale de `marketdata`, así que una caída de Yahoo afecta sólo a la búsqueda.
+- Yahoo borra símbolos renombrados **sin rastro** (404 ni historial): el sistema no mapea renombradas (§4) y un ticker expirado queda sin precio.
 
-### ⚠️ 2.2 Rava Bursátil API v5 (`api5.rava.com`) — plan B
+### 2.2 Rava Bursátil API v5 (`api5.rava.com`) — alternativa oficial
 
 | Criterio | Resultado verificado |
 |---|---|
@@ -49,16 +47,15 @@ Mitigaciones del riesgo "API no oficial":
 | Endpoints | `/cotizaciones` (tiempo real) + `/historicos` (cierre diario) |
 | Calidad | Excelente: Rava es agente CNV, fuente directa de BYMA |
 
-Descartada como primera opción **solo por fricción de obtención de la key** (no por
-precio ni calidad). Es el plan B si el evaluador exige una fuente oficial del mercado
-local y la key se consigue gratis.
+No es la fuente del sistema por la fricción de obtención de la key, no por precio ni
+calidad: queda como alternativa si se exige una fuente oficial del mercado local.
 
-### ✅ 2.3 DolarAPI (`dolarapi.com/v1/dolares`) — complemento
+### 2.3 DolarAPI (`dolarapi.com/v1/dolares`) — complemento
 
 - 200 verificado, sin key, sin rate-limit conocido. Oficial / Blue / MEP / CCL con `fechaActualizacion`.
 - **No sirve para precios de acciones** — útil si más adelante se quiere exponer valuación de portfolio en USD.
 
-### ❌ 2.4 BYMA open API free tier (`open.bymadata.com.ar`) — descartada para precios
+### 2.4 BYMA open API free tier (`open.bymadata.com.ar`) — descartada para precios
 
 Fuente oficial (la mejor calidad/seguridad del marco) pero **no viable para el challenge**:
 
@@ -80,7 +77,7 @@ curl -s -X POST "https://open.bymadata.com.ar/vanoms-be-core/rest/api/bymadata/f
 - Duplica cada símbolo 2× (una fila por `sessionType`).
 - **Uso residual:** fuente de **metadatos** (nombres/descripciones de instrumentos), no de precios.
 
-### ❌ 2.5 Otras descartadas (con verificación)
+### 2.5 Otras descartadas (con verificación)
 
 | Fuente | Motivo verificado |
 |---|---|
@@ -90,21 +87,21 @@ curl -s -X POST "https://open.bymadata.com.ar/vanoms-be-core/rest/api/bymadata/f
 | Scraping rava.com / mercado.com.ar | Frágil, sin contrato, redundante con Rava API |
 | BYMA comercial (data vendor) | Requiere acuerdo comercial, no es público |
 
-## 3. Ranking final
+## 3. Fuente elegida y alternativas
 
 | # | Fuente | Acceso | Cobertura | Rol |
 |---|---|---|---|---|
-| 1 | Yahoo Finance chart API (`.BA`) | Público, sin key | 63/65 | **Precios** (close + previousClose, ingesta diaria cacheada) |
-| 2 | Rava API v5 | Bearer key (no documentada) | ~completa | Plan B si se exige fuente oficial |
+| 1 | Yahoo Finance chart API (`.BA`) | Público, sin key | 63/65 | **Precios** de UC-2: `close` + `previousClose` por request |
+| 2 | Rava API v5 | Bearer key (no documentada) | ~completa | Alternativa si se exige fuente oficial |
 | 3 | DolarAPI | Público, sin key | Solo FX | Complemento (valuación en USD) |
 | 4 | BYMA open free | Público, sin key | 20/65, precios en cero | Metadatos de instrumentos |
 
-## 4. Gaps del seed — verificados uno por uno
+## 4. Tickers sin precio — verificados uno por uno
 
 Los 4 tickers sin precio en Yahoo fueron verificados con búsquedas externas
 (CNV, Caja de Valores, LSE RNS, BYMA, prensa). **No son huecos de la fuente:**
 
-| Ticker | Veredicto | Causa (evidencia) | Fix |
+| Ticker | Veredicto | Causa (evidencia) | Resolución |
 |---|---|---|---|
 | `DYCA` Dycasa S.A. | ✅ **No delistada — renombrada** | OPA de Inversora Mercedes S.A. (anuncio nov 2024, autorizada por CNV res. NO-2025-18202898, comunicado Caja de Valores N° 12320 del 27/2/2025). La sociedad pasó a llamarse **IEB Construcciones S.A.** | Yahoo eliminó `DYCA.BA` (404 sin historial); queda un legado vacío `DYCA5.BA`. El sucesor **`IEB.BA` cotiza viva** (verificado: price 1980). Mapping `DYCA → IEB.BA` |
 | `MTR` Matba Rofex S.A. | ✅ **No delistada — renombrada** | Fusión MTR + MAE → **A3 Mercados S.A.** (asambleas extraordinarias 20/11/2024, canje de acciones por Caja de Valores el 5/3/2025, cotiza en BYMA desde 5/3/2025 con ticker `A3`) | Yahoo eliminó `MTR.BA` (404). El sucesor **`A3.BA` cotiza viva** (verificado: price 2580). Mapping `MTR → A3.BA` |
@@ -114,29 +111,27 @@ Los 4 tickers sin precio en Yahoo fueron verificados con búsquedas externas
 **Cobertura final de Yahoo con mapping: 63/65** (solo PGR e IRCP sin precio — ambas
 delistadas reales de 2022).
 
-### Política para los gaps
+### Política de símbolos
 
-- **El seed está desactualizado: los gaps NO requieren conversión ni ingesta especial.**
+- **Los faltantes no requieren conversión ni ingesta especial.**
 - `DYCA`/`MTR` tienen sucesores vivos (`IEB.BA` / `A3.BA`, verificado), pero la
-  **decisión del challenge es no mapearlos** (validada con el usuario,
-  2026-11-02): sin tabla de símbolos; un ticker expirado o renombrado queda sin
-  precio y el ingestor lo salta. Cobertura efectiva del plan: **61/65**. Este
-  análisis queda como evidencia por si el challenge pidiera cobertura 65/65.
-- `PGR`/`IRCP`: instrumentos históricos sin mercado. Decisión de política del ingestor:
-  mantener el instrumento en `instruments` sin `marketdata` fresco (o marcarlo inoperable).
+  **decisión es no mapearlos** (2026-11-02): sin tabla de símbolos; un ticker expirado o
+  renombrado queda sin precio y el contrato lo omite. Cobertura efectiva: **61/65**. Este
+  análisis documenta los mapeos disponibles; el contrato no los usa.
+- `PGR`/`IRCP`: instrumentos históricos sin mercado. Se mantienen en `instruments` sin
+  `marketdata` y la búsqueda los omite.
 
-## 5. Reglas de ingesta (independientes de la fuente)
+## 5. Reglas de la fuente
 
-1. La fuente devuelve **floats** → convertir a **centavos enteros / Decimal desde string** en el borde de ingesta, con validación estricta. Nunca persistir el float crudo.
-2. Un ticker que muere (404 en la fuente) **no debe romper la API**: el último snapshot de `marketdata` sigue sirviendo (caché).
+1. La fuente devuelve **floats**: el borde los convierte a `FinancialDecimal` desde string con validación estricta y nunca persiste el float crudo.
+2. Un ticker que muere (404 en la fuente) **no rompe la API**: el contrato lo omite del listado y UC-1/3/4/5 siguen leyendo el último snapshot de `marketdata`.
 3. Símbolo derivado directo: `ticker + ".BA"`, **sin tabla de mapping** (decisión
-   2026-11-02). Nota de por qué existió la idea: las renombradas (`DYCA→IEB.BA`,
-   `MTR→A3.BA`) no comparten substring con su sucesor y la search API de Yahoo no
-   las resuelve sola — si algún día se quisiera el mapping, tendría que ser tabla
-   mantenida en el repo, no descubrimiento dinámico (ver §4).
-4. Delistadas reales: no son un error de integración — política explícita en la spec.
+   2026-11-02). Las renombradas (`DYCA→IEB.BA`, `MTR→A3.BA`) no comparten substring con su
+   sucesor y la search API de Yahoo no las resuelve sola: un mapping sería una tabla mantenida
+   en el repo, no descubrimiento dinámico (ver §4).
+4. Las delistadas reales no son un error de integración: son una política explícita de la spec.
 
-## 6. Reproducir la verificación
+## 6. Verificación reproducible
 
 ```bash
 # Cobertura de Yahoo sobre el universo del seed (extraer tickers del bloque
