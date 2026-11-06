@@ -59,8 +59,19 @@ excluida. Respuesta: **array plano** ordenado por ticker.
 - Proveedor indisponible (timeout / rate-limit) → **503 `MARKET_DATA_SERVICE_UNAVAILABLE`**:
   sin listado parcial como éxito y sin array vacío que disimule la falla. Un 503 del proveedor
   no equivale a "búsqueda sin resultados".
-- Sin captura real de cotizaciones en vivo todavía (queda para la verificación HTTP del
-  despliegue local): este doc no ejemplifica ningún precio ni fecha de fuente.
+- Estado verificado (G5, 2026-11-06): por el camino real de código (`GET /api/instruments?limit=100`
+  con el adaptador `YahooInstrumentQuoteSource`) la respuesta trajo **61 ítems** —61 de las 65
+  acciones— con precios que coinciden con una consulta directa a Yahoo; `DYCA`, `PGR`, `IRCP` y
+  `MTR` responden 404 («symbol not found») y el contrato los omite; 0 respuestas 503 y 0
+  rate-limits desde la aplicación (`PROGRESS.md`, G5). Este doc no ejemplifica precios ni fechas
+  de fuente: cambian en cada sesión.
+- **Riesgo del proveedor — estado y decisión.** El adaptador manda un `User-Agent` propio
+  (`YAHOO_USER_AGENT`), corta a los 5 s con `AbortController` y **no reintenta, no cachea ni cae
+  al histórico**: un 429 deja el motivo y el `Retry-After` en stderr y se traduce a 503. El 429
+  está **medido** (2026-11-06) desde otros clientes —`curl` con UA de navegador y con UA
+  default— mientras el camino de la aplicación respondió 200 en la misma jornada: el rate-limit
+  depende del cliente y varía en el tiempo. Decisión tomada: **no mitigarlo** con reintentos,
+  caché ni cambio de host; el reintento queda del lado del cliente sobre el 503.
 
 ## 3. `POST /users/:userId/orders`
 
