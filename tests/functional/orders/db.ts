@@ -7,6 +7,7 @@
 // comparan vía Decimal construido desde strings, nunca float.
 
 import { databaseUrlForTestName } from "../../helpers/test-database-url.js";
+import { disconnectPrismaClient } from "../../../src/lib/prisma-client.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Pool, type QueryResultRow } from "pg";
@@ -31,8 +32,18 @@ export const resetFunctionalDatabase = async (): Promise<void> => {
 
 const pool = new Pool({ connectionString: FUNCTIONAL_DATABASE_URL, max: 1 });
 
+/**
+ * Cierra el pool de asserts Y el Prisma del singleton que creó `serverApp`
+ * (src/http/server.ts) al atender los requests de la suite.
+ *
+ * Sin el disconnect, el pool del adapter (`@prisma/adapter-pg`, max 10) queda
+ * abierto en el worker: el proceso hijo de jest no puede salir solo y termina
+ * force-exited con "A worker process has failed to exit gracefully" (F12).
+ * `disconnectPrismaClient()` es no-op si el cliente nunca se creó.
+ */
 export const closeFunctionalDbPool = async (): Promise<void> => {
   await pool.end();
+  await disconnectPrismaClient();
 };
 
 const dbQuery = async <T extends QueryResultRow>(
