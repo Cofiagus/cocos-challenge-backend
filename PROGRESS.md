@@ -343,12 +343,41 @@ de diagnosticar (`--detectOpenHandles`), no bloquea las waves siguientes.
 **Worktrees vivos (ya integrados, pendientes de limpieza):** `coccb-wt-f1-pnl`, `coccb-wt-f5-edge`,
 `coccb-wt-f7-docs`, `coccb-wt-f8-verify`. Las ramas quedan por si hay que relanzar una célula.
 
-**Pendiente para las waves siguientes:**
-- **Q3** (F6-QUOTES): cache de cotizaciones — A) sin cache · B) TTL 15 s / 60 s.
-- **Q4** (F3-DB): A) sólo versionar la migración · B) versionar y ensayar en DB de test.
-- **Q5** (F4-RUNTIME): A) mantener `127.0.0.1` · B) `HOST` configurable.
-- **Wave 2:** F2-IDEM · F4-RUNTIME · F6-QUOTES. **Wave 3:** F3-DB ⇒ F2-IDEM (en ese orden por Q1=A).
-- **QUESTION documental (requiere decisión humana, afecta la evidencia de la entrega):** `README.md:7`
-  sigue afirmando «37 suites / 515 tests» y `README.md:140` «A4/A5 no verificados», mientras el
-  rollout cerró con 42/581 y G5 con Yahoo en vivo. Opciones: **A)** la ola dueña de README actualiza
-  ambos; **B)** dejarlos y marcar el bloque como histórico. F7 no lo editó por estar fuera de su fase.
+**Auditoría documental externa (delegada, y contrastada por el orquestador):** una célula
+auditora revisó ~348 afirmaciones de la documentación contra el código y el entorno. Encontró
+**23 contradicciones comprobadas y 9 sospechas**. El orquestador re-verificó una por una las de
+mayor impacto y **todas sostienen**. La más grave era propia: el gate 44/596 de la Wave 1 se
+había medido sobre un árbol sucio (el fix del golden de BMA quedó sin commitear) ⇒ corregido en
+`cd3f4b5`. Las otras ya resueltas: signo del P&L en `openapi.json`/`registry.ts` (`c35989a`),
+`AGENTS.md` vs los 6 CHECKs (ver §BLOQUEADO), `db-schema-before-after.md` vs G3, fórmula de
+retorno en `specs/trading-api-domain.md`, colección `.http` de UC-2, y el README completo.
+Número corregido: `test:no-db` es **30 suites / 386 tests**, no 29/375 (aquel era del worktree
+de F8 antes del merge).
+
+**Wave 2 — CERRADA E INTEGRADA:**
+
+| Célula | Rama / SHA | Verify re-corrido por el orquestador | Merge |
+|---|---|---|---|
+| F4-RUNTIME | `cell/f4-runtime` `a8d2a85` | typecheck 0 · lint 0 · 4 suites / 40 tests · `PORT=abc` ⇒ exit 1 con mensaje | `b462a19` |
+| F6-QUOTES | `cell/f6-quotes` `54c448a` | typecheck 0 · lint 0 · 5 suites / 48 tests (UC-2 completas) | `b86b26a` |
+| F9-README | `cell/f9-readme` `dab4240` | typecheck 0 · lint 0 · 16 tests docs · 44/596 repetido 3× por la célula | `da7c286` |
+| F10-DOCS2 | `cell/f10-docs2` `578b768` | typecheck 0 · lint 0 · 16 tests docs (D2–D6; D1 bloqueado) | `9e64e7c` |
+
+**Seams de la Wave 2 resueltos por el orquestador:** la guardia **D3/D4b** volvió a hacer su
+trabajo — F4 agregó `src/http/health.ts` y `src/lib/runtime-config.ts` (exports sin documentar) y
+dos rutas (`/health`, `/health/ready`) fuera del registro OpenAPI. El gate quedó rojo hasta
+documentarlos en CODEMAP, `registry.ts` y `docs/api.md` (`2f0a4c1` aprox., ver `git log`).
+
+**Gate de la Wave 2 (HEAD posterior a los seams): typecheck 0 · lint 0 · 46 suites / 613 tests.**
+Worktrees de la Wave 2 eliminados y verificados; quedan sólo `main` y las ramas `cell/*`.
+
+**BLOQUEADO (requiere autorización humana):** `AGENTS.md:95` sigue afirmando «No hay `CHECK` en
+la migración — es deuda conocida, no una garantía», mientras la migración de grandes montos define
+6 CHECKs. El runtime denegó el write a `AGENTS.md` tanto a la célula como al orquestador
+(archivo de instrucciones protegido). **No se reintentó ni se buscó un rodeo.** Texto propuesto
+en la conversación, pendiente de que el humano lo aplique o lo autorice.
+
+**Wave 3 (pendiente):** **F3-DB ⇒ F2-IDEM**, en ese orden por Q1=A (F3 define el DDL de
+`requestFingerprint`; F2 sólo lo escribe y lo compara). Q4=A: la migración se versiona y se
+ensaya en una DB de test **aislada**, sin tocar la DB de la app.
+
