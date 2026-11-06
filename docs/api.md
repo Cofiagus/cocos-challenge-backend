@@ -27,11 +27,11 @@ Base: `http://localhost:3000/api` · JSON · errores siempre `{ "error": { "code
 
 ## 1. `GET /users/:userId/portfolio`
 
-Proyección de `orders`, no una tabla de saldos. `cash` es **disponible** (`settled − reservado por
-órdenes `NEW` de compra`); `reservedCash` viene aparte para que la resta sea auditable.
+Proyección de `orders`, no una tabla de saldos. `cash` es **disponible** (`settled` menos lo
+reservado por órdenes `NEW` de compra); `reservedCash` viene aparte para que la resta sea auditable.
 
 - Sin precio de referencia: `marketValue` y `totalReturnPct` son `null`, `priceAvailable` es
-  `false` y la posición **no suma** a `totalAccountValue`. Nunca se inventa un precio. Las
+  `false` y la posición **no suma** a `totalAccountValue`. La API nunca inventa un precio; las
   negativas SÍ restan.
 - `totalAccountValue` = `cash` disponible + `reservedCash` + Σ `marketValue` de las posiciones
   con precio. Abrir una orden no lo mueve (la reserva es exacta: baja `cash` y sube
@@ -50,8 +50,8 @@ excluida. Respuesta: **array plano** ordenado por ticker.
 
 - `price` es el **último precio de sesión disponible** (Yahoo, no del seed) y `previousClose` el
   **cierre de la sesión anterior**: string monetario de 2 decimales; `dailyVariationPct` es number
-  redondeado a 2 decimales. Con el mercado cerrado puede ser el de la última sesión: sin promesa
-  de precio instantáneo ni de recencia máxima.
+  redondeado a 2 decimales. Con el mercado cerrado el dato es el de la última sesión: el contrato
+  no garantiza precio instantáneo ni recencia máxima.
 - Campos **no-nullable**: el instrumento sin cotización computable **se omite** (no viene en
   `null`) y el cupo se completa con los siguientes candidatos, hasta agotar el catálogo.
 - Proveedor indisponible (timeout / rate-limit) → **503 `MARKET_DATA_SERVICE_UNAVAILABLE`**:
@@ -60,7 +60,7 @@ excluida. Respuesta: **array plano** ordenado por ticker.
 - Cobertura del catálogo: **61 de las 65 acciones** tienen cotización con el símbolo directo;
   `DYCA`, `PGR`, `IRCP` y `MTR` responden 404 («symbol not found») y el contrato los omite. Este doc
   no ejemplifica precios ni fechas de fuente: cambian en cada sesión.
-- **Riesgo del proveedor — estado y decisión.** El adaptador manda un `User-Agent` propio
+- **Proveedor sin SLA — decisión tomada.** El adaptador manda un `User-Agent` propio
   (`YAHOO_USER_AGENT`), corta a los 5 s con `AbortController` y **no reintenta, no cachea ni cae
   al histórico**: un 429 deja el motivo y el `Retry-After` en stderr y se traduce a 503. El 429
   está **medido** desde otros clientes —`curl` con UA de navegador y con UA default— mientras el
@@ -132,8 +132,8 @@ la raíz y no bajo `/api` (el `notFoundHandler` de `buildApp` es terminal y los 
 
 | Endpoint | Responde | Uso |
 |---|---|---|
-| `GET /health` | **200** `{"status":"ok"}` siempre que el proceso atienda. **No toca la DB.** | Liveness: no reinicies una instancia que sólo está arrancando. |
-| `GET /health/ready` | **200** `{"status":"ready","database":"up"}` si un `SELECT 1` responde; **503** `{"status":"unavailable","database":"down"}` si no. | Readiness: sacá la instancia de rotación cuando la base no responde, no la reinicies. |
+| `GET /health` | **200** `{"status":"ok"}` siempre que el proceso atienda. **No toca la DB.** | Liveness: una instancia que está arrancando no se reinicia. |
+| `GET /health/ready` | **200** `{"status":"ready","database":"up"}` si un `SELECT 1` responde; **503** `{"status":"unavailable","database":"down"}` si no. | Readiness: una instancia sin base sale de rotación; reiniciarla no la arregla. |
 
 El `SELECT 1` comparte el pool dimensionado del cliente Prisma, así que ante base caída el
 readiness falla en el orden del `connectionTimeoutMillis` (5 s) en vez de colgarse. El arranque
