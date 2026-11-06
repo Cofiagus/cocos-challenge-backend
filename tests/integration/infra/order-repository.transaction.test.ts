@@ -165,7 +165,12 @@ describe("PrismaOrderRepository — transacción de envío (DB real)", () => {
     expect(result).toBeNull();
     const after = await prisma.order.findUnique({ where: { id: seedFilled.id } });
     expect(after?.status).toBe("FILLED");
-    expect(after?.filledPrice).toBeNull(); // no mutado por el intento
+    // La fila nace FILLED con `price` = ejecución: el trigger de
+    // db_write_invariants normaliza `filledPrice` YA en el INSERT (no puede
+    // quedar NULL). El guard no muta nada: conserva el precio de la fila y no
+    // el 111.11 del intento, y `filledAt` sigue NULL.
+    expect(after?.filledPrice?.toString()).toBe("930");
+    expect(after?.filledAt).toBeNull();
   });
 
   it("markCancelled sobre NEW ⇒ CANCELLED; sobre CANCELLED ⇒ null (idempotente)", async () => {

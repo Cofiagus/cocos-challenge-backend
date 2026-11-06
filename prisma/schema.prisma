@@ -151,6 +151,10 @@ model Order {
   timeInForce   TimeInForce  @default(GTC)
   // filledPrice = precio de ejecución (DECISIONS.md: price = límite enviado).
   // NULL en las FILLED del seed: en el dataset el price YA es el de ejecución.
+  // Migración db_write_invariants (Wave 4): backfill `filledPrice = price` para
+  // las FILLED con NULL + CHECK estricto `FILLED ⇒ filledPrice NOT NULL` (más
+  // trigger de normalización, porque el seed generado se carga DESPUÉS de las
+  // migraciones). Prisma no modela CHECK/trigger: la fuente es la migración.
   filledPrice   Decimal?     @db.Decimal(24, 2)
   filledAt      DateTime?    @db.Timestamp(6)
   idempotencyKey String?
