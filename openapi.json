@@ -12,11 +12,11 @@
     }
   ],
   "paths": {
-    "/api/health": {
+    "/health": {
       "get": {
         "summary": "Liveness",
         "description": "El proceso está vivo. No consulta la base de datos: responde 200 mientras el servidor atienda, y es el probe que usa el orquestador para no matar un arranque lento.",
-        "operationId": "get-api-health",
+        "operationId": "get-health",
         "tags": [
           "health"
         ],
@@ -126,11 +126,11 @@
         }
       }
     },
-    "/api/health/ready": {
+    "/health/ready": {
       "get": {
         "summary": "Readiness",
         "description": "El proceso puede servir tráfico: ejecuta `SELECT 1` contra la base. 200 con `database: \"up\"`; 503 con `database: \"down\"` si la base no responde dentro del timeout del pool. Es el probe para sacar la instancia de rotación, no para reiniciarla.",
-        "operationId": "get-api-health-ready",
+        "operationId": "get-health-ready",
         "tags": [
           "health"
         ],
