@@ -13,7 +13,9 @@ config({ path: ".env.test" });
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { Decimal } from "decimal.js";
 import type { OrderDraft, OrderEventType } from "../../../src/contracts/index.js";
+import { CreateOrderRequestSchema } from "../../../src/contracts/index.js";
 import { PrismaOrderRepository } from "../../../src/infra/prisma/order-repository.js";
+import { requestFingerprintOf } from "../../../src/http/shared/edge.js";
 import { getPrismaClient } from "../../../src/lib/prisma-client.js";
 import { createTestUser } from "../../helpers/factories.js";
 import {
@@ -121,6 +123,146 @@ describe("PrismaOrderRepository — idempotencia (DB real)", () => {
     expect(second.id).not.toBe(first.id);
     const rows = await prisma.order.count({ where: { userId: user.id } });
     expect(rows).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F2-IDEM — huella del REQUEST original (Q1=A)
+//
+// El defecto que cierra: el claim comparaba el `size` DERIVADO (floor(amount /
+// precio)), así que dos pedidos con la misma key y montos que caen en el mismo
+// floor devolvían REPLAY en vez del 409 del contrato. La huella viaja en el
+// draft (la calcula el borde con el body validado) y el claim la compara; sin
+// huella en alguno de los dos lados se cae a la comparación histórica.
+// ---------------------------------------------------------------------------
+
+describe("PrismaOrderRepository — huella del request (F2-IDEM)", () => {
+  const prisma = getPrismaClient();
+  const orderRepo = new PrismaOrderRepository();
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  const submit = (draft: OrderDraft) =>
+    orderRepo.withUserTransaction(draft.userId, (tx) =>
+      orderRepo.createOrder(draft, tx),
+    );
+
+  /** Huella como la calcula el envío: borde validado + instrumento resuelto. */
+  const fingerprintOf = (body: unknown): string =>
+    requestFingerprintOf(CreateOrderRequestSchema.parse(body), SEED_INSTRUMENT_PAMP_ID);
+
+  /** Request LIMIT BUY por monto sobre PAMP (precio 250 ⇒ 1000/250 = 4). */
+  const amountBody = (amountArs: string) => ({
+    instrumentId: SEED_INSTRUMENT_PAMP_ID,
+    side: "BUY",
+    type: "LIMIT",
+    amountArs,
+    price: "250.00",
+  });
+
+  /** Draft de trading equivalente al request (size ya derivado por la app). */
+  const draftFor = (
+    userId: number,
+    amountArs: string,
+    overrides: TradingDraftOverrides = {},
+  ) =>
+    buildDraft(userId, {
+      sizeShares: 4,
+      priceArs: new Decimal("250.00"),
+      requestFingerprint: fingerprintOf(amountBody(amountArs)),
+      ...overrides,
+    });
+
+  it("(a) misma key + amountArs 1000.00 vs 1000.50 con el MISMO floor ⇒ CONFLICT (antes REPLAY)", async () => {
+    const user = await createTestUser(prisma);
+    const draft = draftFor(user.id, "1000.00");
+    const created = expectCreated(await submit(draft));
+    // El size derivado es idéntico (4) en ambos pedidos: lo único que los
+    // distingue es el monto original.
+    expect(expectTradingRecord(created).sizeShares).toBe(4);
+
+    const conflict = expectConflict(
+      await submit(
+        draftFor(user.id, "1000.50", { idempotencyKey: draft.idempotencyKey }),
+      ),
+    );
+    expect(conflict.id).toBe(created.id);
+    expect(expectTradingRecord(conflict).sizeShares).toBe(4);
+
+    // Una sola fila, con la huella del PRIMER request (la original).
+    const rows = await prisma.order.findMany({ where: { userId: user.id } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.requestFingerprint).toBe(draft.requestFingerprint);
+  });
+
+  it("(b) misma key + '1000.0' vs '1000.00' ⇒ REPLAY (mismo monto canónico)", async () => {
+    const user = await createTestUser(prisma);
+    const draft = draftFor(user.id, "1000.0");
+    const created = expectCreated(await submit(draft));
+
+    const replayed = expectReplay(
+      await submit(
+        draftFor(user.id, "1000.00", { idempotencyKey: draft.idempotencyKey }),
+      ),
+    );
+    expect(replayed.id).toBe(created.id);
+    expect(await prisma.order.count({ where: { userId: user.id } })).toBe(1);
+  });
+
+  it("(c) fila legacy SIN huella + payload que hoy da CONFLICT ⇒ sigue CONFLICT (fallback)", async () => {
+    const user = await createTestUser(prisma);
+    // Fila histórica: sin huella (draft construido a mano, como antes de F2).
+    const legacy = buildDraft(user.id);
+    const created = expectCreated(await submit(legacy));
+    const stored = await prisma.order.findUniqueOrThrow({ where: { id: created.id } });
+    expect(stored.requestFingerprint).toBeNull();
+
+    // Identidad igual, size distinto: con huella NULL en la fila manda la
+    // comparación histórica ⇒ CONFLICT (no se relaja nada).
+    const conflict = expectConflict(
+      await submit(
+        buildDraft(user.id, {
+          idempotencyKey: legacy.idempotencyKey,
+          sizeShares: 25,
+          requestFingerprint: fingerprintOf(amountBody("1000.00")),
+        }),
+      ),
+    );
+    expect(conflict.id).toBe(created.id);
+  });
+
+  it("(c2) fila legacy SIN huella + mismo payload ⇒ REPLAY (comportamiento vigente intacto)", async () => {
+    const user = await createTestUser(prisma);
+    const legacy = buildDraft(user.id);
+    const created = expectCreated(await submit(legacy));
+
+    const replayed = expectReplay(
+      await submit(buildDraft(user.id, { idempotencyKey: legacy.idempotencyKey })),
+    );
+    expect(replayed.id).toBe(created.id);
+  });
+
+  it("huella igual ⇒ REPLAY aunque el size derivado no coincida (manda el request)", async () => {
+    const user = await createTestUser(prisma);
+    const fingerprint = fingerprintOf(amountBody("1000.00"));
+    const draft = draftFor(user.id, "1000.00");
+    const created = expectCreated(await submit(draft));
+
+    // Misma huella (mismo request original) con otro `size` derivado: el
+    // contrato promete la orden ORIGINAL, no un 409 (la huella manda).
+    const replayed = expectReplay(
+      await submit(
+        buildDraft(user.id, {
+          idempotencyKey: draft.idempotencyKey,
+          sizeShares: 5,
+          priceArs: new Decimal("250.00"),
+          requestFingerprint: fingerprint,
+        }),
+      ),
+    );
+    expect(replayed.id).toBe(created.id);
   });
 });
 

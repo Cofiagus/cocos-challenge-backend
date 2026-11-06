@@ -40,6 +40,8 @@ export interface TradingDraftOverrides {
   readonly filledAt?: Date | null;
   readonly idempotencyKey?: string | null;
   readonly datetime?: Date;
+  /** Huella canónica del request ORIGINAL (F2-IDEM); ausente = draft sin huella. */
+  readonly requestFingerprint?: string;
 }
 
 const valueOr = <T>(value: T | undefined, fallback: T): T =>
@@ -68,6 +70,10 @@ export const buildDraft = (
   filledAt: valueOr(overrides.filledAt, null),
   idempotencyKey: uuidOr(overrides.idempotencyKey),
   datetime: valueOr(overrides.datetime, new Date()),
+  // `?: string` con exactOptionalPropertyTypes: sólo se agrega si vino.
+  ...(overrides.requestFingerprint === undefined
+    ? {}
+    : { requestFingerprint: overrides.requestFingerprint }),
 });
 
 /** Overrides de un draft de CASH (monto ARS exacto, precio unitario 1.00). */
