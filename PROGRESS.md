@@ -416,4 +416,50 @@ skill `cell-orchestration`.
 **ESTADO FINAL DEL BUILD (HEAD `a57868d`, árbol limpio): typecheck 0 · lint 0 · 48 suites /
 641 tests.** Sin worktrees vivos (sólo `main`); las ramas `cell/*` se conservan. Sin push.
 
+---
+
+## Wave 4 — CERRADA E INTEGRADA (`specs/remediacion-wave-4.md`)
+
+**Why de la wave:** el preflight del orquestador demostró que las invariantes de escritura que
+faltaban **no** las bloqueaba el dataset (seed 11 órdenes y DB de la app 12: `LIMIT` sin `price`
+= 0, cash con `price ≠ 1.00` = 0, cash con instrumento ≠ ARS = 0) sino los tests que insertaban
+filas no conformes para caracterizar el CONFLICT. Era **deuda de cobertura, no de datos**.
+
+| Célula | Rama / SHA | Verify re-corrido por el orquestador | Merge |
+|---|---|---|---|
+| F11-INVARIANTS | `cell/f11-invariants` `cd9d914` | typecheck 0 · lint 0 · `prisma validate` ok · 40 suites / 528 tests · ensayo en `cocos_f4_rehearsal` | `9ae93e9` |
+| F12-HANDLES | `cell/f12-handles` `6f53fb4` | typecheck 0 · lint 0 · `npm test` ×2 sin el warning | `e3b60e0` |
+
+**F11-INVARIANTS:** la comparación de identidad del request salió de `order-repository.ts` a
+`src/infra/prisma/request-comparison.ts` (pura, sobre un tipo de fila propio) y los casos legacy
+se prueban en `tests/unit/infra/request-comparison.test.ts` con filas construidas a mano, sin DB.
+Con eso liberada la integración, entró la migración `20261106180000_db_write_invariants`:
+backfill de los 7 `FILLED` heredados (`filledPrice = price`, idempotente) + tres CHECKs
+(`LIMIT ⇒ price NOT NULL`, `CASH ⇒ price = 1.00`, `FILLED ⇒ filledPrice NOT NULL`), todos
+`convalidated = true`.
+
+**Decisión de F11 aceptada por el orquestador (con su trade-off):** la migración incluye un
+**trigger** `orders_fill_execution_price` que copia `price` a `filledPrice` si entra NULL. Hace
+falta porque `db/seed.sql` es generado, no se edita, y se carga **después** de migrar: su COPY de
+`orders` no trae `filledPrice` y el CHECK estricto rechazaría las 7 FILLED del seed (medido).
+Costo: la DB normaliza en vez de fallar ruidosamente ante una FILLED sin precio de ejecución; si
+tampoco hay `price`, el CHECK sí falla (23514). Está justificado en la cabecera de la migración.
+
+**Lo que NO entró, y por qué:** `CASH ⇒ instrumento = ARS` no es expresable como CHECK
+(PostgreSQL prohíbe subqueries) y el trigger que lo resolvería leería `instruments` (dependencia
+oculta + rompe la carga del seed): queda como invariante de aplicación, documentada.
+
+**F12-HANDLES:** el culprit era `tests/functional/orders/create-order.test.ts`, que compone
+`serverApp` con repos Prisma reales y cerraba el `pg.Pool` de `db.ts` pero **no** el singleton de
+`src/lib/prisma-client.ts`; el pool quedaba vivo en el worker. Aislado con un testEnvironment
+probe que imprime `process._getActiveHandles()` por archivo (no por conteo de warnings, que es
+intermitente). Cerrado en `closeFunctionalDbPool()`.
+
+**Deuda menor conocida:** conviven `orders_filled_requires_execution_price_check` (F3, débil) y
+`orders_filled_requires_filledprice_check` (F11, estricta); la segunda implica la primera.
+Redundancia inofensiva; limpiarla exigiría una quinta migración.
+
+**ESTADO FINAL (HEAD `e3b60e0`): typecheck 0 · lint 0 · 49 suites / 656 tests, sin el warning de
+handles en dos corridas consecutivas.** Sin worktrees vivos. Push a `origin/main` autorizado.
+
 
