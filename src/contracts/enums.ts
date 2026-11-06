@@ -5,14 +5,12 @@
 
 import { z } from "zod";
 
-/** side de orders (seed: BUY/SELL/CASH_IN/CASH_OUT). */
-export const OrderSideSchema = z.enum([
-  "BUY",
-  "SELL",
-  "CASH_IN",
-  "CASH_OUT",
-]);
-export type OrderSide = z.infer<typeof OrderSideSchema>;
+/**
+ * side de orders (seed: BUY/SELL/CASH_IN/CASH_OUT). Unión de los dos sides del
+ * contrato: no hay schema de los cuatro juntos porque nadie valida la unión
+ * (cada ruta valida su mitad); antes existía `OrderSideSchema` sin consumidor.
+ */
+export type OrderSide = TradingSide | TransferSide;
 
 /** side de una orden de trading (POST /orders: BUY/SELL). */
 export const TradingSideSchema = z.enum(["BUY", "SELL"]);
@@ -38,14 +36,13 @@ export type TimeInForce = z.infer<typeof TimeInForceSchema>;
 export const InstrumentTypeSchema = z.enum(["ACCIONES", "MONEDA"]);
 export type InstrumentType = z.infer<typeof InstrumentTypeSchema>;
 
-/** eventType de order_events (auditoría append-only — sin EXPIRED). */
-export const OrderEventTypeSchema = z.enum([
-  "ACCEPTED",
-  "REJECTED",
-  "FILLED",
-  "CANCELLED",
-]);
-export type OrderEventType = z.infer<typeof OrderEventTypeSchema>;
+/**
+ * eventType de order_events (auditoría append-only — sin EXPIRED). Es un tipo,
+ * no un schema: la auditoría la escriben `application` e `infra` con literales
+ * ya estrechados y nadie parsea el evento desde el wire (antes existía
+ * `OrderEventTypeSchema` sin consumidor de producción).
+ */
+export type OrderEventType = "ACCEPTED" | "REJECTED" | "FILLED" | "CANCELLED";
 
 /**
  * Razones de rechazo/cancelación (DECISIONS.md: guardadas en order_events).
