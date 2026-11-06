@@ -183,7 +183,7 @@ const OPERATION_DEFINITIONS: readonly OperationDoc[] = [
               quantity: "-10",
               marketValue: "-15028.00",
               priceAvailable: true,
-              totalReturnPct: -2.42,
+              totalReturnPct: 2.42,
             },
             {
               ticker: "PAMP",
